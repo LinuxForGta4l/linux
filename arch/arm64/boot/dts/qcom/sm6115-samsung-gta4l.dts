@@ -277,6 +277,18 @@
 	status = "okay";
 };
 
+&soc {
+	/* Hack for passing bootloader checks */
+	spi@4a80000 {
+		reg = <0x0 0x04a80000 0x0 0x4000>;
+		status = "disabled";
+
+		himax_ts@0 {
+		status = "disabled";
+		};
+	};
+};
+
 &tlmm {
 	gpio-reserved-ranges = <0 4>, <14 4>;
 
