@@ -169,7 +169,11 @@
 
 		pm6125_l5a: l5 {
 			regulator-min-microvolt = <1648000>;
-			regulator-max-microvolt = <3056000>;
+			/* 3.056V capped to 2.96V for SDHCI */
+			regulator-max-microvolt = <2960000>;
+			regulator-allow-set-load;
+			/* Broken hw, this one can't be turned off or SDHCI will break! */
+			regulator-always-on;
 		};
 
 		pm6125_l6a: l6 {
@@ -255,7 +259,11 @@
 
 		pm6125_l22a: l22 {
 			regulator-min-microvolt = <2952000>;
-			regulator-max-microvolt = <3304000>;
+			/* 3.304V capped to 2.96V for SDHCI */
+			regulator-max-microvolt = <2960000>;
+			regulator-allow-set-load;
+			/* Broken hw, this one can't be turned off or SDHCI will break! */
+			regulator-always-on;
 		};
 
 		pm6125_l23a: l23 {
@@ -274,6 +282,37 @@
 &sdhc_1 {
 	vmmc-supply = <&pm6125_l24a>;
 	vqmmc-supply = <&pm6125_l11a>;
+	status = "okay";
+};
+
+&sdc2_state_off {
+	cd-pins {
+		pins = "gpio88";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+};
+
+&sdc2_state_on {
+	cd-pins {
+		pins = "gpio88";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+};
+
+&sdhc_2 {
+	pinctrl-0 = <&sdc2_state_on>;
+	pinctrl-1 = <&sdc2_state_off>;
+	pinctrl-names = "default", "sleep";
+
+	cd-gpios = <&tlmm 88 GPIO_ACTIVE_HIGH>;
+
+	vmmc-supply = <&pm6125_l22a>;
+	vqmmc-supply = <&pm6125_l5a>;
+
 	status = "okay";
 };
 
