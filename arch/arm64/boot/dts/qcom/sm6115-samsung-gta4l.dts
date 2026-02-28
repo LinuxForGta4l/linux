@@ -282,7 +282,7 @@
 &sdhc_1 {
 	vmmc-supply = <&pm6125_l24a>;
 	vqmmc-supply = <&pm6125_l11a>;
-	status = "okay";
+	status = "disabled";
 };
 
 &sdc2_state_off {
