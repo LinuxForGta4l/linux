@@ -2360,6 +2360,22 @@ static inline void sdhci_msm_get_of_property(struct platform_device *pdev,
 		host->quirks2 |= SDHCI_QUIRK2_BROKEN_64_BIT_DMA;
 }
 
+/* Downstream dtbs name SDCC clocks "iface_clk"/"core_clk"; fall back to them. */
+static struct clk *sdhci_msm_clk_get(struct device *dev, const char *name)
+{
+	struct clk *clk = devm_clk_get(dev, name);
+	char alt[32];
+
+	if (!IS_ERR(clk))
+		return clk;
+
+	snprintf(alt, sizeof(alt), "%s_clk", name);
+	clk = devm_clk_get(dev, alt);
+	if (!IS_ERR(clk))
+		dev_info(dev, "using downstream clock name \"%s\"\n", alt);
+	return clk;
+}
+
 static int sdhci_msm_gcc_reset(struct device *dev, struct sdhci_host *host)
 {
 	struct reset_control *reset;
@@ -2449,7 +2465,7 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 		goto pltfm_free;
 
 	/* Setup SDCC bus voter clock. */
-	msm_host->bus_clk = devm_clk_get(&pdev->dev, "bus");
+	msm_host->bus_clk = sdhci_msm_clk_get(&pdev->dev, "bus");
 	if (!IS_ERR(msm_host->bus_clk)) {
 		/* Vote for max. clk rate for max. performance */
 		ret = clk_set_rate(msm_host->bus_clk, INT_MAX);
@@ -2461,7 +2477,7 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	}
 
 	/* Setup main peripheral bus clock */
-	clk = devm_clk_get(&pdev->dev, "iface");
+	clk = sdhci_msm_clk_get(&pdev->dev, "iface");
 	if (IS_ERR(clk)) {
 		ret = PTR_ERR(clk);
 		dev_err(&pdev->dev, "Peripheral clk setup failed (%d)\n", ret);
@@ -2470,7 +2486,7 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	msm_host->bulk_clks[1].clk = clk;
 
 	/* Setup SDC MMC clock */
-	clk = devm_clk_get(&pdev->dev, "core");
+	clk = sdhci_msm_clk_get(&pdev->dev, "core");
 	if (IS_ERR(clk)) {
 		ret = PTR_ERR(clk);
 		dev_err(&pdev->dev, "SDC MMC clk setup failed (%d)\n", ret);
@@ -2484,6 +2500,10 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 		goto bus_clk_disable;
 
 	ret = devm_pm_opp_set_clkname(&pdev->dev, "core");
+	if (ret == -ENOENT) {
+		/* Downstream dtbs have no OPP table; treat as optional. */
+		ret = 0;
+	}
 	if (ret)
 		goto bus_clk_disable;
 
@@ -2499,12 +2519,12 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	if (ret)
 		dev_warn(&pdev->dev, "core clock boost failed\n");
 
-	clk = devm_clk_get(&pdev->dev, "cal");
+	clk = sdhci_msm_clk_get(&pdev->dev, "cal");
 	if (IS_ERR(clk))
 		clk = NULL;
 	msm_host->bulk_clks[2].clk = clk;
 
-	clk = devm_clk_get(&pdev->dev, "sleep");
+	clk = sdhci_msm_clk_get(&pdev->dev, "sleep");
 	if (IS_ERR(clk))
 		clk = NULL;
 	msm_host->bulk_clks[3].clk = clk;
@@ -2518,7 +2538,7 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	 * xo clock is needed for FLL feature of cm_dll.
 	 * In case if xo clock is not mentioned in DT, warn and proceed.
 	 */
-	msm_host->xo_clk = devm_clk_get(&pdev->dev, "xo");
+	msm_host->xo_clk = sdhci_msm_clk_get(&pdev->dev, "xo");
 	if (IS_ERR(msm_host->xo_clk)) {
 		ret = PTR_ERR(msm_host->xo_clk);
 		dev_warn(&pdev->dev, "TCXO clk not present (%d)\n", ret);

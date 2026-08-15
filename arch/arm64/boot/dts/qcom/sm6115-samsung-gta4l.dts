@@ -1,0 +1,542 @@
+/dts-v1/;
+
+#include "sm6115.dtsi"
+#include "pm6125.dtsi"
+
+/ {
+	model = "Qualcomm Technologies, Inc. Bengal SoC";
+	compatible = "qcom,sm6115";
+	qcom,msm-id = <0x1a1 0x10000 0x1bc 0x10000>;
+	#address-cells = <0x02>;
+	#size-cells = <0x02>;
+	qcom,board-id = <0x00 0x00>;
+
+	aliases {
+	};
+
+	chosen {
+		bootargs = "earlycon=tty0 console=tty0 clk_ignore_unused pd_ignore_unused";
+
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		stdout-path = "framebuffer0";
+
+		framebuffer0: framebuffer@5c000000 {
+			compatible = "simple-framebuffer";
+			reg = <0x0 0x5c000000 0x0 (2000 * 1200 * 4)>;
+			width = <1200>;
+			height = <2000>;
+			stride = <(1200 * 4)>;
+			format = "a8r8g8b8";
+			status = "okay";
+		};
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x0 0x40000000>;
+	};
+
+	reserved-memory {
+		splash_memory:splash_region {
+			reg = <0x0 0x5c000000 0x0 (2000 * 1200 * 4)>;
+			no-map;
+			label = "cont_splash_region";
+		};
+		
+		mtp_mem: memory@cc300000 {
+			reg = <0x00 0xcc300000 0x00 0xb00000>;
+			no-map;
+		};
+
+		param_mem: memory@cc200000 {
+			reg = <0x00 0xcc200000 0x00 0x100000>;
+			no-map;
+		};
+
+		bootloader_log_mem: memory@5fff7000 {
+			reg = <0x00 0x5fff7000 0x00 0x8000>;
+			no-map;
+		};
+
+		ramoops@71300000 {
+			compatible = "removed-dma-pool", "ramoops";
+			no-map;
+			reg = <0x00 0x71300000 0x00 0x100000>;
+			record-size = <0x40000>;
+			pmsg-size = <0x40000>;
+			console-size = <0x40000>;
+			ftrace-size = <0x40000>;
+		};
+	};
+
+/* Idk why but bootloader wants this */
+	__symbols__ {
+		CPU0 = "/cpus/cpu@0";
+		L2_0 = "/cpus/cpu@0/l2-cache";
+		L1_I_0 = "/cpus/cpu@0/l1-icache";
+		L1_D_0 = "/cpus/cpu@0/l1-dcache";
+		CPU1 = "/cpus/cpu@1";
+		L1_I_1 = "/cpus/cpu@1/l1-icache";
+		L1_D_1 = "/cpus/cpu@1/l1-dcache";
+		CPU2 = "/cpus/cpu@2";
+		L1_I_2 = "/cpus/cpu@2/l1-icache";
+		L1_D_2 = "/cpus/cpu@2/l1-dcache";
+		CPU3 = "/cpus/cpu@3";
+		L1_I_3 = "/cpus/cpu@3/l1-icache";
+		L1_D_3 = "/cpus/cpu@3/l1-dcache";
+		CPU4 = "/cpus/cpu@100";
+		L2_1 = "/cpus/cpu@100/l2-cache";
+		L1_I_100 = "/cpus/cpu@100/l1-icache";
+		L1_D_100 = "/cpus/cpu@100/l1-dcache";
+		CPU5 = "/cpus/cpu@101";
+		L1_I_101 = "/cpus/cpu@101/l1-icache";
+		L1_D_101 = "/cpus/cpu@101/l1-dcache";
+		CPU6 = "/cpus/cpu@102";
+		L1_I_102 = "/cpus/cpu@102/l1-icache";
+		L1_D_102 = "/cpus/cpu@102/l1-dcache";
+		CPU7 = "/cpus/cpu@103";
+		L1_I_103 = "/cpus/cpu@103/l1-icache";
+		L1_D_103 = "/cpus/cpu@103/l1-dcache";
+		firmware = "/firmware";
+		reserved_memory = "/reserved-memory";
+		hyp_mem = "/reserved-memory/hyp_region@45700000";
+		xbl_aop_mem = "/reserved-memory/xbl_aop_region@45e00000";
+		sec_apps_mem = "/reserved-memory/sec_apps_region@45fff000";
+		smem_mem = "/reserved-memory/smem_region@46000000";
+		removed_mem = "/reserved-memory/removed_region@60000000";
+		pil_modem_mem = "/reserved-memory/modem_region@4ab00000";
+		pil_video_mem = "/reserved-memory/pil_video_region@51400000";
+		wlan_msa_mem = "/reserved-memory/wlan_msa_region@51900000";
+		pil_cdsp_mem = "/reserved-memory/cdsp_regions@51a00000";
+		pil_adsp_mem = "/reserved-memory/pil_adsp_region@53800000";
+		pil_ipa_fw_mem = "/reserved-memory/ipa_fw_region@55600000";
+		pil_ipa_gsi_mem = "/reserved-memory/ipa_gsi_region@55610000";
+		pil_gpu_mem = "/reserved-memory/gpu_region@55615000";
+		user_contig_mem = "/reserved-memory/user_contig_region";
+		qseecom_mem = "/reserved-memory/qseecom_region";
+		qseecom_ta_mem = "/reserved-memory/qseecom_ta_region";
+		secure_display_memory = "/reserved-memory/secure_display_region";
+		cont_splash_memory = "/reserved-memory/cont_splash_region@5c000000";
+		disp_rdump_memory = "/reserved-memory/disp_rdump_region@5c000000";
+		dfps_data_memory = "/reserved-memory/dfps_data_region@5cf00000";
+		adsp_mem = "/reserved-memory/adsp_region";
+		dump_mem = "/reserved-memory/mem_dump_region";
+		sec_debug_region = "/reserved-memory/sec_debug_region@0";
+		soc = "/soc";
+		intc = "/soc/interrupt-controller@f200000";
+		jtag_mm0 = "/soc/jtagmm@9040000";
+		jtag_mm1 = "/soc/jtagmm@9140000";
+		jtag_mm2 = "/soc/jtagmm@9240000";
+		jtag_mm3 = "/soc/jtagmm@9340000";
+		jtag_mm4 = "/soc/jtagmm@9440000";
+		jtag_mm5 = "/soc/jtagmm@9540000";
+		jtag_mm6 = "/soc/jtagmm@9640000";
+		jtag_mm7 = "/soc/jtagmm@9740000";
+		mem_client_3_size = "/soc/qcom,memshare/qcom,client_3";
+		slim_aud = "/soc/slim@a5c0000";
+		btfmslim_codec = "/soc/slim@a5c0000/wcn3990";
+		wakegic = "/soc/wake-gic";
+		wakegpio = "/soc/wake-gpio";
+		bluetooth = "/soc/bt_wcn3990";
+		dcc = "/soc/dcc_v2@1be2000";
+		qcom_seecom = "/soc/qseecom@61800000";
+		qcom_smcinvoke = "/soc/smcinvoke@61800000";
+		qcom_rng = "/soc/qrng@1b53000";
+		qcom_tzlog = "/soc/tz-log@c125720";
+		qcom_cedev = "/soc/qcedev@1b20000";
+		qcom_crypto = "/soc/qcrypto@1b20000";
+		cpu_pmu = "/soc/cpu-pmu";
+		eud = "/soc/qcom,msm-eud@1610000";
+		wdog = "/soc/qcom,wdt@f017000";
+		sdhc_1 = "/soc/sdhci@4744000";
+		sdhc_2 = "/soc/sdhci@4784000";
+		usb_noti = "/soc/usb-notifier";
+		ufsphy_mem = "/soc/ufsphy_mem@4807000";
+		ufshc_mem = "/soc/ufshc@4804000";
+		thermal_zones = "/soc/thermal-zones";
+		pm6125_trip0 = "/soc/thermal-zones/pm6125-tz/trips/trip0";
+		pm6125_trip1 = "/soc/thermal-zones/pm6125-tz/trips/trip1";
+		gpu_step_trip = "/soc/thermal-zones/gpu-step/trips/gpu-trip";
+		gpu_cx_mon = "/soc/thermal-zones/gpu-step/trips/gpu-cx-mon";
+		cpu4_5_config = "/soc/thermal-zones/cpuss-0-step/trips/cpu-4-5-config";
+		cpu6_7_config = "/soc/thermal-zones/cpuss-1-step/trips/cpu-6-7-config";
+		silv_cpus_config = "/soc/thermal-zones/cpuss-2-step/trips/silv-cpus-config";
+		cpu4_config = "/soc/thermal-zones/cpu-1-0-step/trips/cpu4-config";
+		cpu5_config = "/soc/thermal-zones/cpu-1-1-step/trips/cpu5-config";
+		cpu6_config = "/soc/thermal-zones/cpu-1-2-step/trips/cpu6-config";
+		cpu7_config = "/soc/thermal-zones/cpu-1-3-step/trips/cpu7-config";
+		cdsp_trip0 = "/soc/thermal-zones/cdsp-hvx-step/trips/cdsp-trip0";
+		cdsp_trip1 = "/soc/thermal-zones/cdsp-hvx-step/trips/cdsp-trip1";
+		cdsp_cx_mon = "/soc/thermal-zones/cdsp-hvx-step/trips/cdsp-cx-mon";
+		mdm0_cx_mon = "/soc/thermal-zones/mdm-0-step/trips/mdm0-cx-mon";
+		mdm1_cx_mon = "/soc/thermal-zones/mdm-1-step/trips/mdm1-cx-mon";
+		mapss_cap_trip = "/soc/thermal-zones/mapss-lowc/trips/mapss-cap-trip";
+		mapss_trip = "/soc/thermal-zones/mapss-lowf/trips/mapss-trip";
+		camera_cap_trip = "/soc/thermal-zones/camera-lowc/trips/camera-cap-trip";
+		camera_trip = "/soc/thermal-zones/camera-lowf/trips/camera-trip";
+		skin_batt_trip0 = "/soc/thermal-zones/quiet-therm-step/trips/batt-trip0";
+		skin_modem_trip0 = "/soc/thermal-zones/quiet-therm-step/trips/modem-trip0";
+		skin_gold_trip = "/soc/thermal-zones/quiet-therm-step/trips/gold-trip";
+		skin_batt_trip1 = "/soc/thermal-zones/quiet-therm-step/trips/batt-trip1";
+		skin_silver_trip = "/soc/thermal-zones/quiet-therm-step/trips/silver-trip";
+		skin_modem_trip1 = "/soc/thermal-zones/quiet-therm-step/trips/modem-trip1";
+		skin_modem_trip2 = "/soc/thermal-zones/quiet-therm-step/trips/modem-trip2";
+		skin_batt_trip2 = "/soc/thermal-zones/quiet-therm-step/trips/batt-trip2";
+		skin_gpu_trip = "/soc/thermal-zones/quiet-therm-step/trips/gpu-trip";
+		skin_batt_trip3 = "/soc/thermal-zones/quiet-therm-step/trips/batt-trip3";
+		skin_modem_trip3 = "/soc/thermal-zones/quiet-therm-step/trips/modem-trip3";
+		skin_hvx_trip = "/soc/thermal-zones/quiet-therm-step/trips/hvx-trip";
+		tsens0 = "/soc/tsens@c222000";
+		xo_board = "/soc/clocks/xo_board";
+		sleep_clk = "/soc/clocks/sleep_clk";
+		rpmcc = "/soc/qcom,rpmcc";
+		gcc = "/soc/qcom,gcc@1400000";
+		dispcc = "/soc/qcom,dispcc@5f00000";
+		gpucc = "/soc/qcom,gpucc@5990000";
+		mccc_debug = "/soc/syscon@447d200";
+		cpucc_debug = "/soc/syscon@f11101c";
+		debugcc = "/soc/qcom,cc-debug";
+		cpufreq_hw = "/soc/qcom,cpufreq-hw";
+		lmh_dcvs0 = "/soc/qcom,cpufreq-hw/qcom,limits-dcvs@f521000";
+		lmh_dcvs1 = "/soc/qcom,cpufreq-hw/qcom,limits-dcvs@f523000";
+		cpu0_isolate = "/soc/qcom,cpufreq-hw/qcom,cpu-isolation/cpu0-isolate";
+		cpu1_isolate = "/soc/qcom,cpufreq-hw/qcom,cpu-isolation/cpu1-isolate";
+		cpu2_isolate = "/soc/qcom,cpufreq-hw/qcom,cpu-isolation/cpu2-isolate";
+		cpu3_isolate = "/soc/qcom,cpufreq-hw/qcom,cpu-isolation/cpu3-isolate";
+		cpu4_isolate = "/soc/qcom,cpufreq-hw/qcom,cpu-isolation/cpu4-isolate";
+		cpu5_isolate = "/soc/qcom,cpufreq-hw/qcom,cpu-isolation/cpu5-isolate";
+		cpu6_isolate = "/soc/qcom,cpufreq-hw/qcom,cpu-isolation/cpu6-isolate";
+		cpu7_isolate = "/soc/qcom,cpufreq-hw/qcom,cpu-isolation/cpu7-isolate";
+		tcsr_mutex_block = "/soc/syscon@00340000";
+		tcsr_mutex = "/soc/hwlock";
+		smem = "/soc/qcom,smem";
+		rpm_msg_ram = "/soc/memory@045f0000";
+		apcs_glb = "/soc/mailbox@0f111000";
+		glink_modem = "/soc/qcom,glink/modem";
+		glink_adsp = "/soc/qcom,glink/adsp";
+		glink_cdsp = "/soc/qcom,glink/cdsp";
+		msm_cdsp_rm = "/soc/qcom,glink/cdsp/qcom,msm_cdsprm_rpmsg/qcom,msm_cdsp_rm";
+		modem_smp2p_out = "/soc/qcom,smp2p-modem/master-kernel";
+		modem_smp2p_in = "/soc/qcom,smp2p-modem/slave-kernel";
+		smp2p_ipa_1_out = "/soc/qcom,smp2p-modem/qcom,smp2p-ipa-1-out";
+		smp2p_ipa_1_in = "/soc/qcom,smp2p-modem/qcom,smp2p-ipa-1-in";
+		smp2p_wlan_1_in = "/soc/qcom,smp2p-modem/qcom,smp2p-wlan-1-in";
+		adsp_smp2p_out = "/soc/qcom,smp2p-adsp/master-kernel";
+		adsp_smp2p_in = "/soc/qcom,smp2p-adsp/slave-kernel";
+		smp2p_rdbg2_out = "/soc/qcom,smp2p-adsp/qcom,smp2p-rdbg2-out";
+		smp2p_rdbg2_in = "/soc/qcom,smp2p-adsp/qcom,smp2p-rdbg2-in";
+		sleepstate_smp2p_out = "/soc/qcom,smp2p-adsp/sleepstate-out";
+		sleepstate_smp2p_in = "/soc/qcom,smp2p-adsp/qcom,sleepstate-in";
+		cdsp_smp2p_out = "/soc/qcom,smp2p-cdsp/master-kernel";
+		cdsp_smp2p_in = "/soc/qcom,smp2p-cdsp/slave-kernel";
+		smp2p_rdbg5_out = "/soc/qcom,smp2p-cdsp/qcom,smp2p-rdbg5-out";
+		smp2p_rdbg5_in = "/soc/qcom,smp2p-cdsp/qcom,smp2p-rdbg5-in";
+		qfprom = "/soc/qfprom@1b40000";
+		stm_debug_fuse = "/soc/qfprom@1b40000/stm@20f0";
+		feat_conf5 = "/soc/qfprom@1b40000/feat_conf5@6018";
+		feat_conf10 = "/soc/qfprom@1b40000/feat_conf10@602c";
+		adsp_variant = "/soc/qfprom@1b40000/adsp_variant@6011";
+		gpu_speed_bin = "/soc/qfprom@1b40000/gpu_speed_bin@6006";
+		gpu_gaming_bin = "/soc/qfprom@1b40000/gpu_gaming_bin@602d";
+		spmi_bus = "/soc/qcom,spmi@1c40000";
+		pm6125_revid = "/soc/qcom,spmi@1c40000/qcom,pm6125@0/qcom,revid@100";
+		pm6125_vadc = "/soc/qcom,spmi@1c40000/qcom,pm6125@0/vadc@3100";
+		pm6125_adc_tm = "/soc/qcom,spmi@1c40000/qcom,pm6125@0/adc_tm@3500";
+		pm6125_tz = "/soc/qcom,spmi@1c40000/qcom,pm6125@0/qcom,temp-alarm@2400";
+		pm6125_clkdiv = "/soc/qcom,spmi@1c40000/qcom,pm6125@0/clock-controller@5b00";
+		pm6125_gpios = "/soc/qcom,spmi@1c40000/qcom,pm6125@0/pinctrl@c000";
+		camera_therm_default = "/soc/qcom,spmi@1c40000/qcom,pm6125@0/pinctrl@c000/camera_therm/camera_therm_default";
+		emmc_therm_default = "/soc/qcom,spmi@1c40000/qcom,pm6125@0/pinctrl@c000/emmc_therm/emmc_therm_default";
+		pm6125_rtc = "/soc/qcom,spmi@1c40000/qcom,pm6125@0/qcom,pm6125_rtc";
+		pm6125_adc_tm_iio = "/soc/qcom,spmi@1c40000/qcom,pm6125@0/adc_tm@3400";
+		pm6125_pwm = "/soc/qcom,spmi@1c40000/qcom,pm6125@1/qcom,pwms@b300";
+		icnss = "/soc/qcom,icnss@C800000";
+		cx_ipeak_lm = "/soc/cx_ipeak@3ed000";
+		pil_modem = "/soc/qcom,mss@6080000";
+		ddr_bw_opp_table = "/soc/ddr-bw-opp-table";
+		suspendable_ddr4_bw_opp_table = "/soc/suspendable-ddr4-bw-opp-table";
+		cpu_cpu_ddr_bw = "/soc/qcom,cpu-cpu-ddr-bw";
+		cpu_cpu_ddr_bwmon = "/soc/qcom,cpu-cpu-ddr-bwmon@01b8e200";
+		cpu0_cpu_ddr_latfloor = "/soc/qcom,cpu0-cpu-ddr-latfloor";
+		cpu0_cpu_ddr_lat = "/soc/qcom,cpu0-cpu-ddr-lat";
+		cpu0_memlat_cpugrp = "/soc/qcom,cpu0-cpugrp";
+		cpu0_cpu_ddr_latmon = "/soc/qcom,cpu0-cpugrp/qcom,cpu0-cpu-ddr-latmon";
+		cpu0_computemon = "/soc/qcom,cpu0-cpugrp/qcom,cpu0-computemon";
+		cpu4_cpu_ddr_lat = "/soc/qcom,cpu4-cpu-ddr-lat";
+		cpu4_cpu_ddr_latfloor = "/soc/qcom,cpu4-cpu-ddr-latfloor";
+		cpu4_memlat_cpugrp = "/soc/qcom,cpu4-cpugrp";
+		cpu4_cpu_ddr_latmon = "/soc/qcom,cpu4-cpugrp/qcom,cpu4-cpu-ddr-latmon";
+		cpu4_computemon = "/soc/qcom,cpu4-cpugrp/qcom,cpu4-computemon";
+		ipa_hw = "/soc/qcom,ipa@0x5800000";
+		ipa_smmu_ap = "/soc/ipa_smmu_ap";
+		ipa_smmu_wlan = "/soc/ipa_smmu_wlan";
+		ipa_smmu_uc = "/soc/ipa_smmu_uc";
+		gcc_camss_top_gdsc = "/soc/qcom,gdsc@1458004";
+		gcc_ufs_phy_gdsc = "/soc/qcom,gdsc@1445004";
+		gcc_usb30_prim_gdsc = "/soc/qcom,gdsc@141a004";
+		gcc_vcodec0_gdsc = "/soc/qcom,gdsc@1458098";
+		gcc_venus_gdsc = "/soc/qcom,gdsc@145807c";
+		hlos1_vote_turing_mmu_tbu1_gdsc = "/soc/qcom,gdsc@147d060";
+		hlos1_vote_turing_mmu_tbu0_gdsc = "/soc/qcom,gdsc@147d07c";
+		hlos1_vote_mm_snoc_mmu_tbu_rt_gdsc = "/soc/qcom,gdsc@147d074";
+		hlos1_vote_mm_snoc_mmu_tbu_nrt_gdsc = "/soc/qcom,gdsc@147d078";
+		mdss_core_gdsc = "/soc/qcom,gdsc@5f03000";
+		gpu_gx_domain_addr = "/soc/syscon@5991508";
+		gpu_cx_hw_ctrl = "/soc/syscon@5991540";
+		gpu_gx_sw_reset = "/soc/syscon@5991008";
+		gpu_cx_gdsc = "/soc/qcom,gdsc@599106c";
+		gpu_gx_gdsc = "/soc/qcom,gdsc@599100c";
+		usb0 = "/soc/ssusb@4e00000";
+		qusb_phy0 = "/soc/qusb@1613000";
+		usb_qmp_phy = "/soc/ssphy@1615000";
+		usb_nop_phy = "/soc/usb_nop_phy";
+		system_heap = "/soc/qcom,ion/qcom,ion-heap@25";
+		system_secure_heap = "/soc/qcom,ion/qcom,ion-heap@9";
+		apss_tgu = "/soc/tgu@9900000";
+		csr = "/soc/csr@8001000";
+		swao_csr = "/soc/csr@8a03000";
+		stm = "/soc/stm@8002000";
+		stm_out_funnel_in0 = "/soc/stm@8002000/port/endpoint";
+		tpdm_center = "/soc/tpdm@8b58000";
+		tpdm_dl_ct_out_tpda0 = "/soc/tpdm@8b58000/port/endpoint";
+		tpdm_gpu = "/soc/tpdm@8940000";
+		tpdm_gpu_out_funnel_gpu = "/soc/tpdm@8940000/port/endpoint";
+		modem_rfxe = "/soc/modem_rfxe";
+		modem_rxfe_out_funnel_in1 = "/soc/modem_rfxe/port/endpoint";
+		audio_etm0 = "/soc/audio_etm0";
+		audio_etm0_out_funnel_qatb = "/soc/audio_etm0/port/endpoint";
+		snoc = "/soc/snoc";
+		snoc_out_funnel_in0 = "/soc/snoc/port/endpoint";
+		tpdm_lpass = "/soc/tpdm@8a26000";
+		tpdm_lpass_out_funnel_qatb = "/soc/tpdm@8a26000/port/endpoint";
+		tpdm_turing = "/soc/tpdm@8860000";
+		tpdm_turing_out_funnel_turing = "/soc/tpdm@8860000/port/endpoint";
+		turing_etm0 = "/soc/turing_etm0";
+		turing_etm0_out_funnel_turing = "/soc/turing_etm0/port/endpoint";
+		tpdm_vsense = "/soc/tpdm@8840000";
+		tpdm_vsense_out_tpda7 = "/soc/tpdm@8840000/port/endpoint";
+		tpdm_dcc = "/soc/tpdm@8870000";
+		tpdm_dcc_out_tpda8 = "/soc/tpdm@8870000/port/endpoint";
+		tpdm_prng = "/soc/tpdm@884c000";
+		tpdm_prng_out_tpda10 = "/soc/tpdm@884c000/port/endpoint";
+		tpdm_qm = "/soc/tpdm@89d0000";
+		tpdm_qm_out_tpda12 = "/soc/tpdm@89d0000/port/endpoint";
+		tpdm_west = "/soc/tpdm@8a58000";
+		tpdm_west_out_tpda13 = "/soc/tpdm@8a58000/port/endpoint";
+		tpdm_pimem = "/soc/tpdm@8850000";
+		tpdm_pimem_out_tpda15 = "/soc/tpdm@8850000/port/endpoint";
+		tpdm_mapss = "/soc/tpdm@8a01000";
+		tpdm_mapss_out_tpda_mapss = "/soc/tpdm@8a01000/port/endpoint";
+		tpdm_wcss = "/soc/tpdm@899c000";
+		tpdm_wcss_silver_out_funnel_in1 = "/soc/tpdm@899c000/port/endpoint";
+		modem_etm0 = "/soc/modem_etm0";
+		modem_etm0_out_funnel_in1 = "/soc/modem_etm0/port/endpoint";
+		etm0 = "/soc/etm@9040000";
+		etm0_out_funnel_apss0 = "/soc/etm@9040000/port/endpoint";
+		etm1 = "/soc/etm@9140000";
+		etm1_out_funnel_apss0 = "/soc/etm@9140000/port/endpoint";
+		etm2 = "/soc/etm@9240000";
+		etm2_out_funnel_apss0 = "/soc/etm@9240000/port/endpoint";
+		etm3 = "/soc/etm@9340000";
+		etm3_out_funnel_apss0 = "/soc/etm@9340000/port/endpoint";
+		etm4 = "/soc/etm@9440000";
+		etm4_out_funnel_apss0 = "/soc/etm@9440000/port/endpoint";
+		etm5 = "/soc/etm@9540000";
+		etm5_out_funnel_apss0 = "/soc/etm@9540000/port/endpoint";
+		etm6 = "/soc/etm@9640000";
+		etm6_out_funnel_apss0 = "/soc/etm@9640000/port/endpoint";
+		etm7 = "/soc/etm@9740000";
+		etm7_out_funnel_apss0 = "/soc/etm@9740000/port/endpoint";
+		tpdm_actpm = "/soc/tpd@9830000";
+		tpdm_actpm_out_tpda_actpm = "/soc/tpd@9830000/port/endpoint";
+		tpdm_llm_silver = "/soc/tpdm@98a0000";
+		tpdm_llm_silver_out_tpda_llm_silver = "/soc/tpdm@98a0000/port/endpoint";
+		tpdm_apss = "/soc/tpdm@9860000";
+		tpdm_apss_out_tpda_apss = "/soc/tpdm@9860000/port/endpoint";
+		funnel_apss0 = "/soc/funnel@9800000";
+		funnel_apss0_out_funnel_apss1 = "/soc/funnel@9800000/ports/port@0/endpoint";
+		funnel_apss0_in_etm0 = "/soc/funnel@9800000/ports/port@1/endpoint";
+		funnel_apss0_in_etm1 = "/soc/funnel@9800000/ports/port@2/endpoint";
+		funnel_apss0_in_etm2 = "/soc/funnel@9800000/ports/port@3/endpoint";
+		funnel_apss0_in_etm3 = "/soc/funnel@9800000/ports/port@4/endpoint";
+		funnel_apss0_in_etm4 = "/soc/funnel@9800000/ports/port@5/endpoint";
+		funnel_apss0_in_etm5 = "/soc/funnel@9800000/ports/port@6/endpoint";
+		funnel_apss0_in_etm6 = "/soc/funnel@9800000/ports/port@7/endpoint";
+		funnel_apss0_in_etm7 = "/soc/funnel@9800000/ports/port@8/endpoint";
+		tpda_actpm = "/soc/tpda@9832000";
+		tpda_actpm_out_funnel_apss1 = "/soc/tpda@9832000/ports/port@0/endpoint";
+		tpda_actpm_in_tpdm_actpm = "/soc/tpda@9832000/ports/port@1/endpoint";
+		tpda_apss = "/soc/tpda@9862000";
+		tpda_apss_out_funnel_apss1 = "/soc/tpda@9862000/ports/port@0/endpoint";
+		tpda_apss_in_tpdm_apss = "/soc/tpda@9862000/ports/port@1/endpoint";
+		tpda_llm_silver = "/soc/tpda@98c0000";
+		tpda_llm_silver_out_funnel_apss1 = "/soc/tpda@98c0000/ports/port@0/endpoint";
+		tpda_llm_silver_in_tpdm_llm_silver = "/soc/tpda@98c0000/ports/port@1/endpoint";
+		funnel_apss1 = "/soc/funnel@9810000";
+		funnel_apss1_out_funnel_in1 = "/soc/funnel@9810000/ports/port@0/endpoint";
+		funnel_apss1_in_funnel_apss0 = "/soc/funnel@9810000/ports/port@1/endpoint";
+		funnel_apss1_in_tpda_actpm = "/soc/funnel@9810000/ports/port@2/endpoint";
+		funnel_apss1_in_tpda_llm_silver = "/soc/funnel@9810000/ports/port@3/endpoint";
+		funnel_apss1_in_tpda_apss = "/soc/funnel@9810000/ports/port@4/endpoint";
+		tpda_mapss = "/soc/tpda@8a04000";
+		tpda_mapss_out_funnel_in1 = "/soc/tpda@8a04000/ports/port@0/endpoint";
+		tpda_mapss_in_tpdm_mapss = "/soc/tpda@8a04000/ports/port@1/endpoint";
+		funnel_gpu = "/soc/funnel@8944000";
+		funnel_gpu_out_tpda1 = "/soc/funnel@8944000/ports/port@0/endpoint";
+		funnel_gpu_in_tpdm_gpu = "/soc/funnel@8944000/ports/port@1/endpoint";
+		funnel_turing = "/soc/funnel@8861000";
+		funnel_turing_out_tpda5 = "/soc/funnel@8861000/ports/port@0/endpoint";
+		funnel_turing_out_funnel_qatb = "/soc/funnel@8861000/ports/port@1/endpoint";
+		funnel_turing_in_tpdm_turing = "/soc/funnel@8861000/ports/port@2/endpoint";
+		funnel_turing_in_turing_etm0 = "/soc/funnel@8861000/ports/port@3/endpoint";
+		tpda = "/soc/tpda@8004000";
+		tpda_out_funnel_qatb = "/soc/tpda@8004000/ports/port@0/endpoint";
+		tpda0_in_tpdm_dl_ct = "/soc/tpda@8004000/ports/port@1/endpoint";
+		tpda1_in_funnel_gpu = "/soc/tpda@8004000/ports/port@2/endpoint";
+		tpda5_in_funnel_turing = "/soc/tpda@8004000/ports/port@3/endpoint";
+		tpda7_in_tpdm_vsense = "/soc/tpda@8004000/ports/port@4/endpoint";
+		tpda8_in_tpdm_dcc = "/soc/tpda@8004000/ports/port@5/endpoint";
+		tpda10_in_tpdm_prng = "/soc/tpda@8004000/ports/port@6/endpoint";
+		tpda12_in_tpdm_qm = "/soc/tpda@8004000/ports/port@7/endpoint";
+		tpda13_in_tpdm_west = "/soc/tpda@8004000/ports/port@8/endpoint";
+		tpda15_in_tpdm_pimem = "/soc/tpda@8004000/ports/port@9/endpoint";
+		funnel_qatb = "/soc/funnel@8005000";
+		funnel_qatb_out_funnel_in0 = "/soc/funnel@8005000/ports/port@0/endpoint";
+		funnel_qatb_in_tpda = "/soc/funnel@8005000/ports/port@1/endpoint";
+		funnel_qatb_in_funnel_turing = "/soc/funnel@8005000/ports/port@2/endpoint";
+		funnel_qatb_in_tpdm_lpass = "/soc/funnel@8005000/ports/port@3/endpoint";
+		funnel_qatb_in_audio_etm0 = "/soc/funnel@8005000/ports/port@4/endpoint";
+		funnel_in0 = "/soc/funnel@8041000";
+		funnel_in0_out_funnel_merg = "/soc/funnel@8041000/ports/port@0/endpoint";
+		funnel_in0_in_snoc = "/soc/funnel@8041000/ports/port@1/endpoint";
+		funnel_in0_in_funnel_qatb = "/soc/funnel@8041000/ports/port@2/endpoint";
+		funnel_in0_in_stm = "/soc/funnel@8041000/ports/port@3/endpoint";
+		funnel_in1 = "/soc/funnel@8042000";
+		funnel_in1_out_funnel_merg = "/soc/funnel@8042000/ports/port@0/endpoint";
+		funnel_in1_in_tpda_mapss = "/soc/funnel@8042000/ports/port@1/endpoint";
+		funnel_in1_in_modem_rxfe = "/soc/funnel@8042000/ports/port@2/endpoint";
+		funnel_in1_in_tpdm_wcss_silver = "/soc/funnel@8042000/ports/port@3/endpoint";
+		funnel_in1_in_modem_etm0 = "/soc/funnel@8042000/ports/port@4/endpoint";
+		funnel_in1_in_funnel_apss1 = "/soc/funnel@8042000/ports/port@5/endpoint";
+		funnel_merg = "/soc/funnel@8045000";
+		funnel_merg_out_tmc_etf = "/soc/funnel@8045000/ports/port@0/endpoint";
+		funnel_merg_in_funnel_in0 = "/soc/funnel@8045000/ports/port@1/endpoint";
+		funnel_merg_in_funnel_in1 = "/soc/funnel@8045000/ports/port@2/endpoint";
+		tmc_etf = "/soc/tmc@8047000";
+		tmc_etf_out_replicator_qdss = "/soc/tmc@8047000/ports/port@0/endpoint";
+		tmc_etf_in_funnel_merg = "/soc/tmc@8047000/ports/port@1/endpoint";
+		replicator_qdss = "/soc/replicator@8046000";
+		replicator_qdss_out_tmc_etr = "/soc/replicator@8046000/ports/port@0/endpoint";
+		replicator_qdss_in_tmc_etf = "/soc/replicator@8046000/ports/port@1/endpoint";
+		tmc_etr = "/soc/tmc@8048000";
+		tmc_etr_in_replicator_qdss = "/soc/tmc@8048000/ports/port@0/endpoint";
+		cti_cortex_M3 = "/soc/cti@8B30000";
+		cti_apss_cti0 = "/soc/cti@98E0000";
+		cti_apss_cti1 = "/soc/cti@98F0000";
+		cti_wcss_cti0 = "/soc/cti@89A4000";
+		cti_wcss_cti1 = "/soc/cti@89A5000";
+		cti_wcss_cti2 = "/soc/cti@89A6000";
+		cti_lpass_q6 = "/soc/cti@8A21000";
+		cti_turing_q6 = "/soc/cti@8867000";
+		cti_mss_q6 = "/soc/cti@8833000";
+		cti_isdb_gpu = "/soc/cti@8941000";
+		cti_mapss = "/soc/cti@8A02000";
+		cti_dlct_cti0 = "/soc/cti@8B59000";
+		cti_dlct_cti1 = "/soc/cti@8B5A000";
+		cti_dlct_cti2 = "/soc/cti@8B5B000";
+		cti_dlct_cti3 = "/soc/cti@8B5C000";
+		cti0 = "/soc/cti@8010000";
+		cti1 = "/soc/cti@8011000";
+		cti10 = "/soc/cti@801a000";
+		cti11 = "/soc/cti@801b000";
+		cti12 = "/soc/cti@801c000";
+		cti13 = "/soc/cti@801d000";
+		cti14 = "/soc/cti@801e000";
+		cti15 = "/soc/cti@801f000";
+		cti2 = "/soc/cti@8012000";
+		cti3 = "/soc/cti@8013000";
+		cti4 = "/soc/cti@8014000";
+		cti5 = "/soc/cti@8015000";
+		cti6 = "/soc/cti@8016000";
+		cti7 = "/soc/cti@8017000";
+		cti8 = "/soc/cti@8018000";
+		cti9 = "/soc/cti@8019000";
+	};
+};
+
+/* ===== M2 display scaffolding (inert until status flips + panel driver entry) ===== */
+&tlmm {
+	mdss_dsi_n: mdss-dsi-n-state {
+		pins = "gpio81";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-disable;
+	};
+};
+
+&mdss {
+	status = "disabled"; /* M2: flip to "okay" */
+};
+
+&mdss_dsi0 {
+	vdda-supply = <&pm6125_l18>;
+	status = "disabled"; /* M2: flip to "okay" */
+
+	/* TODO(variant): confirm panel via `adb shell dmesg | grep -i panel` on LOS,
+	 * then set compatible to the matching samsung,gta4l-nt36523-<supplier> entry
+	 * added to panel-novatek-nt36523.c (suppliers: hlt-auo / lce-panda / lide-hsd / txd-inx) */
+	panel: panel@0 {
+		compatible = "samsung,gta4l-nt36523-lide-hsd", "novatek,nt36523w";
+		reg = <0>;
+
+		reset-gpios = <&tlmm 81 GPIO_ACTIVE_LOW>;
+		vddio-supply = <&pm6125_l9>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&mdss_dsi_n>;
+
+		rotation = <180>; /* downstream qcom,mdss-dsi-panel-orientation = "180" */
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&mdss_dsi0_out>;
+			};
+		};
+	};
+};
+
+&mdss_dsi0_out {
+	data-lanes = <0 1 2 3>;
+	remote-endpoint = <&panel_in>;
+};
+
+&mdss_dsi0_phy {
+	status = "disabled"; /* M2: flip to "okay" */
+};
+
+&sdhc_1 {
+	status = "okay";
+};
+
+&sdhc_2 {
+	status = "okay";
+};
+
+&rpm_requests {
+	regulators-0 {
+		compatible = "qcom,rpm-pm6125-regulators";
+
+		pm6125_l9: l9 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <2000000>;
+		};
+
+		pm6125_l18: l18 {
+			regulator-min-microvolt = <1104000>;
+			regulator-max-microvolt = <1312000>;
+		};
+	};
+};
