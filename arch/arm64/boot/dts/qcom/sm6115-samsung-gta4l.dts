@@ -478,12 +478,12 @@
 };
 
 &mdss {
-	status = "disabled"; /* M2: flip to "okay" */
+	status = "okay";
 };
 
 &mdss_dsi0 {
 	vdda-supply = <&pm6125_l18>;
-	status = "disabled"; /* M2: flip to "okay" */
+	status = "okay";
 
 	/* TODO(variant): confirm panel via `adb shell dmesg | grep -i panel` on LOS,
 	 * then set compatible to the matching samsung,gta4l-nt36523-<supplier> entry
@@ -514,7 +514,7 @@
 };
 
 &mdss_dsi0_phy {
-	status = "disabled"; /* M2: flip to "okay" */
+	status = "okay";
 };
 
 &sdhc_1 {
