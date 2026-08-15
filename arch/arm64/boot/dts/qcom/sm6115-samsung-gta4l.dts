@@ -481,6 +481,14 @@
 	status = "okay";
 };
 
+&gpu {
+	status = "okay";
+
+	zap-shader {
+		firmware-name = "qcom/sm6115/a610_zap.mbn";
+	};
+};
+
 &mdss_dsi0 {
 	vdda-supply = <&pm6125_l18>;
 	status = "okay";
