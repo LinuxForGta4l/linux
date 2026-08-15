@@ -548,3 +548,16 @@
 		};
 	};
 };
+
+&i2c2 {
+	status = "okay";
+	clock-frequency = <400000>;
+
+	novatek@62 {
+		compatible = "novatek,NVT-ts";
+		reg = <0x62>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <50 IRQ_TYPE_LEVEL_LOW>;
+		reset-gpios = <&tlmm 47 GPIO_ACTIVE_LOW>;
+	};
+};
