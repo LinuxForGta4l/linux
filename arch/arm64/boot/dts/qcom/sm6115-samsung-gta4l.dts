@@ -540,24 +540,44 @@
 		pm6125_l9: l9 {
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <2000000>;
+			regulator-boot-on;
+			regulator-always-on;
+		};
+
+		pm6125_l17: l17 {
+			regulator-min-microvolt = <2900000>;
+			regulator-max-microvolt = <3600000>;
+			regulator-boot-on;
+			regulator-always-on;
 		};
 
 		pm6125_l18: l18 {
 			regulator-min-microvolt = <1104000>;
 			regulator-max-microvolt = <1312000>;
+			regulator-boot-on;
+			regulator-always-on;
 		};
 	};
 };
 
+&qupv3_id_0 {
+	status = "okay";
+};
+
+&gpi_dma0 {
+	status = "okay";
+};
+
 &i2c2 {
 	status = "okay";
-	clock-frequency = <400000>;
+	clock-frequency = <100000>;
 
 	novatek@62 {
 		compatible = "novatek,NVT-ts";
 		reg = <0x62>;
+		vddio-supply = <&pm6125_l9>;
 		interrupt-parent = <&tlmm>;
-		interrupts = <50 IRQ_TYPE_LEVEL_LOW>;
-		reset-gpios = <&tlmm 47 GPIO_ACTIVE_LOW>;
+		interrupts = <80 IRQ_TYPE_LEVEL_LOW>;
+		reset-gpios = <&tlmm 71 GPIO_ACTIVE_LOW>;
 	};
 };
