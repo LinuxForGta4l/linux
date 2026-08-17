@@ -545,10 +545,8 @@
 		};
 
 		pm6125_l17: l17 {
-			regulator-min-microvolt = <2900000>;
-			regulator-max-microvolt = <3600000>;
-			regulator-boot-on;
-			regulator-always-on;
+			regulator-min-microvolt = <1152000>;
+			regulator-max-microvolt = <1384000>;
 		};
 
 		pm6125_l18: l18 {
@@ -574,7 +572,7 @@
 
 	novatek@62 {
 		compatible = "novatek,NVT-ts";
-		reg = <0x62>;
+		reg = <0x63>;
 		vddio-supply = <&pm6125_l9>;
 		interrupt-parent = <&tlmm>;
 		interrupts = <80 IRQ_TYPE_LEVEL_LOW>;

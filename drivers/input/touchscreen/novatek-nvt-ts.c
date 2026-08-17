@@ -222,7 +222,14 @@ static int nvt_ts_probe(struct i2c_client *client)
 	data->max_touches = data->buf[NVT_TS_PARAMS_MAX_TOUCH];
 	irq_type = data->buf[NVT_TS_PARAMS_IRQ_TYPE];
 
-	if (width > NVT_TS_MAX_SIZE || height >= NVT_TS_MAX_SIZE ||
+	if (width == 0 && height == 0) {
+		/* All zeros - chip not in param mode, use panel defaults */
+		dev_warn(dev, "Empty parameters, using panel defaults\n");
+		width = 1200;
+		height = 2000;
+		data->max_touches = 10;
+		irq_type = 0;
+	} else if (width > NVT_TS_MAX_SIZE || height >= NVT_TS_MAX_SIZE ||
 	    data->max_touches > NVT_TS_MAX_TOUCHES ||
 	    irq_type >= ARRAY_SIZE(nvt_ts_irq_type) ||
 	    data->buf[NVT_TS_PARAMS_WAKE_TYPE] != NVT_TS_SUPPORTED_WAKE_TYPE ||
