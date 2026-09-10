@@ -365,8 +365,10 @@ static int rk_crypto_probe(struct platform_device *pdev)
 			       rk_crypto_irq_handle, IRQF_SHARED,
 			       "rk-crypto", pdev);
 
-	if (err)
+	if (err) {
+		dev_err(&pdev->dev, "irq request failed.\n");
 		goto err_crypto;
+	}
 
 	crypto_info->engine = crypto_engine_alloc_init(&pdev->dev, true);
 	if (!crypto_info->engine) {

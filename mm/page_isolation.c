@@ -11,7 +11,6 @@
 #include <linux/page_owner.h>
 #include <linux/migrate.h>
 #include "internal.h"
-#include "page_alloc.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/page_isolation.h>

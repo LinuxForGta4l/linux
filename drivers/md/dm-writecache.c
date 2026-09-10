@@ -474,14 +474,12 @@ struct io_notify {
 	atomic_t count;
 };
 
-static void writecache_notify_io(unsigned long error, unsigned long unsup, void *context)
+static void writecache_notify_io(unsigned long error, void *context)
 {
 	struct io_notify *endio = context;
 
 	if (unlikely(error != 0))
 		writecache_error(endio->wc, -EIO, "error writing metadata");
-	else if (unlikely(unsup != 0))
-		writecache_error(endio->wc, -EOPNOTSUPP, "error writing metadata");
 	BUG_ON(atomic_read(&endio->count) <= 0);
 	if (atomic_dec_and_test(&endio->count))
 		complete(&endio->c);
@@ -532,11 +530,11 @@ static void ssd_commit_flushed(struct dm_writecache *wc, bool wait_for_ios)
 		req.notify.context = &endio;
 
 		/* writing via async dm-io (implied by notify.fn above) won't return an error */
-		(void) dm_io(&req, 1, &region, NULL, NULL, IOPRIO_DEFAULT);
+		(void) dm_io(&req, 1, &region, NULL, IOPRIO_DEFAULT);
 		i = j;
 	}
 
-	writecache_notify_io(0, 0, &endio);
+	writecache_notify_io(0, &endio);
 	wait_for_completion_io(&endio.c);
 
 	if (wait_for_ios)
@@ -569,7 +567,7 @@ static void ssd_commit_superblock(struct dm_writecache *wc)
 	req.notify.fn = NULL;
 	req.notify.context = NULL;
 
-	r = dm_io(&req, 1, &region, NULL, NULL, IOPRIO_DEFAULT);
+	r = dm_io(&req, 1, &region, NULL, IOPRIO_DEFAULT);
 	if (unlikely(r))
 		writecache_error(wc, r, "error writing superblock");
 }
@@ -597,7 +595,7 @@ static void writecache_disk_flush(struct dm_writecache *wc, struct dm_dev *dev)
 	req.client = wc->dm_io;
 	req.notify.fn = NULL;
 
-	r = dm_io(&req, 1, &region, NULL, NULL, IOPRIO_DEFAULT);
+	r = dm_io(&req, 1, &region, NULL, IOPRIO_DEFAULT);
 	if (unlikely(r))
 		writecache_error(wc, r, "error flushing metadata: %d", r);
 }
@@ -991,7 +989,7 @@ static int writecache_read_metadata(struct dm_writecache *wc, sector_t n_sectors
 	req.client = wc->dm_io;
 	req.notify.fn = NULL;
 
-	return dm_io(&req, 1, &region, NULL, NULL, IOPRIO_DEFAULT);
+	return dm_io(&req, 1, &region, NULL, IOPRIO_DEFAULT);
 }
 
 static void writecache_resume(struct dm_target *ti)
@@ -1229,7 +1227,7 @@ static void memcpy_flushcache_optimized(void *dest, void *source, size_t size)
 	 * advantage seen with cache-allocating-writes plus flushing.
 	 */
 #ifdef CONFIG_X86
-	if (cpu_feature_enabled(X86_FEATURE_CLFLUSHOPT) &&
+	if (static_cpu_has(X86_FEATURE_CLFLUSHOPT) &&
 	    likely(boot_cpu_data.x86_clflush_size == 64) &&
 	    likely(size >= 768)) {
 		do {

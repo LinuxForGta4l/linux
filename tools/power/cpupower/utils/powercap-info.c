@@ -47,6 +47,8 @@ static int powercap_print_one_zone(struct powercap_zone *zone)
 
 	printf("\n");
 
+	if (ret != 0)
+		return ret;
 	return ret;
 }
 

@@ -95,9 +95,16 @@ enum {
 	HEADER_PAGES_PER_VOLUME = 1,
 };
 
-struct index_geometry uds_init_index_geometry(size_t bytes_per_page, u32 record_pages_per_chapter,
-					      u32 chapters_per_volume, u32 sparse_chapters_per_volume,
-					      u64 remapped_virtual, u64 remapped_physical);
+int __must_check uds_make_index_geometry(size_t bytes_per_page, u32 record_pages_per_chapter,
+					 u32 chapters_per_volume,
+					 u32 sparse_chapters_per_volume, u64 remapped_virtual,
+					 u64 remapped_physical,
+					 struct index_geometry **geometry_ptr);
+
+int __must_check uds_copy_index_geometry(struct index_geometry *source,
+					 struct index_geometry **geometry_ptr);
+
+void uds_free_index_geometry(struct index_geometry *geometry);
 
 u32 __must_check uds_map_to_physical_chapter(const struct index_geometry *geometry,
 					     u64 virtual_chapter);

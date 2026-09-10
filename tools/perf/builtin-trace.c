@@ -226,7 +226,6 @@ struct trace {
 	bool			force;
 	bool			vfs_getname;
 	bool			force_btf;
-	bool			bitmask_list;
 	bool			summary_bpf;
 	int			trace_pgfaults;
 	char			*perfconfig_events;
@@ -461,10 +460,10 @@ static int evsel__init_tp_ptr_field(struct evsel *evsel, struct tp_field *field,
 	({ struct syscall_tp *sc = __evsel__syscall_tp(evsel);\
 	   evsel__init_tp_ptr_field(evsel, &sc->name, #name); })
 
-static void evsel__put_and_free_priv(struct evsel *evsel)
+static void evsel__delete_priv(struct evsel *evsel)
 {
 	zfree(&evsel->priv);
-	evsel__put(evsel);
+	evsel__delete(evsel);
 }
 
 static int evsel__init_syscall_tp(struct evsel *evsel)
@@ -544,7 +543,7 @@ static struct evsel *perf_evsel__raw_syscall_newtp(const char *direction, void *
 	return evsel;
 
 out_delete:
-	evsel__put_and_free_priv(evsel);
+	evsel__delete_priv(evsel);
 	return NULL;
 }
 
@@ -2024,7 +2023,7 @@ static int trace__symbols_init(struct trace *trace, int argc, const char **argv,
 		goto out;
 
 	err = __machine__synthesize_threads(trace->host, &trace->tool, &trace->opts.target,
-					    evlist__core(evlist)->threads, trace__tool_process,
+					    evlist->core.threads, trace__tool_process,
 					    /*needs_mmap=*/callchain_param.enabled &&
 							   !trace->summary_only,
 					    /*mmap_data=*/false,
@@ -2099,49 +2098,6 @@ static bool is_internal_field(struct tep_format_field *field)
 	return !strcmp(field->type, "__data_loc char[]");
 }
 
-static bool field_has_hex_fmt(struct tep_format_field *field, int len)
-{
-	const char *fmt, *pos, *end = NULL;
-
-	if (!field || !field->event || !field->event->print_fmt.format)
-		return false;
-
-	fmt = field->event->print_fmt.format;
-
-	/* NB: Limit scanning strictly to the quoted printf format string */
-	if (*fmt == '"') {
-		const char *p = ++fmt;
-
-		while (*p) {
-			if (*p == '\\' && p[1] != '\0') {
-				/* NB: Skip escaped character */
-				p += 2;
-			} else if (*p == '"') {
-				end = p;
-				break;
-			} else {
-				p++;
-			}
-		}
-	} else {
-		end = strchr(fmt, ',');
-	}
-
-	for (pos = strstr(fmt, field->name); pos && (!end || pos < end);
-	     pos = strstr(pos + 1, field->name)) {
-		if (pos == fmt || !(isalnum(pos[-1]) || pos[-1] == '_')) {
-			const char *after = pos + len;
-
-			if (*after == '=' && (strstarts(after + 1, "0x") ||
-					      strstarts(after + 1, "%#") ||
-					      strstarts(after + 1, "%p")))
-				return true;
-		}
-	}
-
-	return false;
-}
-
 static struct tep_format_field *
 syscall_arg_fmt__init_array(struct syscall_arg_fmt *arg, struct tep_format_field *field,
 			    bool *use_btf)
@@ -2169,8 +2125,7 @@ syscall_arg_fmt__init_array(struct syscall_arg_fmt *arg, struct tep_format_field
 		    ((len >= 4 && strcmp(field->name + len - 4, "name") == 0) ||
 		     strstr(field->name, "path") != NULL)) {
 			arg->scnprintf = SCA_FILENAME;
-		} else if ((field->flags & TEP_FIELD_IS_POINTER) || strstr(field->name, "addr") ||
-			   field_has_hex_fmt(field, len))
+		} else if ((field->flags & TEP_FIELD_IS_POINTER) || strstr(field->name, "addr"))
 			arg->scnprintf = SCA_PTR;
 		else if (strcmp(field->type, "pid_t") == 0)
 			arg->scnprintf = SCA_PID;
@@ -3252,29 +3207,6 @@ static void bpf_output__fprintf(struct trace *trace,
 	++trace->nr_events_printed;
 }
 
-static unsigned char bitmap_byte(const unsigned long *mask, int byte_idx)
-{
-	unsigned char b_val = 0;
-	int bit_in_byte;
-
-	for (bit_in_byte = 0; bit_in_byte < 8; bit_in_byte++) {
-		int b_idx = byte_idx * 8 + bit_in_byte;
-		int host_w_idx = b_idx / BITS_PER_LONG;
-		int host_bit_in_word = b_idx % BITS_PER_LONG;
-
-		if (mask[host_w_idx] & (1UL << host_bit_in_word))
-			b_val |= (1 << bit_in_byte);
-	}
-	return b_val;
-}
-
-static bool trace__field_is_ip(const char *name)
-{
-	return !strcmp(name, "__probe_ip") ||
-	       !strcmp(name, "caller_ip") ||
-	       !strcmp(name, "call_site");
-}
-
 static size_t trace__fprintf_tp_fields(struct trace *trace, struct perf_sample *sample,
 				       struct thread *thread, void *augmented_args, int augmented_args_size)
 {
@@ -3287,7 +3219,6 @@ static size_t trace__fprintf_tp_fields(struct trace *trace, struct perf_sample *
 	size_t printed = 0, btf_printed;
 	unsigned long val;
 	u8 bit = 1;
-	bool is_probe_ip;
 	struct syscall_arg syscall_arg = {
 		.augmented = {
 			.size = augmented_args_size,
@@ -3307,57 +3238,17 @@ static size_t trace__fprintf_tp_fields(struct trace *trace, struct perf_sample *
 		syscall_arg.len = 0;
 		syscall_arg.fmt = arg;
 		if (field->flags & TEP_FIELD_IS_ARRAY) {
-			void *ptr = format_field__get_raw_data(field, sample,
-							       evsel->needs_swap,
-							       &syscall_arg.len);
+			int offset = field->offset;
 
-			if (!ptr) {
-				pr_err("Problem processing %s field, skipping...\n", field->name);
-				continue;
-			}
-			val = (uintptr_t)ptr;
-		} else if ((field->flags & TEP_FIELD_IS_DYNAMIC) &&
-			   strstr(field->type, "cpumask")) {
-			unsigned long *mask = format_field__get_cpumask(field, sample,
-									evsel->needs_swap,
-									&syscall_arg.len);
-
-			if (!mask) {
-				pr_err("Problem processing %s field, skipping...\n", field->name);
-				continue;
+			if (field->flags & TEP_FIELD_IS_DYNAMIC) {
+				offset = format_field__intval(field, sample, evsel->needs_swap);
+				syscall_arg.len = offset >> 16;
+				offset &= 0xffff;
+				if (tep_field_is_relative(field->flags))
+					offset += field->offset + field->size;
 			}
 
-			printed += scnprintf(bf + printed, size - printed, "%s", printed ? ", " : "");
-			if (trace->show_arg_names)
-				printed += scnprintf(bf + printed, size - printed, "%s: ", field->name);
-
-			if (syscall_arg.len == 0) {
-				printed += scnprintf(bf + printed, size - printed, "0");
-			} else if (trace->bitmask_list) {
-				printed += bitmap_scnprintf(mask, syscall_arg.len * 8,
-							    bf + printed, size - printed);
-			} else {
-				int i;
-				bool skip_zero = true;
-
-				printed += scnprintf(bf + printed, size - printed, "0x");
-				/* Print bytes from most significant to least significant */
-				for (i = syscall_arg.len - 1; i >= 0; i--) {
-					unsigned char b_val = bitmap_byte(mask, i);
-
-					if (skip_zero && b_val == 0 && i > 0)
-						continue;
-
-					if (skip_zero) {
-						printed += scnprintf(bf + printed, size - printed, "%x", b_val);
-						skip_zero = false;
-					} else {
-						printed += scnprintf(bf + printed, size - printed, "%02x", b_val);
-					}
-				}
-			}
-			free(mask);
-			continue;
+			val = (uintptr_t)(sample->raw_data + offset);
 		} else
 			val = format_field__intval(field, sample, evsel->needs_swap);
 		/*
@@ -3375,14 +3266,9 @@ static size_t trace__fprintf_tp_fields(struct trace *trace, struct perf_sample *
 		 * Suppress it by default to avoid cluttering the output.
 		 * If verbose mode is enabled, ensure it is formatted as a
 		 * hexadecimal memory address rather than a signed integer.
-		 *
-		 * caller_ip and call_site are also expected to be instruction
-		 * pointers and should always be represented in hexadecimal.
 		 */
-		is_probe_ip = evsel__is_probe(evsel) && !strcmp(field->name, "__probe_ip");
-
-		if (is_probe_ip || trace__field_is_ip(field->name)) {
-			if (is_probe_ip && !verbose)
+		if (evsel__is_probe(evsel) && !strcmp(field->name, "__probe_ip")) {
+			if (!verbose)
 				continue;
 
 			printed += scnprintf(bf + printed, size - printed,
@@ -3747,7 +3633,7 @@ static bool evlist__add_vfs_getname(struct evlist *evlist)
 
 		list_del_init(&evsel->core.node);
 		evsel->evlist = NULL;
-		evsel__put(evsel);
+		evsel__delete(evsel);
 	}
 
 	return found;
@@ -3792,11 +3678,8 @@ static void trace__handle_event(struct trace *trace, union perf_event *event, st
 		return;
 	}
 
-	if (sample->evsel == NULL) {
+	if (sample->evsel == NULL)
 		sample->evsel = evlist__id2evsel(trace->evlist, sample->id);
-		if (sample->evsel)
-			evsel__get(sample->evsel);
-	}
 
 	if (sample->evsel == NULL) {
 		fprintf(trace->output, "Unknown tp ID %" PRIu64 ", skipping...\n", sample->id);
@@ -3866,9 +3749,9 @@ out:
 	return ret;
 
 out_delete_sys_exit:
-	evsel__put_and_free_priv(sys_exit);
+	evsel__delete_priv(sys_exit);
 out_delete_sys_enter:
-	evsel__put_and_free_priv(sys_enter);
+	evsel__delete_priv(sys_enter);
 	goto out;
 }
 
@@ -4333,7 +4216,7 @@ static int trace__set_filter_pids(struct trace *trace)
 			err = augmented_syscalls__set_filter_pids(trace->filter_pids.nr,
 						       trace->filter_pids.entries);
 		}
-	} else if (perf_thread_map__pid(evlist__core(trace->evlist)->threads, 0) == -1) {
+	} else if (perf_thread_map__pid(trace->evlist->core.threads, 0) == -1) {
 		err = trace__set_filter_loop_pids(trace);
 	}
 
@@ -4556,7 +4439,7 @@ static int trace__run(struct trace *trace, int argc, const char **argv)
 
 	if (trace->summary_bpf) {
 		if (trace_prepare_bpf_summary(trace->summary_mode) < 0)
-			goto out_put_evlist;
+			goto out_delete_evlist;
 
 		if (trace->summary_only)
 			goto create_maps;
@@ -4624,19 +4507,19 @@ create_maps:
 	err = evlist__create_maps(evlist, &trace->opts.target);
 	if (err < 0) {
 		fprintf(trace->output, "Problems parsing the target to trace, check your options!\n");
-		goto out_put_evlist;
+		goto out_delete_evlist;
 	}
 
 	err = trace__symbols_init(trace, argc, argv, evlist);
 	if (err < 0) {
 		fprintf(trace->output, "Problems initializing symbol libraries!\n");
-		goto out_put_evlist;
+		goto out_delete_evlist;
 	}
 
 	if (trace->summary_mode == SUMMARY__BY_TOTAL && !trace->summary_bpf) {
 		trace->syscall_stats = alloc_syscall_stats();
 		if (!trace->syscall_stats)
-			goto out_put_evlist;
+			goto out_delete_evlist;
 	}
 
 	evlist__config(evlist, &trace->opts, &callchain_param);
@@ -4645,9 +4528,9 @@ create_maps:
 		err = evlist__prepare_workload(evlist, &trace->opts.target, argv, false, NULL);
 		if (err < 0) {
 			fprintf(trace->output, "Couldn't run the workload!\n");
-			goto out_put_evlist;
+			goto out_delete_evlist;
 		}
-		workload_pid = evlist__workload_pid(evlist);
+		workload_pid = evlist->workload.pid;
 	}
 
 	err = evlist__open(evlist);
@@ -4693,13 +4576,13 @@ create_maps:
 
 	err = trace__expand_filters(trace, &evsel);
 	if (err)
-		goto out_put_evlist;
+		goto out_delete_evlist;
 	err = evlist__apply_filters(evlist, &evsel, &trace->opts.target);
 	if (err < 0)
 		goto out_error_apply_filters;
 
 	if (!trace->summary_only || !trace->summary_bpf) {
-		err = evlist__do_mmap(evlist, trace->opts.mmap_pages);
+		err = evlist__mmap(evlist, trace->opts.mmap_pages);
 		if (err < 0)
 			goto out_error_mmap;
 	}
@@ -4718,8 +4601,8 @@ create_maps:
 	if (trace->summary_bpf)
 		trace_start_bpf_summary();
 
-	trace->multiple_threads = perf_thread_map__pid(evlist__core(evlist)->threads, 0) == -1 ||
-		perf_thread_map__nr(evlist__core(evlist)->threads) > 1 ||
+	trace->multiple_threads = perf_thread_map__pid(evlist->core.threads, 0) == -1 ||
+		perf_thread_map__nr(evlist->core.threads) > 1 ||
 		evlist__first(evlist)->core.attr.inherit;
 
 	/*
@@ -4736,11 +4619,11 @@ create_maps:
 again:
 	before = trace->nr_events;
 
-	for (i = 0; i < evlist__core(evlist)->nr_mmaps; i++) {
+	for (i = 0; i < evlist->core.nr_mmaps; i++) {
 		union perf_event *event;
 		struct mmap *md;
 
-		md = &evlist__mmap(evlist)[i];
+		md = &evlist->mmap[i];
 		if (perf_mmap__read_init(&md->core) < 0)
 			continue;
 
@@ -4810,12 +4693,12 @@ out_disable:
 		}
 	}
 
-out_put_evlist:
+out_delete_evlist:
 	trace_cleanup_bpf_summary();
 	delete_syscall_stats(trace->syscall_stats);
 	trace__symbols__exit(trace);
 	evlist__free_syscall_tp_fields(evlist);
-	evlist__put(evlist);
+	evlist__delete(evlist);
 	cgroup__put(trace->cgroup);
 	trace->evlist = NULL;
 	trace->live = false;
@@ -4840,21 +4723,21 @@ out_error_open:
 
 out_error:
 	fprintf(trace->output, "%s\n", errbuf);
-	goto out_put_evlist;
+	goto out_delete_evlist;
 
 out_error_apply_filters:
 	fprintf(trace->output,
 		"Failed to set filter \"%s\" on event %s: %m\n",
 		evsel->filter, evsel__name(evsel));
-	goto out_put_evlist;
+	goto out_delete_evlist;
 }
 out_error_mem:
 	fprintf(trace->output, "Not enough memory to run!\n");
-	goto out_put_evlist;
+	goto out_delete_evlist;
 
 out_errno:
 	fprintf(trace->output, "%m\n");
-	goto out_put_evlist;
+	goto out_delete_evlist;
 }
 
 static int trace__replay(struct trace *trace)
@@ -5442,7 +5325,7 @@ static int trace__parse_cgroups(const struct option *opt, const char *str, int u
 {
 	struct trace *trace = opt->value;
 
-	if (!list_empty(&evlist__core(trace->evlist)->entries)) {
+	if (!list_empty(&trace->evlist->core.entries)) {
 		struct option o = {
 			.value = &trace->evlist,
 		};
@@ -5534,7 +5417,7 @@ static void trace__exit(struct trace *trace)
 		zfree(&trace->syscalls.table);
 	}
 	zfree(&trace->perfconfig_events);
-	evlist__put(trace->evlist);
+	evlist__delete(trace->evlist);
 	trace->evlist = NULL;
 	ordered_events__free(&trace->oe.data);
 #ifdef HAVE_LIBBPF_SUPPORT
@@ -5654,7 +5537,6 @@ int cmd_trace(int argc, const char **argv)
 		     "start"),
 	OPT_BOOLEAN(0, "force-btf", &trace.force_btf, "Prefer btf_dump general pretty printer"
 		       "to customized ones"),
-	OPT_BOOLEAN(0, "bitmask-list", &trace.bitmask_list, "Show bitmask as a human-readable list"),
 	OPT_BOOLEAN(0, "bpf-summary", &trace.summary_bpf, "Summary syscall stats in BPF"),
 	OPT_INTEGER(0, "max-summary", &trace.max_summary,
 		     "Max number of entries in the summary."),
@@ -5717,7 +5599,7 @@ int cmd_trace(int argc, const char **argv)
 	 * .perfconfig trace.add_events, and filter those out.
 	 */
 	if (!trace.trace_syscalls && !trace.trace_pgfaults &&
-	    evlist__nr_entries(trace.evlist) == 0 /* Was --events used? */) {
+	    trace.evlist->core.nr_entries == 0 /* Was --events used? */) {
 		trace.trace_syscalls = true;
 	}
 	/*
@@ -5803,7 +5685,7 @@ skip_augmentation:
 		symbol_conf.use_callchain = true;
 	}
 
-	if (evlist__nr_entries(trace.evlist) > 0) {
+	if (trace.evlist->core.nr_entries > 0) {
 		bool use_btf = false;
 
 		evlist__set_default_evsel_handler(trace.evlist, trace__event_handler);

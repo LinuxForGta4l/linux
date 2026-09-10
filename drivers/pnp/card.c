@@ -254,16 +254,9 @@ int pnp_add_card(struct pnp_card *card)
 	/* we wait until now to add devices in order to ensure the drivers
 	 * will be able to use all of the related devices on the card
 	 * without waiting an unreasonable length of time */
-	list_for_each_safe(pos, temp, &card->devices) {
+	list_for_each(pos, &card->devices) {
 		struct pnp_dev *dev = card_to_pnp_dev(pos);
-		error = __pnp_add_device(dev);
-		if (error) {
-			mutex_lock(&pnp_lock);
-			list_del(&dev->card_list);
-			dev->card = NULL;
-			mutex_unlock(&pnp_lock);
-			put_device(&dev->dev);
-		}
+		__pnp_add_device(dev);
 	}
 
 	/* match with card drivers */

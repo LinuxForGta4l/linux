@@ -949,11 +949,13 @@ int usbtv_video_init(struct usbtv *usbtv)
 	ret = video_register_device(&usbtv->vdev, VFL_TYPE_VIDEO, -1);
 	if (ret < 0) {
 		dev_warn(usbtv->dev, "Could not register video device\n");
-		return ret;
+		goto vdev_fail;
 	}
 
 	return 0;
 
+vdev_fail:
+	v4l2_device_unregister(&usbtv->v4l2_dev);
 v4l2_fail:
 ctrl_fail:
 	v4l2_ctrl_handler_free(&usbtv->ctrl);

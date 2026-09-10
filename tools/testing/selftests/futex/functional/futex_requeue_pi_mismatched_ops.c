@@ -29,17 +29,14 @@
 
 futex_t f1 = FUTEX_INITIALIZER;
 futex_t f2 = FUTEX_INITIALIZER;
-int child_ret;
+int child_ret = 0;
 
 void *blocking_child(void *arg)
 {
-	struct __test_metadata *_metadata = (struct __test_metadata *)arg;
-
 	child_ret = futex_wait(&f1, f1, NULL, FUTEX_PRIVATE_FLAG);
 	if (child_ret < 0) {
 		child_ret = -errno;
-		ASSERT_EQ(child_ret, 0)
-			TH_LOG("futex_wait failed: %s", strerror(errno));
+		ksft_exit_fail_msg("futex_wait\n");
 	}
 	return (void *)&child_ret;
 }
@@ -49,8 +46,8 @@ TEST(requeue_pi_mismatched_ops)
 	pthread_t child;
 	int ret;
 
-	ASSERT_EQ(pthread_create(&child, NULL, blocking_child, _metadata), 0)
-		TH_LOG("pthread_create failed");
+	if (pthread_create(&child, NULL, blocking_child, NULL))
+		ksft_exit_fail_msg("pthread_create\n");
 
 	/* Allow the child to block in the kernel. */
 	sleep(1);
@@ -70,33 +67,27 @@ TEST(requeue_pi_mismatched_ops)
 			 * FUTEX_WAKE.
 			 */
 			ret = futex_wake(&f1, 1, FUTEX_PRIVATE_FLAG);
-			if (ret == 1) {
+			if (ret == 1)
 				ret = 0;
-			} else if (ret < 0) {
-				ASSERT_GE(ret, 0)
-					TH_LOG("futex_wake failed: %s", strerror(errno));
-			} else {
-				ASSERT_TRUE(0)
-					TH_LOG("futex_wake did not wake the child");
-			}
+			else if (ret < 0)
+				ksft_exit_fail_msg("futex_wake\n");
+			else
+				ksft_exit_fail_msg("futex_wake did not wake the child\n");
 		} else {
-			ASSERT_TRUE(0)
-				TH_LOG("futex_cmp_requeue_pi failed with unexpected errno: %s", strerror(errno));
+			ksft_exit_fail_msg("futex_cmp_requeue_pi\n");
 		}
 	} else if (ret > 0) {
-		EXPECT_EQ(ret, 0)
-			TH_LOG("futex_cmp_requeue_pi failed to detect the mismatch");
+		ksft_test_result_fail("futex_cmp_requeue_pi failed to detect the mismatch\n");
 	} else {
-		ASSERT_TRUE(0)
-			TH_LOG("futex_cmp_requeue_pi found no waiters");
+		ksft_exit_fail_msg("futex_cmp_requeue_pi found no waiters\n");
 	}
 
 	pthread_join(child, NULL);
 
-	EXPECT_EQ(ret, 0)
-		TH_LOG("Test failed: ret=%d", ret);
-	EXPECT_EQ(child_ret, 0)
-		TH_LOG("Child failed: child_ret=%d", child_ret);
+	if (!ret && !child_ret)
+		ksft_test_result_pass("futex_requeue_pi_mismatched_ops passed\n");
+	else
+		ksft_test_result_pass("futex_requeue_pi_mismatched_ops failed\n");
 }
 
 TEST_HARNESS_MAIN

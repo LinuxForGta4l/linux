@@ -18,7 +18,6 @@
 #include <linux/file.h>
 #include <linux/fcntl.h>
 #include <linux/fs.h>
-#include <linux/fs_struct.h>
 #include <scsi/scsi_proto.h>
 #include <linux/unaligned.h>
 
@@ -1970,8 +1969,7 @@ static int __core_scsi3_write_aptpl_to_file(
 	if (!path)
 		return -ENOMEM;
 
-	scoped_with_init_fs()
-		file = filp_open(path, flags, 0600);
+	file = filp_open(path, flags, 0600);
 	if (IS_ERR(file)) {
 		pr_err("filp_open(%s) for APTPL metadata"
 			" failed\n", path);

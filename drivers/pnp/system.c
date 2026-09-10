@@ -17,10 +17,10 @@
 
 static const struct pnp_device_id pnp_dev_table[] = {
 	/* General ID for reserving resources */
-	{ .id = "PNP0c02" },
+	{"PNP0c02", 0},
 	/* memory controller */
-	{ .id = "PNP0c01" },
-	{ }
+	{"PNP0c01", 0},
+	{"", 0}
 };
 
 static void reserve_range(struct pnp_dev *dev, struct resource *r, int port)

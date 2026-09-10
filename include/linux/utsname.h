@@ -18,7 +18,7 @@ enum uts_proc {
 	UTS_PROC_DOMAINNAME,
 };
 
-#ifdef CONFIG_SYSCTL
+#ifdef CONFIG_PROC_SYSCTL
 extern void uts_proc_notify(enum uts_proc proc);
 #else
 static inline void uts_proc_notify(enum uts_proc proc)

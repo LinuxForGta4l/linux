@@ -161,8 +161,6 @@ static int rpcif_spi_probe(struct platform_device *pdev)
 
 	ctlr->dev.of_node = parent->of_node;
 
-	pm_runtime_set_autosuspend_delay(rpc->dev, 200);
-	pm_runtime_use_autosuspend(rpc->dev);
 	pm_runtime_enable(rpc->dev);
 
 	ctlr->num_chipselect = 1;
@@ -185,7 +183,6 @@ static int rpcif_spi_probe(struct platform_device *pdev)
 	return 0;
 
 out_disable_rpm:
-	pm_runtime_dont_use_autosuspend(rpc->dev);
 	pm_runtime_disable(rpc->dev);
 	return error;
 }
@@ -196,7 +193,6 @@ static void rpcif_spi_remove(struct platform_device *pdev)
 	struct rpcif *rpc = spi_controller_get_devdata(ctlr);
 
 	spi_unregister_controller(ctlr);
-	pm_runtime_dont_use_autosuspend(rpc->dev);
 	pm_runtime_disable(rpc->dev);
 }
 

@@ -229,6 +229,10 @@
 	};
 };
 
+&blsp1_i2c5_sleep {
+	bias-disable;
+};
+
 &blsp1_uart3 {
 	status = "okay";
 

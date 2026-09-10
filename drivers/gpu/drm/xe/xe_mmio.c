@@ -11,17 +11,26 @@
 #include <linux/pci.h>
 
 #include <drm/drm_managed.h>
+#include <drm/drm_print.h>
 
 #include "regs/xe_bars.h"
 #include "xe_device.h"
 #include "xe_gt_sriov_vf.h"
-#include "xe_printk.h"
 #include "xe_sriov.h"
-#include "xe_tile_printk.h"
 #include "xe_trace.h"
 #include "xe_wa.h"
 
 #include "generated/xe_device_wa_oob.h"
+
+static void tiles_fini(void *arg)
+{
+	struct xe_device *xe = arg;
+	struct xe_tile *tile;
+	int id;
+
+	for_each_remote_tile(tile, xe, id)
+		tile->mmio.regs = NULL;
+}
 
 /*
  * On multi-tile devices, partition the BAR space for MMIO on each tile,
@@ -47,71 +56,50 @@ static void mmio_multi_tile_setup(struct xe_device *xe, size_t tile_mmio_size)
 	struct xe_tile *tile;
 	u8 id;
 
-	for_each_remote_tile(tile, xe, id)
-		xe_mmio_init(&tile->mmio, tile, xe->mmio.regs + id * tile_mmio_size, SZ_4M);
-}
-
-/**
- * xe_mmio_probe_tiles() - Initialize all tiles' MMIO
- * @xe: the &xe_device
- *
- * Initialize the remaining tiles' MMIO instances.
- *
- * Return: 0 on success or a negative error code on failure.
- */
-int xe_mmio_probe_tiles(struct xe_device *xe)
-{
-	size_t tile_mmio_size = SZ_16M;
-
 	/*
 	 * Nothing to be done as tile 0 has already been setup earlier with the
 	 * entire BAR mapped - see xe_mmio_probe_early()
 	 */
 	if (xe->info.tile_count == 1)
-		return 0;
+		return;
 
-	if (xe->mmio.size < xe->info.tile_count * tile_mmio_size) {
-		xe_err(xe, "GTTMMADR_BAR is too small for %d tiles: %zu\n",
-		       xe->info.tile_count, xe->mmio.size);
-		return -EIO;
-	}
+	for_each_remote_tile(tile, xe, id)
+		xe_mmio_init(&tile->mmio, tile, xe->mmio.regs + id * tile_mmio_size, SZ_4M);
+}
+
+int xe_mmio_probe_tiles(struct xe_device *xe)
+{
+	size_t tile_mmio_size = SZ_16M;
 
 	mmio_multi_tile_setup(xe, tile_mmio_size);
-	return 0;
+
+	return devm_add_action_or_reset(xe->drm.dev, tiles_fini, xe);
 }
 
 static void mmio_fini(void *arg)
 {
 	struct xe_device *xe = arg;
+	struct xe_tile *root_tile = xe_device_get_root_tile(xe);
 
+	pci_iounmap(to_pci_dev(xe->drm.dev), xe->mmio.regs);
 	xe->mmio.regs = NULL;
+	root_tile->mmio.regs = NULL;
 }
 
-/**
- * xe_mmio_probe_early() - Probe and initialize device's MMIO
- * @xe: the &xe_device
- *
- * Map the entire GTTMMADR_BAR and initialize the first tile's MMIO instance.
- *
- * The first 16MB of the GTTMMADR_BAR always belongs to the root tile, and
- * includes: registers (0-4MB), reserved space (4MB-8MB) and GGTT (8MB-16MB).
- *
- * Return: 0 on success or a negative error code on failure.
- */
 int xe_mmio_probe_early(struct xe_device *xe)
 {
 	struct xe_tile *root_tile = xe_device_get_root_tile(xe);
 	struct pci_dev *pdev = to_pci_dev(xe->drm.dev);
 
-	xe->mmio.regs = pcim_iomap(pdev, GTTMMADR_BAR, 0);
-	if (!xe->mmio.regs) {
-		xe_err(xe, "Failed to map GTTMMADR_BAR\n");
-		return -EIO;
-	}
-
+	/*
+	 * Map the entire BAR.
+	 * The first 16MB of the BAR, belong to the root tile, and include:
+	 * registers (0-4MB), reserved space (4MB-8MB) and GGTT (8MB-16MB).
+	 */
 	xe->mmio.size = pci_resource_len(pdev, GTTMMADR_BAR);
-	if (xe->mmio.size < SZ_16M) {
-		xe_err(xe, "GTTMMADR_BAR is too small: %zu\n", xe->mmio.size);
+	xe->mmio.regs = pci_iomap(pdev, GTTMMADR_BAR, 0);
+	if (!xe->mmio.regs) {
+		drm_err(&xe->drm, "failed to map registers\n");
 		return -EIO;
 	}
 
@@ -140,11 +128,6 @@ void xe_mmio_init(struct xe_mmio *mmio, struct xe_tile *tile, void __iomem *ptr,
 	mmio->tile = tile;
 }
 
-static bool mmio_available(struct xe_mmio *mmio)
-{
-	return !xe_tile_WARN_ON_ONCE(mmio->tile, !mmio->tile->xe->mmio.regs);
-}
-
 static void mmio_flush_pending_writes(struct xe_mmio *mmio)
 {
 #define DUMMY_REG_OFFSET	0x130030
@@ -163,9 +146,6 @@ u8 xe_mmio_read8(struct xe_mmio *mmio, struct xe_reg reg)
 	u32 addr = xe_mmio_adjusted_addr(mmio, reg.addr);
 	u8 val;
 
-	if (!mmio_available(mmio))
-		return 0;
-
 	mmio_flush_pending_writes(mmio);
 
 	val = readb(mmio->regs + addr);
@@ -178,9 +158,6 @@ void xe_mmio_write8(struct xe_mmio *mmio, struct xe_reg reg, u8 val)
 {
 	u32 addr = xe_mmio_adjusted_addr(mmio, reg.addr);
 
-	if (!mmio_available(mmio))
-		return;
-
 	trace_xe_reg_rw(mmio, true, addr, val, sizeof(val));
 
 	writeb(val, mmio->regs + addr);
@@ -190,9 +167,6 @@ u16 xe_mmio_read16(struct xe_mmio *mmio, struct xe_reg reg)
 {
 	u32 addr = xe_mmio_adjusted_addr(mmio, reg.addr);
 	u16 val;
-
-	if (!mmio_available(mmio))
-		return 0;
 
 	mmio_flush_pending_writes(mmio);
 
@@ -205,9 +179,6 @@ u16 xe_mmio_read16(struct xe_mmio *mmio, struct xe_reg reg)
 void xe_mmio_write32(struct xe_mmio *mmio, struct xe_reg reg, u32 val)
 {
 	u32 addr = xe_mmio_adjusted_addr(mmio, reg.addr);
-
-	if (!mmio_available(mmio))
-		return;
 
 	trace_xe_reg_rw(mmio, true, addr, val, sizeof(val));
 
@@ -222,9 +193,6 @@ u32 xe_mmio_read32(struct xe_mmio *mmio, struct xe_reg reg)
 {
 	u32 addr = xe_mmio_adjusted_addr(mmio, reg.addr);
 	u32 val;
-
-	if (!mmio_available(mmio))
-		return 0;
 
 	mmio_flush_pending_writes(mmio);
 
@@ -314,8 +282,8 @@ u64 xe_mmio_read64_2x32(struct xe_mmio *mmio, struct xe_reg reg)
 		oldudw = udw;
 	}
 
-	xe_tile_WARN(mmio->tile, retries == 0,
-		     "MMIO: 64-bit read of %#x did not stabilize\n", reg.addr);
+	drm_WARN(&mmio->tile->xe->drm, retries == 0,
+		 "64-bit read of %#x did not stabilize\n", reg.addr);
 
 	return (u64)udw << 32 | ldw;
 }

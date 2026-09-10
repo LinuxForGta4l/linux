@@ -73,8 +73,6 @@ struct machine_data {
 	char platform_name[2][DAI_NAME_SIZE]; /* One for each DMA channel */
 };
 
-#define card_to_mdata(_card) container_of(_card, struct machine_data, card)
-
 /**
  * p1022_ds_machine_probe: initialize the board
  *
@@ -84,7 +82,8 @@ struct machine_data {
  */
 static int p1022_ds_machine_probe(struct snd_soc_card *card)
 {
-	struct machine_data *mdata = card_to_mdata(card);
+	struct machine_data *mdata =
+		container_of(card, struct machine_data, card);
 	struct ccsr_guts __iomem *guts;
 
 	guts = ioremap(guts_phys, sizeof(struct ccsr_guts));
@@ -123,7 +122,8 @@ static int p1022_ds_machine_probe(struct snd_soc_card *card)
 static int p1022_ds_startup(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
-	struct machine_data *mdata = card_to_mdata(rtd->card);
+	struct machine_data *mdata =
+		container_of(rtd->card, struct machine_data, card);
 	struct device *dev = rtd->card->dev;
 	int ret = 0;
 
@@ -156,7 +156,8 @@ static int p1022_ds_startup(struct snd_pcm_substream *substream)
  */
 static int p1022_ds_machine_remove(struct snd_soc_card *card)
 {
-	struct machine_data *mdata = card_to_mdata(card);
+	struct machine_data *mdata =
+		container_of(card, struct machine_data, card);
 	struct ccsr_guts __iomem *guts;
 
 	guts = ioremap(guts_phys, sizeof(struct ccsr_guts));
@@ -398,7 +399,8 @@ error_put:
 static void p1022_ds_remove(struct platform_device *pdev)
 {
 	struct snd_soc_card *card = platform_get_drvdata(pdev);
-	struct machine_data *mdata = card_to_mdata(card);
+	struct machine_data *mdata =
+		container_of(card, struct machine_data, card);
 
 	snd_soc_unregister_card(card);
 	kfree(mdata);

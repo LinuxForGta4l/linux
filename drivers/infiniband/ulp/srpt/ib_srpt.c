@@ -77,8 +77,8 @@ module_param(srp_max_req_size, int, 0444);
 MODULE_PARM_DESC(srp_max_req_size,
 		 "Maximum size of SRP request messages in bytes.");
 
-static unsigned int srpt_srq_size = DEFAULT_SRPT_SRQ_SIZE;
-module_param(srpt_srq_size, uint, 0444);
+static int srpt_srq_size = DEFAULT_SRPT_SRQ_SIZE;
+module_param(srpt_srq_size, int, 0444);
 MODULE_PARM_DESC(srpt_srq_size,
 		 "Shared receive queue (SRQ) size.");
 
@@ -405,7 +405,8 @@ static void srpt_get_ioc(struct srpt_port *sport, u32 slot,
 	if (sdev->use_srq)
 		send_queue_depth = sdev->srq_size;
 	else
-		send_queue_depth = min(sdev->device->attrs.max_qp_wr, MAX_SRPT_RQ_SIZE);
+		send_queue_depth = min(MAX_SRPT_RQ_SIZE,
+				       sdev->device->attrs.max_qp_wr);
 
 	memset(iocp, 0, sizeof(*iocp));
 	strcpy(iocp->id_string, SRPT_ID_STRING);
@@ -959,7 +960,6 @@ static int srpt_alloc_rw_ctxs(struct srpt_send_ioctx *ioctx,
 	struct srpt_rdma_ch *ch = ioctx->ch;
 	struct scatterlist *prev = NULL;
 	unsigned prev_nents;
-	u8 n_rdma, n_rw_ctx;
 	int ret, i;
 
 	if (nbufs == 1) {
@@ -969,9 +969,6 @@ static int srpt_alloc_rw_ctxs(struct srpt_send_ioctx *ioctx,
 		if (!ioctx->rw_ctxs)
 			return -ENOMEM;
 	}
-
-	n_rw_ctx = ioctx->n_rw_ctx;
-	n_rdma = ioctx->n_rdma;
 
 	for (i = ioctx->n_rw_ctx; i < nbufs; i++, db++) {
 		struct srpt_rw_ctx *ctx = &ioctx->rw_ctxs[i];
@@ -1019,9 +1016,6 @@ unwind:
 	}
 	if (ioctx->rw_ctxs != &ioctx->s_rw_ctx)
 		kfree(ioctx->rw_ctxs);
-	ioctx->rw_ctxs = NULL;
-	ioctx->n_rw_ctx = n_rw_ctx;
-	ioctx->n_rdma = n_rdma;
 	return ret;
 }
 
@@ -1602,7 +1596,7 @@ static void srpt_handle_cmd(struct srpt_rdma_ch *ch,
 
 	rc = target_init_cmd(cmd, ch->sess, &send_ioctx->sense_data[0],
 			     scsilun_to_int(&srp_cmd->lun), data_len,
-			     cmd->sam_task_attr, dir, TARGET_SCF_ACK_KREF);
+			     TCM_SIMPLE_TAG, dir, TARGET_SCF_ACK_KREF);
 	if (rc != 0) {
 		pr_debug("target_submit_cmd() returned %d for tag %#llx\n", rc,
 			 srp_cmd->tag);
@@ -1857,7 +1851,7 @@ static int srpt_create_ch_ib(struct srpt_rdma_ch *ch)
 	struct srpt_port *sport = ch->sport;
 	struct srpt_device *sdev = sport->sdev;
 	const struct ib_device_attr *attrs = &sdev->device->attrs;
-	u32 sq_size = sport->port_attrib.srp_sq_size;
+	int sq_size = sport->port_attrib.srp_sq_size;
 	int i, ret;
 
 	WARN_ON(ch->rq_size < 1);
@@ -1918,13 +1912,13 @@ retry:
 		bool retry = sq_size > MIN_SRPT_SQ_SIZE;
 
 		if (retry) {
-			pr_debug("failed to create queue pair with sq_size = %u (%d) - retrying\n",
+			pr_debug("failed to create queue pair with sq_size = %d (%d) - retrying\n",
 				 sq_size, ret);
 			ib_cq_pool_put(ch->cq, ch->cq_size);
 			sq_size = max(sq_size / 2, MIN_SRPT_SQ_SIZE);
 			goto retry;
 		} else {
-			pr_err("failed to create queue pair with sq_size = %u (%d)\n",
+			pr_err("failed to create queue pair with sq_size = %d (%d)\n",
 			       sq_size, ret);
 			goto err_destroy_cq;
 		}
@@ -1932,7 +1926,7 @@ retry:
 
 	atomic_set(&ch->sq_wr_avail, qp_init->cap.max_send_wr);
 
-	pr_debug("%s: max_cqe= %d max_sge= %d sq_size = %u ch= %p\n",
+	pr_debug("%s: max_cqe= %d max_sge= %d sq_size = %d ch= %p\n",
 		 __func__, ch->cq->cqe, qp_init->cap.max_send_sge,
 		 qp_init->cap.max_send_wr, ch);
 
@@ -2305,7 +2299,7 @@ static int srpt_cm_req_recv(struct srpt_device *const sdev,
 	 * depth to avoid that the initiator driver has to report QUEUE_FULL
 	 * to the SCSI mid-layer.
 	 */
-	ch->rq_size = min(sdev->device->attrs.max_qp_wr, MAX_SRPT_RQ_SIZE);
+	ch->rq_size = min(MAX_SRPT_RQ_SIZE, sdev->device->attrs.max_qp_wr);
 	spin_lock_init(&ch->spinlock);
 	ch->state = CH_CONNECTING;
 	INIT_LIST_HEAD(&ch->cmd_wait_list);
@@ -3143,7 +3137,7 @@ static int srpt_alloc_srq(struct srpt_device *sdev)
 		return PTR_ERR(srq);
 	}
 
-	pr_debug("create SRQ #wr= %d max_allow=%u dev= %s\n", sdev->srq_size,
+	pr_debug("create SRQ #wr= %d max_allow=%d dev= %s\n", sdev->srq_size,
 		 sdev->device->attrs.max_srq_wr, dev_name(&device->dev));
 
 	sdev->req_buf_cache = srpt_cache_get(srp_max_req_size);
@@ -3958,7 +3952,7 @@ static int __init srpt_init_module(void)
 
 	if (srpt_srq_size < MIN_SRPT_SRQ_SIZE
 	    || srpt_srq_size > MAX_SRPT_SRQ_SIZE) {
-		pr_err("invalid value %u for kernel module parameter srpt_srq_size -- must be in the range [%d..%d].\n",
+		pr_err("invalid value %d for kernel module parameter srpt_srq_size -- must be in the range [%d..%d].\n",
 		       srpt_srq_size, MIN_SRPT_SRQ_SIZE, MAX_SRPT_SRQ_SIZE);
 		goto out;
 	}

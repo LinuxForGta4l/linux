@@ -286,7 +286,8 @@ static struct vfio_iommu_type1_info *vfio_iommu_get_info(int container_fd)
 {
 	struct vfio_iommu_type1_info *info;
 
-	info = malloc_assert(sizeof(*info));
+	info = malloc(sizeof(*info));
+	VFIO_ASSERT_NOT_NULL(info);
 
 	*info = (struct vfio_iommu_type1_info) {
 		.argsz = sizeof(*info),
@@ -323,7 +324,8 @@ static struct iommu_iova_range *vfio_iommu_iova_ranges(struct iommu *iommu,
 	cap_range = container_of(hdr, struct vfio_iommu_type1_info_cap_iova_range, header);
 	VFIO_ASSERT_GT(cap_range->nr_iovas, 0);
 
-	ranges = calloc_assert(cap_range->nr_iovas, sizeof(*ranges));
+	ranges = calloc(cap_range->nr_iovas, sizeof(*ranges));
+	VFIO_ASSERT_NOT_NULL(ranges);
 
 	for (u32 i = 0; i < cap_range->nr_iovas; i++) {
 		ranges[i] = (struct iommu_iova_range){
@@ -355,7 +357,8 @@ static struct iommu_iova_range *iommufd_iova_ranges(struct iommu *iommu,
 	VFIO_ASSERT_EQ(errno, EMSGSIZE);
 	VFIO_ASSERT_GT(query.num_iovas, 0);
 
-	ranges = calloc_assert(query.num_iovas, sizeof(*ranges));
+	ranges = calloc(query.num_iovas, sizeof(*ranges));
+	VFIO_ASSERT_NOT_NULL(ranges);
 
 	query.allowed_iovas = (uintptr_t)ranges;
 
@@ -421,7 +424,8 @@ struct iommu *iommu_init(const char *iommu_mode)
 	struct iommu *iommu;
 	int version;
 
-	iommu = calloc_assert(1, sizeof(*iommu));
+	iommu = calloc(1, sizeof(*iommu));
+	VFIO_ASSERT_NOT_NULL(iommu);
 
 	INIT_LIST_HEAD(&iommu->dma_regions);
 

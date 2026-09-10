@@ -192,6 +192,5 @@
 
 &usi9 {
 	samsung,mode = <USI_MODE_I2C0_1>;
-
 	status = "okay";
 };

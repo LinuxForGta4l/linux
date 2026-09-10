@@ -287,8 +287,7 @@ end:
  */
 static void amd_fixup_frequency(struct acpi_processor_px *px, int i)
 {
-	struct msr val;
-	u32 fid, did;
+	u32 hi, lo, fid, did;
 	int index = px->control & 0x00000007;
 
 	if (boot_cpu_data.x86_vendor != X86_VENDOR_AMD)
@@ -296,16 +295,16 @@ static void amd_fixup_frequency(struct acpi_processor_px *px, int i)
 
 	if ((boot_cpu_data.x86 == 0x10 && boot_cpu_data.x86_model < 10) ||
 	    boot_cpu_data.x86 == 0x11) {
-		rdmsrq(MSR_AMD_PSTATE_DEF_BASE + index, val.q);
+		rdmsr(MSR_AMD_PSTATE_DEF_BASE + index, lo, hi);
 		/*
 		 * MSR C001_0064+:
 		 * Bit 63: PstateEn. Read-write. If set, the P-state is valid.
 		 */
-		if (!(val.h & BIT(31)))
+		if (!(hi & BIT(31)))
 			return;
 
-		fid = val.l & 0x3f;
-		did = (val.l >> 6) & 7;
+		fid = lo & 0x3f;
+		did = (lo >> 6) & 7;
 		if (boot_cpu_data.x86 == 0x10)
 			px->core_frequency = (100 * (fid + 0x10)) >> did;
 		else

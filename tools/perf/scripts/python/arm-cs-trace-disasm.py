@@ -31,19 +31,18 @@ from perf_trace_context import perf_sample_srccode, perf_config_get
 #
 # Output disassembly with objdump and auto detect vmlinux
 # (when running on same machine.):
-#  perf script --itrace=b -s scripts/python/arm-cs-trace-disasm.py \
-#       -- -d
+#  perf script -s scripts/python/arm-cs-trace-disasm.py -d
 #
 # Output disassembly with llvm-objdump:
-#  perf script --itrace=b -s scripts/python/arm-cs-trace-disasm.py \
+#  perf script -s scripts/python/arm-cs-trace-disasm.py \
 #		-- -d llvm-objdump-11 -k path/to/vmlinux
 #
 # Output accurate disassembly by passing kcore to script:
-#  perf script --itrace=b -s scripts/python/arm-cs-trace-disasm.py \
+#  perf script -s scripts/python/arm-cs-trace-disasm.py \
 #		-- -d -k perf.data/kcore_dir/kcore
 #
 # Output only source line and symbols:
-#  perf script --itrace=b -s scripts/python/arm-cs-trace-disasm.py
+#  perf script -s scripts/python/arm-cs-trace-disasm.py
 
 def default_objdump():
 	config = perf_config_get("annotate.objdump")

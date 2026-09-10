@@ -565,6 +565,8 @@
 };
 
 &ipa {
+	qcom,gsi-loader = "self";
+	memory-region = <&ipa_fw_mem>;
 	firmware-name = "qcom/sdm850/HUAWEI/AL09/ipa_fws.elf";
 
 	status = "okay";
@@ -870,8 +872,8 @@
 };
 
 &usb_1_qmpphy {
-	vdda-phy-supply = <&vdda_usb1_ss_core>;
-	vdda-pll-supply = <&vdda_usb1_ss_1p2>;
+	vdda-phy-supply = <&vdda_usb1_ss_1p2>;
+	vdda-pll-supply = <&vdda_usb1_ss_core>;
 
 	status = "okay";
 };
@@ -896,8 +898,8 @@
 };
 
 &usb_2_qmpphy {
-	vdda-phy-supply = <&vdda_usb2_ss_core>;
-	vdda-pll-supply = <&vdda_usb2_ss_1p2>;
+	vdda-phy-supply = <&vdda_usb2_ss_1p2>;
+	vdda-pll-supply = <&vdda_usb2_ss_core>;
 
 	status = "okay";
 };

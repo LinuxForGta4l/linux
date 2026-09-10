@@ -8,7 +8,7 @@
  * across a single kexec reboot.
  */
 
-#include <libliveupdate.h>
+#include "luo_test_utils.h"
 
 #define TEST_SESSION_NAME "test-session"
 #define TEST_MEMFD_TOKEN 0x1A

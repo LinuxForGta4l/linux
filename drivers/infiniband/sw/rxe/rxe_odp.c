@@ -87,9 +87,14 @@ int rxe_odp_mr_init_user(struct rxe_dev *rxe, u64 start, u64 length,
 
 	rxe_mr_init(access_flags, mr);
 
-	/* Implicit ODP (start=0, length=U64_MAX) is not implemented. */
-	if (!start && length == U64_MAX)
-		return -EOPNOTSUPP;
+	if (!start && length == U64_MAX) {
+		if (iova != 0)
+			return -EINVAL;
+		if (!(rxe->attr.odp_caps.general_caps & IB_ODP_SUPPORT_IMPLICIT))
+			return -EINVAL;
+
+		/* Never reach here, for implicit ODP is not implemented. */
+	}
 
 	umem_odp = ib_umem_odp_get(&rxe->ib_dev, start, length, access_flags,
 				   &rxe_mn_ops);
@@ -109,7 +114,6 @@ int rxe_odp_mr_init_user(struct rxe_dev *rxe, u64 start, u64 length,
 	err = rxe_odp_init_pages(mr);
 	if (err) {
 		ib_umem_odp_release(umem_odp);
-		mr->umem = NULL;
 		return err;
 	}
 

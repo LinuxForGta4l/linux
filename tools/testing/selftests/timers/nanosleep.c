@@ -27,8 +27,42 @@
 #include <sys/timex.h>
 #include <string.h>
 #include <signal.h>
-#include "clock-helpers.h"
+#include <include/vdso/time64.h>
 #include "kselftest.h"
+
+/* CLOCK_HWSPECIFIC == CLOCK_SGI_CYCLE (Deprecated) */
+#define CLOCK_HWSPECIFIC		10
+
+#define UNSUPPORTED 0xf00f
+
+char *clockstring(int clockid)
+{
+	switch (clockid) {
+	case CLOCK_REALTIME:
+		return "CLOCK_REALTIME";
+	case CLOCK_MONOTONIC:
+		return "CLOCK_MONOTONIC";
+	case CLOCK_PROCESS_CPUTIME_ID:
+		return "CLOCK_PROCESS_CPUTIME_ID";
+	case CLOCK_THREAD_CPUTIME_ID:
+		return "CLOCK_THREAD_CPUTIME_ID";
+	case CLOCK_MONOTONIC_RAW:
+		return "CLOCK_MONOTONIC_RAW";
+	case CLOCK_REALTIME_COARSE:
+		return "CLOCK_REALTIME_COARSE";
+	case CLOCK_MONOTONIC_COARSE:
+		return "CLOCK_MONOTONIC_COARSE";
+	case CLOCK_BOOTTIME:
+		return "CLOCK_BOOTTIME";
+	case CLOCK_REALTIME_ALARM:
+		return "CLOCK_REALTIME_ALARM";
+	case CLOCK_BOOTTIME_ALARM:
+		return "CLOCK_BOOTTIME_ALARM";
+	case CLOCK_TAI:
+		return "CLOCK_TAI";
+	};
+	return "UNKNOWN_CLOCKID";
+}
 
 /* returns 1 if a <= b, 0 otherwise */
 static inline int in_order(struct timespec a, struct timespec b)
@@ -58,15 +92,15 @@ int nanosleep_test(int clockid, long long ns)
 
 	/* First check abs time */
 	if (clock_gettime(clockid, &now))
-		return KSFT_SKIP;
+		return UNSUPPORTED;
 	target = timespec_add(now, ns);
 
 	if (clock_nanosleep(clockid, TIMER_ABSTIME, &target, NULL))
-		return KSFT_SKIP;
+		return UNSUPPORTED;
 	clock_gettime(clockid, &now);
 
 	if (!in_order(target, now))
-		return KSFT_FAIL;
+		return -1;
 
 	/* Second check reltime */
 	clock_gettime(clockid, &now);
@@ -78,8 +112,8 @@ int nanosleep_test(int clockid, long long ns)
 	clock_gettime(clockid, &now);
 
 	if (!in_order(target, now))
-		return KSFT_FAIL;
-	return KSFT_PASS;
+		return -1;
+	return 0;
 }
 
 static void dummy_event_handler(int val)
@@ -98,86 +132,82 @@ static int nanosleep_test_remaining(int clockid)
 	sa.sa_handler = dummy_event_handler;
 	ret = sigaction(SIGALRM, &sa, NULL);
 	if (ret)
-		return KSFT_FAIL;
+		return -1;
 
 	ret = timer_create(clockid, NULL, &timer);
 	if (ret)
-		return KSFT_FAIL;
+		return -1;
 
 	itimer.it_value.tv_nsec = NSEC_PER_SEC / 4;
 	ret = timer_settime(timer, 0, &itimer, NULL);
 	if (ret)
-		return KSFT_FAIL;
+		return -1;
 
 	rqtp.tv_nsec = NSEC_PER_SEC / 2;
 	ret = clock_nanosleep(clockid, 0, &rqtp, &rmtp);
-
-	if (timer_delete(timer)) {
-		ksft_exit_fail_msg("Unable to delete the timeout timer for %s. "
-				   "This might interfere with following testcases.\n",
-				   clock_name(clockid));
-	}
-
 	if (ret != EINTR)
-		return KSFT_FAIL;
+		return -1;
+
+	ret = timer_delete(timer);
+	if (ret)
+		return -1;
 
 	sa.sa_handler = SIG_DFL;
 	ret = sigaction(SIGALRM, &sa, NULL);
 	if (ret)
-		return KSFT_FAIL;
+		return -1;
 
 	if (!in_order((struct timespec) {}, rmtp))
-		return KSFT_FAIL;
+		return -1;
 
 	if (!in_order(rmtp, rqtp))
-		return KSFT_FAIL;
+		return -1;
 
-	return KSFT_PASS;
-}
-
-static void nanosleep_test_clock(clockid_t clockid)
-{
-	long long length = 10;
-	int ret;
-
-	while (length <= (NSEC_PER_SEC * 10)) {
-		ret = nanosleep_test(clockid, length);
-		if (ret != KSFT_PASS) {
-			ksft_test_result_report(ret, "%s\n", clock_name(clockid));
-			ksft_test_result_skip("%s (remaining)\n", clock_name(clockid));
-			return;
-		}
-
-		length *= 100;
-	}
-	ksft_test_result_pass("%s\n", clock_name(clockid));
-
-	ret = nanosleep_test_remaining(clockid);
-	ksft_test_result_report(ret, "%s (remaining)\n", clock_name(clockid));
+	return 0;
 }
 
 int main(int argc, char **argv)
 {
-	int clockid;
-
-	static const clockid_t tested_clocks[] = {
-		CLOCK_REALTIME,
-		CLOCK_MONOTONIC,
-		CLOCK_BOOTTIME,
-		CLOCK_BOOTTIME_ALARM,
-		CLOCK_REALTIME_ALARM,
-		CLOCK_TAI,
-	};
+	long long length;
+	int clockid, ret;
+	int max_clocks = CLOCK_TAI + 1;
 
 	ksft_print_header();
-	ksft_set_plan(ARRAY_SIZE(tested_clocks) * 2);
+	ksft_set_plan(max_clocks);
 
-	for (size_t clock_index = 0; clock_index < ARRAY_SIZE(tested_clocks); clock_index++) {
-		clockid = tested_clocks[clock_index];
+	for (clockid = CLOCK_REALTIME; clockid < max_clocks; clockid++) {
+
+		/* Skip cputime clockids since nanosleep won't increment cputime */
+		if (clockid == CLOCK_PROCESS_CPUTIME_ID ||
+				clockid == CLOCK_THREAD_CPUTIME_ID ||
+				clockid == CLOCK_HWSPECIFIC) {
+			ksft_test_result_skip("%-31s\n", clockstring(clockid));
+			continue;
+		}
 
 		fflush(stdout);
 
-		nanosleep_test_clock(clockid);
+		length = 10;
+		while (length <= (NSEC_PER_SEC * 10)) {
+			ret = nanosleep_test(clockid, length);
+			if (ret == UNSUPPORTED) {
+				ksft_test_result_skip("%-31s\n", clockstring(clockid));
+				goto next;
+			}
+			if (ret < 0) {
+				ksft_test_result_fail("%-31s\n", clockstring(clockid));
+				ksft_exit_fail();
+			}
+			length *= 100;
+		}
+		ret = nanosleep_test_remaining(clockid);
+		if (ret < 0) {
+			ksft_test_result_fail("%-31s\n", clockstring(clockid));
+			ksft_exit_fail();
+		}
+		ksft_test_result_pass("%-31s\n", clockstring(clockid));
+next:
+		ret = 0;
 	}
-	ksft_finished();
+	ksft_exit_pass();
 }

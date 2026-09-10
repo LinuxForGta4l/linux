@@ -2,7 +2,6 @@
 #include <dirent.h>
 #include <errno.h>
 #include <inttypes.h>
-#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -689,10 +688,10 @@ static int hist_browser__handle_hotkey(struct hist_browser *browser, bool warn_l
 		ui_browser__update_nr_entries(&browser->b, nr_entries);
 
 		if (warn_lost_event &&
-		    (evlist__stats(evsel->evlist)->nr_lost_warned !=
-		     evlist__stats(evsel->evlist)->nr_events[PERF_RECORD_LOST])) {
-			evlist__stats(evsel->evlist)->nr_lost_warned =
-				evlist__stats(evsel->evlist)->nr_events[PERF_RECORD_LOST];
+		    (evsel->evlist->stats.nr_lost_warned !=
+		     evsel->evlist->stats.nr_events[PERF_RECORD_LOST])) {
+			evsel->evlist->stats.nr_lost_warned =
+				evsel->evlist->stats.nr_events[PERF_RECORD_LOST];
 			ui_browser__warn_lost_events(&browser->b);
 		}
 
@@ -2357,31 +2356,12 @@ static int hists_browser__scnprintf_title(struct hist_browser *browser, char *bf
 	return printed;
 }
 
-struct popup_action {
-	unsigned long		time;
-	int (*fn)(struct hist_browser *browser, struct popup_action *act);
-	struct map_symbol	ms;
-	int			socket;
-	enum rstype		rstype;
-
-};
-
 static inline void free_popup_options(char **options, int n)
 {
 	int i;
 
 	for (i = 0; i < n; ++i)
 		zfree(&options[i]);
-}
-
-static inline void free_popup_actions(struct popup_action *actions, int n)
-{
-	int i;
-
-	for (i = 0; i < n; ++i) {
-		map_symbol__exit(&actions[i].ms);
-		memset(&actions[i], 0, sizeof(struct popup_action));
-	}
 }
 
 /*
@@ -2473,6 +2453,16 @@ close_file_and_continue:
 	return ret;
 }
 
+struct popup_action {
+	unsigned long		time;
+	struct thread 		*thread;
+	int (*fn)(struct hist_browser *browser, struct popup_action *act);
+	struct map_symbol 	ms;
+	int			socket;
+	enum rstype		rstype;
+
+};
+
 static int
 do_annotate(struct hist_browser *browser, struct popup_action *act)
 {
@@ -2550,7 +2540,7 @@ add_annotate_opt(struct popup_action *act, char **optstr,
 	if (asprintf(optstr, "Annotate %s", ms->sym->name) < 0)
 		return 0;
 
-	map_symbol__copy(&act->ms, ms);
+	act->ms = *ms;
 	act->fn = do_annotate;
 	return 1;
 }
@@ -2582,7 +2572,7 @@ add_annotate_type_opt(struct popup_action *act, char **optstr,
 static int
 do_zoom_thread(struct hist_browser *browser, struct popup_action *act)
 {
-	struct thread *thread = act->ms.thread;
+	struct thread *thread = act->thread;
 
 	if ((!hists__has(browser->hists, thread) &&
 	     !hists__has(browser->hists, comm)) || thread == NULL)
@@ -2637,7 +2627,7 @@ add_thread_opt(struct hist_browser *browser, struct popup_action *act,
 	if (ret < 0)
 		return 0;
 
-	act->ms.thread = thread__get(thread);
+	act->thread = thread;
 	act->fn = do_zoom_thread;
 	return 1;
 }
@@ -2650,14 +2640,13 @@ static int hists_browser__zoom_map(struct hist_browser *browser, struct map *map
 	if (browser->hists->dso_filter) {
 		pstack__remove(browser->pstack, &browser->hists->dso_filter);
 		perf_hpp__set_elide(HISTC_DSO, false);
-		dso__put((struct dso *)browser->hists->dso_filter);
 		browser->hists->dso_filter = NULL;
 		ui_helpline__pop();
 	} else {
 		struct dso *dso = map__dso(map);
 		ui_helpline__fpush("To zoom out press ESC or ENTER + \"Zoom out of %s DSO\"",
 				   __map__is_kernel(map) ? "the Kernel" : dso__short_name(dso));
-		browser->hists->dso_filter = dso__get(dso);
+		browser->hists->dso_filter = dso;
 		perf_hpp__set_elide(HISTC_DSO, true);
 		pstack__push(browser->pstack, &browser->hists->dso_filter);
 	}
@@ -2685,7 +2674,7 @@ add_dso_opt(struct hist_browser *browser, struct popup_action *act,
 		     __map__is_kernel(map) ? "the Kernel" : dso__short_name(map__dso(map))) < 0)
 		return 0;
 
-	act->ms.map = map__get(map);
+	act->ms.map = map;
 	act->fn = do_zoom_dso;
 	return 1;
 }
@@ -2730,7 +2719,7 @@ add_map_opt(struct hist_browser *browser,
 	if (asprintf(optstr, "Browse map details") < 0)
 		return 0;
 
-	act->ms.map = map__get(map);
+	act->ms.map = map;
 	act->fn = do_browse_map;
 	return 1;
 }
@@ -2744,8 +2733,8 @@ do_run_script(struct hist_browser *browser,
 	int n = 0;
 
 	len = 100;
-	if (act->ms.thread)
-		len += strlen(thread__comm_str(act->ms.thread));
+	if (act->thread)
+		len += strlen(thread__comm_str(act->thread));
 	else if (act->ms.sym)
 		len += strlen(act->ms.sym->name);
 	script_opt = malloc(len);
@@ -2753,9 +2742,9 @@ do_run_script(struct hist_browser *browser,
 		return -1;
 
 	script_opt[0] = 0;
-	if (act->ms.thread) {
+	if (act->thread) {
 		n = scnprintf(script_opt, len, " -c %s ",
-			  thread__comm_str(act->ms.thread));
+			  thread__comm_str(act->thread));
 	} else if (act->ms.sym) {
 		n = scnprintf(script_opt, len, " -S %s ",
 			  act->ms.sym->name);
@@ -2810,7 +2799,7 @@ add_script_opt_2(struct popup_action *act, char **optstr,
 			return 0;
 	}
 
-	act->ms.thread = thread__get(thread);
+	act->thread = thread;
 	act->ms.sym = sym;
 	act->fn = do_run_script;
 	return 1;
@@ -2821,7 +2810,7 @@ add_script_opt(struct hist_browser *browser,
 	       struct popup_action *act, char **optstr,
 	       struct thread *thread, struct symbol *sym)
 {
-	int n, j, ret;
+	int n, j;
 	struct hist_entry *he;
 
 	n = add_script_opt_2(act, optstr, thread, sym, "");
@@ -2829,26 +2818,17 @@ add_script_opt(struct hist_browser *browser,
 	he = hist_browser__selected_entry(browser);
 	if (sort_order && strstr(sort_order, "time")) {
 		char tstr[128];
-		struct popup_action *time_act = act;
-		char **time_optstr = optstr;
 
-		if (n > 0) {
-			time_optstr++;
-			time_act++;
-		}
-		if (he == NULL)
-			return n;
+		optstr++;
+		act++;
 		j = sprintf(tstr, " in ");
 		j += timestamp__scnprintf_usec(he->time, tstr + j,
 					       sizeof tstr - j);
 		j += sprintf(tstr + j, "-");
 		timestamp__scnprintf_usec(he->time + symbol_conf.time_quantum,
 				          tstr + j, sizeof tstr - j);
-		ret = add_script_opt_2(time_act, time_optstr, thread, sym, tstr);
-		if (ret > 0) {
-			time_act->time = he->time;
-			n += ret;
-		}
+		n += add_script_opt_2(act, optstr, thread, sym, tstr);
+		act->time = he->time;
 	}
 	return n;
 }
@@ -3023,9 +3003,9 @@ static int evsel__hists_browse(struct evsel *evsel, int nr_events, const char *h
 	struct hists *hists = evsel__hists(evsel);
 	struct hist_browser *browser = perf_evsel_browser__new(evsel, hbt, env);
 	struct branch_info *bi = NULL;
-#define MAX_OPTIONS  32
+#define MAX_OPTIONS  16
 	char *options[MAX_OPTIONS];
-	struct popup_action actions[MAX_OPTIONS], hotkey_act;
+	struct popup_action actions[MAX_OPTIONS];
 	int nr_options = 0;
 	int key = -1;
 	char buf[128];
@@ -3084,14 +3064,14 @@ static int evsel__hists_browse(struct evsel *evsel, int nr_events, const char *h
 		browser->min_pcnt = min_pcnt;
 	hist_browser__update_nr_entries(browser);
 
-	memset(options, 0, sizeof(options));
-	memset(actions, 0, sizeof(actions));
-
 	browser->pstack = pstack__new(3);
 	if (browser->pstack == NULL)
 		goto out;
 
 	ui_helpline__push(helpline);
+
+	memset(options, 0, sizeof(options));
+	memset(actions, 0, sizeof(actions));
 
 	if (symbol_conf.col_width_list_str)
 		perf_hpp__set_user_width(symbol_conf.col_width_list_str);
@@ -3107,8 +3087,6 @@ static int evsel__hists_browse(struct evsel *evsel, int nr_events, const char *h
 
 		key = 0; // reset key
 do_hotkey:		 // key came straight from options ui__popup_menu()
-		free_popup_options(options, MAX_OPTIONS);
-		free_popup_actions(actions, MAX_OPTIONS);
 		choice = nr_options = 0;
 		key = hist_browser__run(browser, helpline, warn_lost_event, key);
 
@@ -3168,40 +3146,24 @@ do_hotkey:		 // key came straight from options ui__popup_menu()
 			}
 
 			if (!browser->selection->sym) {
-				struct map_symbol source_ms;
-
 				if (!browser->he_selection)
 					continue;
-
-				memset(&source_ms, 0, sizeof(source_ms));
 
 				if (sort__mode == SORT_MODE__BRANCH) {
 					bi = browser->he_selection->branch_info;
 					if (!bi || !bi->to.ms.map)
 						continue;
 
-					source_ms.sym =
-						symbol__new_unresolved(
-							bi->to.al_addr,
-							bi->to.ms.map);
-					source_ms.thread = bi->to.ms.thread;
-					source_ms.map = bi->to.ms.map;
+					actions->ms.sym = symbol__new_unresolved(bi->to.al_addr, bi->to.ms.map);
+					actions->ms.map = bi->to.ms.map;
 				} else {
-					source_ms.sym =
-						symbol__new_unresolved(
-							browser->he_selection->ip,
-							browser->selection->map);
-					source_ms.thread = browser->selection->thread;
-					source_ms.map = browser->selection->map;
+					actions->ms.sym = symbol__new_unresolved(browser->he_selection->ip,
+										 browser->selection->map);
+					actions->ms.map = browser->selection->map;
 				}
 
-				if (!source_ms.sym)
+				if (!actions->ms.sym)
 					continue;
-
-				memset(&hotkey_act, 0, sizeof(hotkey_act));
-				map_symbol__copy(&hotkey_act.ms, &source_ms);
-				do_annotate(browser, &hotkey_act);
-				map_symbol__exit(&hotkey_act.ms);
 			} else {
 				if (symbol__annotation(browser->selection->sym)->src == NULL) {
 					ui_browser__warning(&browser->b, delay_secs * 2,
@@ -3211,20 +3173,18 @@ do_hotkey:		 // key came straight from options ui__popup_menu()
 					continue;
 				}
 
-				memset(&hotkey_act, 0, sizeof(hotkey_act));
-				map_symbol__copy(&hotkey_act.ms, browser->selection);
-				do_annotate(browser, &hotkey_act);
-				map_symbol__exit(&hotkey_act.ms);
+				actions->ms.map = browser->selection->map;
+				actions->ms.sym = browser->selection->sym;
 			}
+
+			do_annotate(browser, actions);
 			continue;
 		case 'P':
 			hist_browser__dump(browser);
 			continue;
 		case 'd':
-			memset(&hotkey_act, 0, sizeof(hotkey_act));
-			hotkey_act.ms.map = map__get(map);
-			do_zoom_dso(browser, &hotkey_act);
-			map_symbol__exit(&hotkey_act.ms);
+			actions->ms.map = map;
+			do_zoom_dso(browser, actions);
 			continue;
 		case 'k':
 			if (browser->selection != NULL)
@@ -3239,16 +3199,12 @@ do_hotkey:		 // key came straight from options ui__popup_menu()
 					   verbose);
 			continue;
 		case 't':
-			memset(&hotkey_act, 0, sizeof(hotkey_act));
-			hotkey_act.ms.thread = thread__get(thread);
-			do_zoom_thread(browser, &hotkey_act);
-			map_symbol__exit(&hotkey_act.ms);
+			actions->thread = thread;
+			do_zoom_thread(browser, actions);
 			continue;
 		case 'S':
-			memset(&hotkey_act, 0, sizeof(hotkey_act));
-			hotkey_act.socket = socked_id;
-			do_zoom_socket(browser, &hotkey_act);
-			map_symbol__exit(&hotkey_act.ms);
+			actions->socket = socked_id;
+			do_zoom_socket(browser, actions);
 			continue;
 		case '/':
 			if (ui_browser__input_window("Symbol to show",
@@ -3256,21 +3212,16 @@ do_hotkey:		 // key came straight from options ui__popup_menu()
 					"To remove the filter later, press / + ENTER.",
 					buf, "ENTER: OK, ESC: Cancel",
 					delay_secs * 2) == K_ENTER) {
-				char *new_filter = *buf ? strdup(buf) : NULL;
-
-				zfree(&hists->symbol_filter_str);
-				hists->symbol_filter_str = new_filter;
+				hists->symbol_filter_str = *buf ? buf : NULL;
 				hists__filter_by_symbol(hists);
 				hist_browser__reset(browser);
 			}
 			continue;
 		case 'r':
 			if (is_report_browser(hbt)) {
-				memset(&hotkey_act, 0, sizeof(hotkey_act));
-				hotkey_act.ms.thread = NULL;
-				hotkey_act.ms.sym = NULL;
-				do_run_script(browser, &hotkey_act);
-				map_symbol__exit(&hotkey_act.ms);
+				actions->thread = NULL;
+				actions->ms.sym = NULL;
+				do_run_script(browser, actions);
 			}
 			continue;
 		case 's':
@@ -3342,19 +3293,20 @@ do_hotkey:		 // key came straight from options ui__popup_menu()
 
 				continue;
 			}
-			memset(&hotkey_act, 0, sizeof(hotkey_act));
+			actions->ms.map = map;
 			top = pstack__peek(browser->pstack);
 			if (top == &browser->hists->dso_filter) {
-				hotkey_act.ms.map = map__get(map);
-				do_zoom_dso(browser, &hotkey_act);
+				/*
+				 * No need to set actions->dso here since
+				 * it's just to remove the current filter.
+				 */
+				do_zoom_dso(browser, actions);
 			} else if (top == &browser->hists->thread_filter) {
-				hotkey_act.ms.thread = thread__get(thread);
-				do_zoom_thread(browser, &hotkey_act);
+				actions->thread = thread;
+				do_zoom_thread(browser, actions);
 			} else if (top == &browser->hists->socket_filter) {
-				hotkey_act.socket = socked_id;
-				do_zoom_socket(browser, &hotkey_act);
+				do_zoom_socket(browser, actions);
 			}
-			map_symbol__exit(&hotkey_act.ms);
 			continue;
 		}
 		case 'q':
@@ -3369,7 +3321,7 @@ do_hotkey:		 // key came straight from options ui__popup_menu()
 				 * No need to refresh, resort/decay histogram
 				 * entries if we are not collecting samples:
 				 */
-				if (evlist__enabled(top->evlist)) {
+				if (top->evlist->enabled) {
 					helpline = "Press 'f' to disable the events or 'h' to see other hotkeys";
 					hbt->refresh = delay_secs;
 				} else {
@@ -3491,20 +3443,9 @@ skip_scripting:
 
 		if (key == K_SWITCH_INPUT_DATA)
 			break;
-
-		free_popup_options(options, MAX_OPTIONS);
-		free_popup_actions(actions, MAX_OPTIONS);
 	}
 out_free_stack:
 	pstack__delete(browser->pstack);
-	free_popup_actions(actions, MAX_OPTIONS);
-	thread__zput(hists->thread_filter);
-	dso__put((struct dso *)hists->dso_filter);
-	hists->dso_filter = NULL;
-	perf_hpp__set_elide(HISTC_DSO, false);
-	perf_hpp__set_elide(HISTC_THREAD, false);
-	hists__filter_by_dso(hists);
-	hists__filter_by_thread(hists);
 out:
 	hist_browser__delete(browser);
 	free_popup_options(options, MAX_OPTIONS);
@@ -3552,7 +3493,7 @@ static void perf_evsel_menu__write(struct ui_browser *browser,
 			   unit, unit == ' ' ? "" : " ", ev_name);
 	ui_browser__printf(browser, "%s", bf);
 
-	nr_events = evlist__stats(evsel->evlist)->nr_events[PERF_RECORD_LOST];
+	nr_events = evsel->evlist->stats.nr_events[PERF_RECORD_LOST];
 	if (nr_events != 0) {
 		menu->lost_events = true;
 		if (!current_entry)
@@ -3618,13 +3559,13 @@ browse_hists:
 			ui_browser__show_title(&menu->b, title);
 			switch (key) {
 			case K_TAB:
-				if (pos->core.node.next == &evlist__core(evlist)->entries)
+				if (pos->core.node.next == &evlist->core.entries)
 					pos = evlist__first(evlist);
 				else
 					pos = evsel__next(pos);
 				goto browse_hists;
 			case K_UNTAB:
-				if (pos->core.node.prev == &evlist__core(evlist)->entries)
+				if (pos->core.node.prev == &evlist->core.entries)
 					pos = evlist__last(evlist);
 				else
 					pos = evsel__prev(pos);
@@ -3677,7 +3618,7 @@ static int __evlist__tui_browse_hists(struct evlist *evlist, int nr_entries, con
 	struct evsel *pos;
 	struct evsel_menu menu = {
 		.b = {
-			.entries    = &evlist__core(evlist)->entries,
+			.entries    = &evlist->core.entries,
 			.refresh    = ui_browser__list_head_refresh,
 			.seek	    = ui_browser__list_head_seek,
 			.write	    = perf_evsel_menu__write,
@@ -3705,7 +3646,7 @@ static int __evlist__tui_browse_hists(struct evlist *evlist, int nr_entries, con
 
 static bool evlist__single_entry(struct evlist *evlist)
 {
-	int nr_entries = evlist__nr_entries(evlist);
+	int nr_entries = evlist->core.nr_entries;
 
 	if (nr_entries == 1)
 	       return true;
@@ -3723,7 +3664,7 @@ static bool evlist__single_entry(struct evlist *evlist)
 int evlist__tui_browse_hists(struct evlist *evlist, const char *help, struct hist_browser_timer *hbt,
 			     float min_pcnt, struct perf_env *env, bool warn_lost_event)
 {
-	int nr_entries = evlist__nr_entries(evlist);
+	int nr_entries = evlist->core.nr_entries;
 
 	if (evlist__single_entry(evlist)) {
 single_entry: {

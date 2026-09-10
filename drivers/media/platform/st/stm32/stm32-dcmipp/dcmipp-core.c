@@ -649,7 +649,9 @@ static int dcmipp_resume(struct device *dev)
 	pinctrl_pm_select_default_state(dev);
 
 	/* clock enable */
-	return pm_runtime_force_resume(dev);
+	pm_runtime_force_resume(dev);
+
+	return 0;
 }
 
 static const struct dev_pm_ops dcmipp_pm_ops = {

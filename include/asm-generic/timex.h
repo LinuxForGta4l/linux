@@ -13,4 +13,11 @@ static inline cycles_t get_cycles(void)
 }
 #endif
 
+/*
+ * Architectures are encouraged to implement read_current_timer
+ * and define this in order to avoid the expensive delay loop
+ * calibration during boot.
+ */
+#undef ARCH_HAS_READ_CURRENT_TIMER
+
 #endif /* __ASM_GENERIC_TIMEX_H */

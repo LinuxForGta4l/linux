@@ -3,7 +3,6 @@
 #include <linux/fcntl.h>
 #include <linux/file.h>
 #include <linux/fs.h>
-#include <linux/fs_struct.h>
 #include <linux/init.h>
 #include <linux/init_syscalls.h>
 #include <linux/initrd.h>
@@ -563,7 +562,7 @@ static struct kunit_case __refdata initramfs_test_cases[] = {
 	{},
 };
 
-static int __init initramfs_suite_init(struct kunit_suite *suite)
+static int __init initramfs_test_init(struct kunit_suite *suite)
 {
 	/*
 	 * unpack_to_rootfs() uses module-static state (victim, byte_count,
@@ -575,23 +574,9 @@ static int __init initramfs_suite_init(struct kunit_suite *suite)
 	return 0;
 }
 
-/* Tests run in a nullfs kthread; always use the init fs for path resolution. */
-static int __init initramfs_test_init(struct kunit *test)
-{
-	test->priv = __override_init_fs();
-	return 0;
-}
-
-static void __init initramfs_test_exit(struct kunit *test)
-{
-	__revert_init_fs(test->priv);
-}
-
 static struct kunit_suite __refdata initramfs_test_suite = {
 	.name = "initramfs",
-	.suite_init = initramfs_suite_init,
-	.init = initramfs_test_init,
-	.exit = initramfs_test_exit,
+	.suite_init = initramfs_test_init,
 	.test_cases = initramfs_test_cases,
 };
 kunit_test_init_section_suites(&initramfs_test_suite);

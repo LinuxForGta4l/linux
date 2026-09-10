@@ -104,14 +104,17 @@ void __init pseries_add_gpage(u64 addr, u64 page_size, unsigned long number_of_p
 	}
 }
 
-static __init void *pseries_alloc_bootmem_huge_page(struct hstate *hstate)
+static int __init pseries_alloc_bootmem_huge_page(struct hstate *hstate)
 {
-	void *m;
+	struct huge_bootmem_page *m;
 	if (nr_gpages == 0)
-		return NULL;
+		return 0;
 	m = phys_to_virt(gpage_freearray[--nr_gpages]);
 	gpage_freearray[nr_gpages] = 0;
-	return m;
+	list_add(&m->list, &huge_boot_pages[0]);
+	m->hstate = hstate;
+	m->flags = 0;
+	return 1;
 }
 
 bool __init hugetlb_node_alloc_supported(void)
@@ -121,7 +124,7 @@ bool __init hugetlb_node_alloc_supported(void)
 #endif
 
 
-void *__init arch_alloc_bootmem_huge_page(struct hstate *h, int nid)
+int __init alloc_bootmem_huge_page(struct hstate *h, int nid)
 {
 
 #ifdef CONFIG_PPC_BOOK3S_64

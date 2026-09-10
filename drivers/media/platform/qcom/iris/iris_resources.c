@@ -61,9 +61,9 @@ int iris_unset_icc_bw(struct iris_core *core)
 
 int iris_opp_set_rate(struct device *dev, unsigned long freq)
 {
-	struct dev_pm_opp *opp __free(put_opp) =
-		devfreq_recommended_opp(dev, &freq, 0);
+	struct dev_pm_opp *opp __free(put_opp);
 
+	opp = devfreq_recommended_opp(dev, &freq, 0);
 	if (IS_ERR(opp))
 		return PTR_ERR(opp);
 
@@ -78,21 +78,24 @@ int iris_enable_power_domains(struct iris_core *core, struct device *pd_dev)
 	if (ret)
 		return ret;
 
-	return pm_runtime_resume_and_get(pd_dev);
+	ret = pm_runtime_get_sync(pd_dev);
+	if (ret < 0)
+		return ret;
+
+	return ret;
 }
 
 int iris_disable_power_domains(struct iris_core *core, struct device *pd_dev)
 {
 	int ret;
-	int pm_ret;
 
 	ret = iris_opp_set_rate(core->dev, 0);
+	if (ret)
+		return ret;
 
-	pm_ret = pm_runtime_put_sync(pd_dev);
-	if (!ret)
-		ret = pm_ret;
+	pm_runtime_put_sync(pd_dev);
 
-	return ret;
+	return 0;
 }
 
 static struct clk *iris_get_clk_by_type(struct iris_core *core, enum platform_clk_type clk_type)

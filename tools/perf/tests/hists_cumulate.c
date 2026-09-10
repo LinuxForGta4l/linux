@@ -744,7 +744,7 @@ static int test__hists_cumulate(struct test_suite *test __maybe_unused, int subt
 
 out:
 	/* tear down everything */
-	evlist__put(evlist);
+	evlist__delete(evlist);
 	machines__exit(&machines);
 	put_fake_samples();
 

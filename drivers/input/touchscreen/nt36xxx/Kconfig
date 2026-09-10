@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Novatek NT36xxx SPI touchscreen driver for Samsung Galaxy Tab A7 (gta4l)
+# (novatek,NVT-ts-spi compatible node, QUP2 SPI at 4a88000, CS gpio 71,
+#  interrupt tlmm 80, reset tlmm 31).
+
+config TOUCHSCREEN_NT36XXX
+	tristate "Novatek NT36xxx SPI touchscreen"
+	depends on SPI_MASTER
+	help
+	  Novatek NT36523-series touch controller TCM SPI transport.
+	  Ported from the Samsung/LOS nt36xxx SPI driver (host-download,
+	  flashless config). DT node: compatible "novatek,NVT-ts-spi",
+	  spi-max-frequency 9.6MHz.
+
+	  If unsure, say N.
+
+config TOUCHSCREEN_NT36XXX_EXT_PROC
+	bool "Novatek NT36xxx extended procfs interface"
+	depends on TOUCHSCREEN_NT36XXX
+	help
+	  Adds /proc/nvt_* raw data, baseline and firmware version entries
+	  (used for bring-up debugging).
+
+	  If unsure, say Y.

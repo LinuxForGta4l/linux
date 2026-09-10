@@ -7,7 +7,7 @@
 
 #ifdef CONFIG_OBJTOOL
 
-#ifndef __ASSEMBLER__
+#ifndef __ASSEMBLY__
 
 #define UNWIND_HINT(type, sp_reg, sp_offset, signal)		\
 	"987: \n\t"						\
@@ -53,7 +53,7 @@
 
 #define __ASM_BREF(label)	label ## b
 
-#else /* __ASSEMBLER__ */
+#else /* __ASSEMBLY__ */
 
 /*
  * In asm, there are two kinds of code: normal C-type callable functions and
@@ -102,11 +102,11 @@
 #endif
 .endm
 
-#endif /* __ASSEMBLER__ */
+#endif /* __ASSEMBLY__ */
 
 #else /* !CONFIG_OBJTOOL */
 
-#ifndef __ASSEMBLER__
+#ifndef __ASSEMBLY__
 
 #define UNWIND_HINT(type, sp_reg, sp_offset, signal) "\n\t"
 #define STACK_FRAME_NON_STANDARD(func)

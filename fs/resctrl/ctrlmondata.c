@@ -261,7 +261,7 @@ next:
 		return -EINVAL;
 	}
 	dom = strim(dom);
-	list_for_each_entry_rcu(d, &r->ctrl_domains, hdr.list, lockdep_is_cpus_held()) {
+	list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
 		if (d->hdr.id == dom_id) {
 			data.buf = dom;
 			data.closid = rdtgrp->closid;
@@ -312,20 +312,17 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 	char *tok, *resname;
 	int ret = 0;
 
+	/* Valid input requires a trailing newline */
+	if (nbytes == 0 || buf[nbytes - 1] != '\n')
+		return -EINVAL;
+	buf[nbytes - 1] = '\0';
+
 	rdtgrp = rdtgroup_kn_lock_live(of->kn);
 	if (!rdtgrp) {
 		rdtgroup_kn_unlock(of->kn);
 		return -ENOENT;
 	}
-
-	/* Valid input requires a trailing newline */
-	if (nbytes == 0 || buf[nbytes - 1] != '\n') {
-		rdt_last_cmd_puts("schemata: Invalid input\n");
-		ret = -EINVAL;
-		goto out_unlock;
-	}
-
-	buf[nbytes - 1] = '\0';
+	rdt_last_cmd_clear();
 
 	/*
 	 * No changes to pseudo-locked region allowed. It has to be removed
@@ -334,7 +331,7 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKED) {
 		ret = -EINVAL;
 		rdt_last_cmd_puts("Resource group is pseudo-locked\n");
-		goto out_unlock;
+		goto out;
 	}
 
 	rdt_staged_configs_clear();
@@ -344,16 +341,16 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 		if (!tok) {
 			rdt_last_cmd_puts("Missing ':'\n");
 			ret = -EINVAL;
-			goto out_clear_staged;
+			goto out;
 		}
 		if (tok[0] == '\0') {
 			rdt_last_cmd_printf("Missing '%s' value\n", resname);
 			ret = -EINVAL;
-			goto out_clear_staged;
+			goto out;
 		}
 		ret = rdtgroup_parse_resource(resname, tok, rdtgrp);
 		if (ret)
-			goto out_clear_staged;
+			goto out;
 	}
 
 	list_for_each_entry(s, &resctrl_schema_all, list) {
@@ -368,7 +365,7 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 
 		ret = resctrl_arch_update_domains(r, rdtgrp->closid);
 		if (ret)
-			goto out_clear_staged;
+			goto out;
 	}
 
 	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
@@ -381,9 +378,8 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 		ret = rdtgroup_pseudo_lock_create(rdtgrp);
 	}
 
-out_clear_staged:
+out:
 	rdt_staged_configs_clear();
-out_unlock:
 	rdtgroup_kn_unlock(of->kn);
 	return ret ?: nbytes;
 }
@@ -401,7 +397,7 @@ static void show_doms(struct seq_file *s, struct resctrl_schema *schema,
 
 	if (resource_name)
 		seq_printf(s, "%*s:", max_name_width, resource_name);
-	list_for_each_entry_rcu(dom, &r->ctrl_domains, hdr.list, lockdep_is_cpus_held()) {
+	list_for_each_entry(dom, &r->ctrl_domains, hdr.list) {
 		if (sep)
 			seq_puts(s, ";");
 
@@ -433,6 +429,7 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 			}
 		} else if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKED) {
 			if (!rdtgrp->plr->d) {
+				rdt_last_cmd_clear();
 				rdt_last_cmd_puts("Cache domain offline\n");
 				ret = -ENODEV;
 			} else {
@@ -468,20 +465,17 @@ ssize_t rdtgroup_mba_mbps_event_write(struct kernfs_open_file *of,
 	struct rdtgroup *rdtgrp;
 	int ret = 0;
 
+	/* Valid input requires a trailing newline */
+	if (nbytes == 0 || buf[nbytes - 1] != '\n')
+		return -EINVAL;
+	buf[nbytes - 1] = '\0';
+
 	rdtgrp = rdtgroup_kn_lock_live(of->kn);
 	if (!rdtgrp) {
 		rdtgroup_kn_unlock(of->kn);
 		return -ENOENT;
 	}
-
-	/* Valid input requires a trailing newline */
-	if (nbytes == 0 || buf[nbytes - 1] != '\n') {
-		rdt_last_cmd_puts("mba_MBps_event: Invalid input\n");
-		ret = -EINVAL;
-		goto out_unlock;
-	}
-
-	buf[nbytes - 1] = '\0';
+	rdt_last_cmd_clear();
 
 	if (!strcmp(buf, "mbm_local_bytes")) {
 		if (resctrl_is_mon_event_enabled(QOS_L3_MBM_LOCAL_EVENT_ID))
@@ -500,7 +494,6 @@ ssize_t rdtgroup_mba_mbps_event_write(struct kernfs_open_file *of,
 	if (ret)
 		rdt_last_cmd_printf("Unsupported event id '%s'\n", buf);
 
-out_unlock:
 	rdtgroup_kn_unlock(of->kn);
 
 	return ret ?: nbytes;
@@ -541,8 +534,6 @@ struct rdt_domain_hdr *resctrl_find_domain(struct list_head *h, int id,
 {
 	struct rdt_domain_hdr *d;
 	struct list_head *l;
-
-	lockdep_assert_cpus_held();
 
 	list_for_each(l, h) {
 		d = list_entry(l, struct rdt_domain_hdr, list);
@@ -726,7 +717,7 @@ int rdtgroup_mondata_show(struct seq_file *m, void *arg)
 		 * struct mon_data. Search all domains in the resource for
 		 * one that matches this cache id.
 		 */
-		list_for_each_entry_rcu(d, &r->mon_domains, hdr.list, lockdep_is_cpus_held()) {
+		list_for_each_entry(d, &r->mon_domains, hdr.list) {
 			if (d->ci_id == domid) {
 				cpu = cpumask_any(&d->hdr.cpu_mask);
 				ci = get_cpu_cacheinfo_level(cpu, RESCTRL_L3_CACHE);
@@ -778,12 +769,10 @@ out:
 int resctrl_io_alloc_show(struct kernfs_open_file *of, struct seq_file *seq, void *v)
 {
 	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r;
+	struct rdt_resource *r = s->res;
 
-	if (!info_kn_lock(of->kn))
-		return -ENOENT;
+	mutex_lock(&rdtgroup_mutex);
 
-	r = s->res;
 	if (r->cache.io_alloc_capable) {
 		if (resctrl_arch_get_io_alloc_enabled(r))
 			seq_puts(seq, "enabled\n");
@@ -793,7 +782,7 @@ int resctrl_io_alloc_show(struct kernfs_open_file *of, struct seq_file *seq, voi
 		seq_puts(seq, "not supported\n");
 	}
 
-	info_kn_unlock(of->kn);
+	mutex_unlock(&rdtgroup_mutex);
 
 	return 0;
 }
@@ -828,7 +817,7 @@ static int resctrl_io_alloc_init_cbm(struct resctrl_schema *s, u32 closid)
 	/* Keep CDP_CODE and CDP_DATA of io_alloc CLOSID's CBM in sync. */
 	if (resctrl_arch_get_cdp_enabled(r->rid)) {
 		peer_type = resctrl_peer_type(s->conf_type);
-		list_for_each_entry_rcu(d, &s->res->ctrl_domains, hdr.list, lockdep_is_cpus_held())
+		list_for_each_entry(d, &s->res->ctrl_domains, hdr.list)
 			memcpy(&d->staged_config[peer_type],
 			       &d->staged_config[s->conf_type],
 			       sizeof(d->staged_config[0]));
@@ -858,23 +847,20 @@ ssize_t resctrl_io_alloc_write(struct kernfs_open_file *of, char *buf,
 			       size_t nbytes, loff_t off)
 {
 	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r;
+	struct rdt_resource *r = s->res;
 	char const *grp_name;
 	u32 io_alloc_closid;
 	bool enable;
 	int ret;
 
-	if (!info_kn_lock(of->kn))
-		return -ENOENT;
-
-	r = s->res;
-	rdt_last_cmd_clear();
-
 	ret = kstrtobool(buf, &enable);
-	if (ret) {
-		rdt_last_cmd_puts("io_alloc: Invalid input\n");
-		goto out_unlock;
-	}
+	if (ret)
+		return ret;
+
+	cpus_read_lock();
+	mutex_lock(&rdtgroup_mutex);
+
+	rdt_last_cmd_clear();
 
 	if (!r->cache.io_alloc_capable) {
 		rdt_last_cmd_printf("io_alloc is not supported on %s\n", s->name);
@@ -921,7 +907,8 @@ ssize_t resctrl_io_alloc_write(struct kernfs_open_file *of, char *buf,
 	}
 
 out_unlock:
-	info_kn_unlock(of->kn);
+	mutex_unlock(&rdtgroup_mutex);
+	cpus_read_unlock();
 
 	return ret ?: nbytes;
 }
@@ -929,15 +916,14 @@ out_unlock:
 int resctrl_io_alloc_cbm_show(struct kernfs_open_file *of, struct seq_file *seq, void *v)
 {
 	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r;
+	struct rdt_resource *r = s->res;
 	int ret = 0;
 
-	if (!info_kn_lock(of->kn))
-		return -ENOENT;
+	cpus_read_lock();
+	mutex_lock(&rdtgroup_mutex);
 
 	rdt_last_cmd_clear();
 
-	r = s->res;
 	if (!r->cache.io_alloc_capable) {
 		rdt_last_cmd_printf("io_alloc is not supported on %s\n", s->name);
 		ret = -ENODEV;
@@ -959,7 +945,8 @@ int resctrl_io_alloc_cbm_show(struct kernfs_open_file *of, struct seq_file *seq,
 	show_doms(seq, s, NULL, resctrl_io_alloc_closid(r));
 
 out_unlock:
-	info_kn_unlock(of->kn);
+	mutex_unlock(&rdtgroup_mutex);
+	cpus_read_unlock();
 	return ret;
 }
 
@@ -993,7 +980,7 @@ next:
 	}
 
 	dom = strim(dom);
-	list_for_each_entry_rcu(d, &r->ctrl_domains, hdr.list, lockdep_is_cpus_held()) {
+	list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
 		if (update_all || d->hdr.id == dom_id) {
 			data.buf = dom;
 			data.mode = RDT_MODE_SHAREABLE;
@@ -1026,24 +1013,19 @@ ssize_t resctrl_io_alloc_cbm_write(struct kernfs_open_file *of, char *buf,
 				   size_t nbytes, loff_t off)
 {
 	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r;
+	struct rdt_resource *r = s->res;
 	u32 io_alloc_closid;
 	int ret = 0;
 
-	if (!info_kn_lock(of->kn))
-		return -ENOENT;
-	rdt_last_cmd_clear();
-
-	r = s->res;
-
 	/* Valid input requires a trailing newline */
-	if (nbytes == 0 || buf[nbytes - 1] != '\n') {
-		rdt_last_cmd_puts("io_alloc_cbm: Invalid input\n");
-		ret = -EINVAL;
-		goto out_unlock;
-	}
+	if (nbytes == 0 || buf[nbytes - 1] != '\n')
+		return -EINVAL;
 
 	buf[nbytes - 1] = '\0';
+
+	cpus_read_lock();
+	mutex_lock(&rdtgroup_mutex);
+	rdt_last_cmd_clear();
 
 	if (!r->cache.io_alloc_capable) {
 		rdt_last_cmd_printf("io_alloc is not supported on %s\n", s->name);
@@ -1069,7 +1051,8 @@ ssize_t resctrl_io_alloc_cbm_write(struct kernfs_open_file *of, char *buf,
 out_clear_configs:
 	rdt_staged_configs_clear();
 out_unlock:
-	info_kn_unlock(of->kn);
+	mutex_unlock(&rdtgroup_mutex);
+	cpus_read_unlock();
 
 	return ret ?: nbytes;
 }

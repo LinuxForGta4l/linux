@@ -410,37 +410,37 @@ static inline pte_t pte_wrprotect(pte_t pte)
 }
 
 #ifdef CONFIG_HAVE_ARCH_USERFAULTFD_WP
-#define pgtable_supports_uffd()	\
+#define pgtable_supports_uffd_wp()	\
 	riscv_has_extension_unlikely(RISCV_ISA_EXT_SVRSW60T59B)
 
-static inline bool pte_uffd(pte_t pte)
+static inline bool pte_uffd_wp(pte_t pte)
 {
-	return !!(pte_val(pte) & _PAGE_UFFD);
+	return !!(pte_val(pte) & _PAGE_UFFD_WP);
 }
 
-static inline pte_t pte_mkuffd(pte_t pte)
+static inline pte_t pte_mkuffd_wp(pte_t pte)
 {
-	return pte_wrprotect(__pte(pte_val(pte) | _PAGE_UFFD));
+	return pte_wrprotect(__pte(pte_val(pte) | _PAGE_UFFD_WP));
 }
 
-static inline pte_t pte_clear_uffd(pte_t pte)
+static inline pte_t pte_clear_uffd_wp(pte_t pte)
 {
-	return __pte(pte_val(pte) & ~(_PAGE_UFFD));
+	return __pte(pte_val(pte) & ~(_PAGE_UFFD_WP));
 }
 
-static inline bool pte_swp_uffd(pte_t pte)
+static inline bool pte_swp_uffd_wp(pte_t pte)
 {
-	return !!(pte_val(pte) & _PAGE_SWP_UFFD);
+	return !!(pte_val(pte) & _PAGE_SWP_UFFD_WP);
 }
 
-static inline pte_t pte_swp_mkuffd(pte_t pte)
+static inline pte_t pte_swp_mkuffd_wp(pte_t pte)
 {
-	return __pte(pte_val(pte) | _PAGE_SWP_UFFD);
+	return __pte(pte_val(pte) | _PAGE_SWP_UFFD_WP);
 }
 
-static inline pte_t pte_swp_clear_uffd(pte_t pte)
+static inline pte_t pte_swp_clear_uffd_wp(pte_t pte)
 {
-	return __pte(pte_val(pte) & ~(_PAGE_SWP_UFFD));
+	return __pte(pte_val(pte) & ~(_PAGE_SWP_UFFD_WP));
 }
 #endif /* CONFIG_HAVE_ARCH_USERFAULTFD_WP */
 
@@ -534,7 +534,10 @@ static inline pte_t pte_swp_clear_soft_dirty(pte_t pte)
 					PAGE_SIZE)
 #endif
 
-#ifdef CONFIG_ARCH_HAS_PTE_PROTNONE
+#ifdef CONFIG_NUMA_BALANCING
+/*
+ * See the comment in include/asm-generic/pgtable.h
+ */
 static inline int pte_protnone(pte_t pte)
 {
 	return (pte_val(pte) & (_PAGE_PRESENT | _PAGE_PROT_NONE)) == _PAGE_PROT_NONE;
@@ -544,7 +547,7 @@ static inline int pmd_protnone(pmd_t pmd)
 {
 	return pte_protnone(pmd_pte(pmd));
 }
-#endif /* CONFIG_ARCH_HAS_PTE_PROTNONE */
+#endif
 
 /* Modify page protection bits */
 static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
@@ -565,8 +568,6 @@ static inline void update_mmu_cache_range(struct vm_fault *vmf,
 		struct vm_area_struct *vma, unsigned long address,
 		pte_t *ptep, unsigned int nr)
 {
-	unsigned long asid = get_mm_asid(vma->vm_mm);
-
 	/*
 	 * Svvptc guarantees that the new valid pte will be visible within
 	 * a bounded timeframe, so when the uarch does not cache invalid
@@ -574,14 +575,6 @@ static inline void update_mmu_cache_range(struct vm_fault *vmf,
 	 */
 	if (riscv_has_extension_unlikely(RISCV_ISA_EXT_SVVPTC))
 		return;
-
-	if (riscv_has_extension_unlikely(RISCV_ISA_EXT_SVINVAL)) {
-		local_sfence_w_inval();
-		while (nr--)
-			local_sinval_vma(address + nr * PAGE_SIZE, asid);
-		local_sfence_inval_ir();
-		return;
-	}
 
 	/*
 	 * The kernel assumes that TLBs don't cache invalid entries, but
@@ -591,7 +584,7 @@ static inline void update_mmu_cache_range(struct vm_fault *vmf,
 	 * the extra traps reduce performance.  So, eagerly SFENCE.VMA.
 	 */
 	while (nr--)
-		local_flush_tlb_page_asid(address + nr * PAGE_SIZE, asid);
+		local_flush_tlb_page(address + nr * PAGE_SIZE);
 
 }
 #define update_mmu_cache(vma, addr, ptep) \
@@ -906,34 +899,34 @@ static inline pud_t pud_mkspecial(pud_t pud)
 #endif
 
 #ifdef CONFIG_HAVE_ARCH_USERFAULTFD_WP
-static inline bool pmd_uffd(pmd_t pmd)
+static inline bool pmd_uffd_wp(pmd_t pmd)
 {
-	return pte_uffd(pmd_pte(pmd));
+	return pte_uffd_wp(pmd_pte(pmd));
 }
 
-static inline pmd_t pmd_mkuffd(pmd_t pmd)
+static inline pmd_t pmd_mkuffd_wp(pmd_t pmd)
 {
-	return pte_pmd(pte_mkuffd(pmd_pte(pmd)));
+	return pte_pmd(pte_mkuffd_wp(pmd_pte(pmd)));
 }
 
-static inline pmd_t pmd_clear_uffd(pmd_t pmd)
+static inline pmd_t pmd_clear_uffd_wp(pmd_t pmd)
 {
-	return pte_pmd(pte_clear_uffd(pmd_pte(pmd)));
+	return pte_pmd(pte_clear_uffd_wp(pmd_pte(pmd)));
 }
 
-static inline bool pmd_swp_uffd(pmd_t pmd)
+static inline bool pmd_swp_uffd_wp(pmd_t pmd)
 {
-	return pte_swp_uffd(pmd_pte(pmd));
+	return pte_swp_uffd_wp(pmd_pte(pmd));
 }
 
-static inline pmd_t pmd_swp_mkuffd(pmd_t pmd)
+static inline pmd_t pmd_swp_mkuffd_wp(pmd_t pmd)
 {
-	return pte_pmd(pte_swp_mkuffd(pmd_pte(pmd)));
+	return pte_pmd(pte_swp_mkuffd_wp(pmd_pte(pmd)));
 }
 
-static inline pmd_t pmd_swp_clear_uffd(pmd_t pmd)
+static inline pmd_t pmd_swp_clear_uffd_wp(pmd_t pmd)
 {
-	return pte_pmd(pte_swp_clear_uffd(pmd_pte(pmd)));
+	return pte_pmd(pte_swp_clear_uffd_wp(pmd_pte(pmd)));
 }
 #endif /* CONFIG_HAVE_ARCH_USERFAULTFD_WP */
 
@@ -953,7 +946,7 @@ static inline pmd_t pmd_clear_soft_dirty(pmd_t pmd)
 	return pte_pmd(pte_clear_soft_dirty(pmd_pte(pmd)));
 }
 
-#ifdef CONFIG_ARCH_HAS_PMD_SOFTLEAVES
+#ifdef CONFIG_ARCH_ENABLE_THP_MIGRATION
 static inline bool pmd_swp_soft_dirty(pmd_t pmd)
 {
 	return pte_swp_soft_dirty(pmd_pte(pmd));
@@ -968,7 +961,7 @@ static inline pmd_t pmd_swp_clear_soft_dirty(pmd_t pmd)
 {
 	return pte_pmd(pte_swp_clear_soft_dirty(pmd_pte(pmd)));
 }
-#endif /* CONFIG_ARCH_HAS_PMD_SOFTLEAVES */
+#endif /* CONFIG_ARCH_ENABLE_THP_MIGRATION */
 #endif /* CONFIG_HAVE_ARCH_SOFT_DIRTY */
 
 static inline void set_pmd_at(struct mm_struct *mm, unsigned long addr,
@@ -1177,7 +1170,7 @@ static inline pud_t pud_modify(pud_t pud, pgprot_t newprot)
  *	bit            0:	_PAGE_PRESENT (zero)
  *	bit       1 to 2:	(zero)
  *	bit            3:	_PAGE_SWP_SOFT_DIRTY
- *	bit            4:	_PAGE_SWP_UFFD
+ *	bit            4:	_PAGE_SWP_UFFD_WP
  *	bit            5:	_PAGE_PROT_NONE (zero)
  *	bit            6:	exclusive marker
  *	bits      7 to 11:	swap type
@@ -1215,10 +1208,10 @@ static inline pte_t pte_swp_clear_exclusive(pte_t pte)
 	return __pte(pte_val(pte) & ~_PAGE_SWP_EXCLUSIVE);
 }
 
-#ifdef CONFIG_ARCH_HAS_PMD_SOFTLEAVES
+#ifdef CONFIG_ARCH_ENABLE_THP_MIGRATION
 #define __pmd_to_swp_entry(pmd) ((swp_entry_t) { pmd_val(pmd) })
 #define __swp_entry_to_pmd(swp) __pmd((swp).val)
-#endif /* CONFIG_ARCH_HAS_PMD_SOFTLEAVES */
+#endif /* CONFIG_ARCH_ENABLE_THP_MIGRATION */
 
 /*
  * In the RV64 Linux scheme, we give the user half of the virtual-address space

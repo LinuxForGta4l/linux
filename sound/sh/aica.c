@@ -518,9 +518,8 @@ static const struct snd_kcontrol_new snd_aica_pcmvolume_control = {
 static int load_aica_firmware(void)
 {
 	int err;
+	const struct firmware *fw_entry;
 	spu_reset();
-
-	const struct firmware *fw_entry __free(firmware) = NULL;
 	err = request_firmware(&fw_entry, "aica_firmware.bin", &pd->dev);
 	if (unlikely(err))
 		return err;
@@ -528,6 +527,7 @@ static int load_aica_firmware(void)
 	spu_disable();
 	spu_memload(0, fw_entry->data, fw_entry->size);
 	spu_enable();
+	release_firmware(fw_entry);
 	return err;
 }
 

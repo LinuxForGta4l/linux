@@ -915,27 +915,19 @@ int xs_init(void)
 	int err;
 	struct task_struct *task;
 
-	err = register_reboot_notifier(&xs_reboot_nb);
-	if (err)
-		return err;
+	register_reboot_notifier(&xs_reboot_nb);
 
 	/* Initialize the shared memory rings to talk to xenstored */
 	err = xb_init_comms();
 	if (err)
-		goto err_unregister_reboot_notifier;
+		return err;
 
 	task = kthread_run(xenwatch_thread, NULL, "xenwatch");
-	if (IS_ERR(task)) {
-		err = PTR_ERR(task);
-		goto err_unregister_reboot_notifier;
-	}
+	if (IS_ERR(task))
+		return PTR_ERR(task);
 
 	/* shutdown watches for kexec boot */
 	xs_reset_watches();
 
 	return 0;
-
-err_unregister_reboot_notifier:
-	unregister_reboot_notifier(&xs_reboot_nb);
-	return err;
 }

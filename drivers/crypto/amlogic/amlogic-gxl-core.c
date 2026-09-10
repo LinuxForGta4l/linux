@@ -257,8 +257,10 @@ static int meson_crypto_probe(struct platform_device *pdev)
 
 		err = devm_request_irq(&pdev->dev, mc->irqs[i], meson_irq_handler, 0,
 				       "gxl-crypto", mc);
-		if (err < 0)
+		if (err < 0) {
+			dev_err(mc->dev, "Cannot request IRQ for flow %d\n", i);
 			return err;
+		}
 	}
 
 	err = clk_prepare_enable(mc->busclk);

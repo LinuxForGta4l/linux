@@ -1932,9 +1932,7 @@ static int __init vrf_init_module(void)
 {
 	int rc;
 
-	rc = register_netdevice_notifier(&vrf_notifier_block);
-	if (rc < 0)
-		return rc;
+	register_netdevice_notifier(&vrf_notifier_block);
 
 	rc = register_pernet_subsys(&vrf_net_ops);
 	if (rc < 0)

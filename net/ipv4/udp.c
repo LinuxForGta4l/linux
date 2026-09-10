@@ -76,7 +76,6 @@
 
 #include <linux/bpf-cgroup.h>
 #include <linux/uaccess.h>
-#include <linux/uio.h>
 #include <asm/ioctls.h>
 #include <linux/memblock.h>
 #include <linux/highmem.h>
@@ -1108,8 +1107,7 @@ static int udp_send_skb(struct sk_buff *skb, struct flowi4 *fl4,
 	uh = udp_hdr(skb);
 	uh->source = inet_sk(sk)->inet_sport;
 	uh->dest = fl4->fl4_dport;
-	/* Datagram length checked in udp_sendmsg. */
-	udp_set_len_short(uh, len);
+	uh->len = htons(len);
 	uh->check = 0;
 
 	if (cork->gso_size) {
@@ -2477,7 +2475,6 @@ static int __udp4_lib_mcast_deliver(struct net *net, struct sk_buff *skb,
 	struct udp_hslot *hslot;
 	struct sk_buff *nskb;
 	bool use_hash2;
-	int ret;
 
 	hash2_any = 0;
 	hash2 = 0;
@@ -2522,9 +2519,8 @@ start_lookup:
 	}
 
 	if (first) {
-		ret = udp_queue_rcv_skb(first, skb);
-		if (ret > 0)
-			return -ret;
+		if (udp_queue_rcv_skb(first, skb) > 0)
+			consume_skb(skb);
 	} else {
 		kfree_skb(skb);
 		__UDP_INC_STATS(net, UDP_MIB_IGNOREDMULTI);
@@ -2594,8 +2590,8 @@ int udp_rcv(struct sk_buff *skb)
 	struct rtable *rt = skb_rtable(skb);
 	struct net *net = dev_net(skb->dev);
 	struct sock *sk = NULL;
+	unsigned short ulen;
 	__be32 saddr, daddr;
-	unsigned int ulen;
 	struct udphdr *uh;
 	bool refcounted;
 	int drop_reason;
@@ -2609,7 +2605,7 @@ int udp_rcv(struct sk_buff *skb)
 		goto drop;		/* No space for header. */
 
 	uh   = udp_hdr(skb);
-	ulen = udp_get_len(skb, uh, 0);
+	ulen = ntohs(uh->len);
 	saddr = ip_hdr(skb)->saddr;
 	daddr = ip_hdr(skb)->daddr;
 
@@ -2999,13 +2995,14 @@ static int udp_setsockopt(struct sock *sk, int level, int optname, sockptr_t opt
 }
 
 int udp_lib_getsockopt(struct sock *sk, int level, int optname,
-		       sockopt_t *opt)
+		       char __user *optval, int __user *optlen)
 {
 	struct udp_sock *up = udp_sk(sk);
 	int val, len;
 
-	len = opt->optlen;
-	/* keep the check so direct sockopt_t callers stay covered. */
+	if (get_user(len, optlen))
+		return -EFAULT;
+
 	if (len < 0)
 		return -EINVAL;
 
@@ -3040,8 +3037,9 @@ int udp_lib_getsockopt(struct sock *sk, int level, int optname,
 		return -ENOPROTOOPT;
 	}
 
-	opt->optlen = len;
-	if (copy_to_iter(&val, len, &opt->iter_out) != len)
+	if (put_user(len, optlen))
+		return -EFAULT;
+	if (copy_to_user(optval, &val, len))
 		return -EFAULT;
 	return 0;
 }
@@ -3049,29 +3047,9 @@ int udp_lib_getsockopt(struct sock *sk, int level, int optname,
 static int udp_getsockopt(struct sock *sk, int level, int optname,
 			  char __user *optval, int __user *optlen)
 {
-	sockopt_t opt;
-	int err;
-
-	/*
-	 * keep the old __user pointers, until ip_getsockopt() moves
-	 * to sockopt_t
-	 */
-	if (level != SOL_UDP)
-		return ip_getsockopt(sk, level, optname, optval, optlen);
-
-	err = sockopt_init_user(&opt, optval, optlen);
-	if (err)
-		return err;
-
-	err = udp_lib_getsockopt(sk, level, optname, &opt);
-	if (err)
-		return err;
-
-	/* optval was written by copy_to_iter() in udp_lib_getsockopt() */
-	if (put_user(opt.optlen, optlen))
-		return -EFAULT;
-
-	return 0;
+	if (level == SOL_UDP)
+		return udp_lib_getsockopt(sk, level, optname, optval, optlen);
+	return ip_getsockopt(sk, level, optname, optval, optlen);
 }
 
 /**

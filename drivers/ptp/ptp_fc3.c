@@ -665,6 +665,8 @@ static int idtfc3_init_timecounter(struct idtfc3 *idtfc3)
 	if (err)
 		return err;
 
+	ptp_schedule_worker(idtfc3->ptp_clock, idtfc3->tc_update_period);
+
 	return 0;
 }
 
@@ -823,14 +825,6 @@ static int idtfc3_enable_ptp(struct idtfc3 *idtfc3)
 
 	idtfc3->caps = idtfc3_caps;
 	snprintf(idtfc3->caps.name, sizeof(idtfc3->caps.name), "IDT FC3W");
-	err = idtfc3_set_overhead(idtfc3);
-	if (err)
-		return err;
-
-	err = idtfc3_init_timecounter(idtfc3);
-	if (err)
-		return err;
-
 	idtfc3->ptp_clock = ptp_clock_register(&idtfc3->caps, NULL);
 
 	if (IS_ERR(idtfc3->ptp_clock)) {
@@ -839,7 +833,13 @@ static int idtfc3_enable_ptp(struct idtfc3 *idtfc3)
 		return err;
 	}
 
-	ptp_schedule_worker(idtfc3->ptp_clock, idtfc3->tc_update_period);
+	err = idtfc3_set_overhead(idtfc3);
+	if (err)
+		return err;
+
+	err = idtfc3_init_timecounter(idtfc3);
+	if (err)
+		return err;
 
 	dev_info(idtfc3->dev, "TIME_SYNC_CHANNEL registered as ptp%d",
 		 idtfc3->ptp_clock->index);

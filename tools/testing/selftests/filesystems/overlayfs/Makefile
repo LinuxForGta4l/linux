@@ -8,9 +8,7 @@ LOCAL_HDRS += ../wrappers.h log.h
 
 TEST_GEN_PROGS := dev_in_maps
 TEST_GEN_PROGS += set_layers_via_fds
-TEST_GEN_PROGS += idmapped_mounts
 
 include ../../lib.mk
 
 $(OUTPUT)/set_layers_via_fds: ../utils.c
-$(OUTPUT)/idmapped_mounts: ../utils.c

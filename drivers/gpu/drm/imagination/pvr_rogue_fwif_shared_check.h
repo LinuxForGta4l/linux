@@ -4,7 +4,14 @@
 #ifndef PVR_ROGUE_FWIF_SHARED_CHECK_H
 #define PVR_ROGUE_FWIF_SHARED_CHECK_H
 
-#include "pvr_check.h"
+#include <linux/build_bug.h>
+
+#define OFFSET_CHECK(type, member, offset) \
+	static_assert(offsetof(type, member) == (offset), \
+		      "offsetof(" #type ", " #member ") incorrect")
+
+#define SIZE_CHECK(type, size) \
+	static_assert(sizeof(type) == (size), #type " is incorrect size")
 
 OFFSET_CHECK(struct rogue_fwif_dma_addr, dev_addr, 0);
 OFFSET_CHECK(struct rogue_fwif_dma_addr, fw_addr, 8);

@@ -249,19 +249,21 @@ static int apple_soc_cpufreq_init(struct cpufreq_policy *policy)
 		return -ENODEV;
 	}
 
-	priv = kzalloc_obj(*priv);
-	if (!priv)
-		return -ENOMEM;
+	ret = dev_pm_opp_of_add_table(cpu_dev);
+	if (ret < 0) {
+		dev_err(cpu_dev, "%s: failed to add OPP table: %d\n", __func__, ret);
+		return ret;
+	}
 
 	ret = apple_soc_cpufreq_find_cluster(policy, &reg_base, &info);
 	if (ret) {
 		dev_err(cpu_dev, "%s: failed to get cluster info: %d\n", __func__, ret);
-		goto out_free_priv;
+		return ret;
 	}
 
-	ret = dev_pm_opp_of_cpumask_add_table(policy->cpus);
-	if (ret < 0) {
-		dev_err(cpu_dev, "%s: failed to add OPP table: %d\n", __func__, ret);
+	ret = dev_pm_opp_set_sharing_cpus(cpu_dev, policy->cpus);
+	if (ret) {
+		dev_err(cpu_dev, "%s: failed to mark OPPs as shared: %d\n", __func__, ret);
 		goto out_iounmap;
 	}
 
@@ -269,18 +271,24 @@ static int apple_soc_cpufreq_init(struct cpufreq_policy *policy)
 	if (ret <= 0) {
 		dev_dbg(cpu_dev, "OPP table is not ready, deferring probe\n");
 		ret = -EPROBE_DEFER;
-		goto out_free_table;
+		goto out_free_opp;
+	}
+
+	priv = kzalloc_obj(*priv);
+	if (!priv) {
+		ret = -ENOMEM;
+		goto out_free_opp;
 	}
 
 	ret = dev_pm_opp_init_cpufreq_table(cpu_dev, &freq_table);
 	if (ret) {
 		dev_err(cpu_dev, "failed to init cpufreq table: %d\n", ret);
-		goto out_free_table;
+		goto out_free_priv;
 	}
 
 	/* Get OPP levels (p-state indexes) and stash them in driver_data */
 	for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++) {
-		unsigned long rate = freq_table[i].frequency * 1000UL + 999;
+		unsigned long rate = freq_table[i].frequency * 1000 + 999;
 		struct dev_pm_opp *opp = dev_pm_opp_find_freq_floor(cpu_dev, &rate);
 
 		if (IS_ERR(opp)) {
@@ -310,12 +318,12 @@ static int apple_soc_cpufreq_init(struct cpufreq_policy *policy)
 
 out_free_cpufreq_table:
 	dev_pm_opp_free_cpufreq_table(cpu_dev, &freq_table);
-out_free_table:
-	dev_pm_opp_of_cpumask_remove_table(policy->cpus);
-out_iounmap:
-	iounmap(reg_base);
 out_free_priv:
 	kfree(priv);
+out_free_opp:
+	dev_pm_opp_remove_all_dynamic(cpu_dev);
+out_iounmap:
+	iounmap(reg_base);
 	return ret;
 }
 
@@ -324,7 +332,7 @@ static void apple_soc_cpufreq_exit(struct cpufreq_policy *policy)
 	struct apple_cpu_priv *priv = policy->driver_data;
 
 	dev_pm_opp_free_cpufreq_table(priv->cpu_dev, &policy->freq_table);
-	dev_pm_opp_of_cpumask_remove_table(policy->cpus);
+	dev_pm_opp_remove_all_dynamic(priv->cpu_dev);
 	iounmap(priv->reg_base);
 	kfree(priv);
 }

@@ -15,7 +15,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
-#include <limits.h>
 
 #include "trace-event.h"
 #include "debug.h"
@@ -26,18 +25,18 @@ static int input_fd;
 static ssize_t trace_data_size;
 static bool repipe;
 
-static ssize_t __do_read(int fd, void *buf, size_t size)
+static int __do_read(int fd, void *buf, int size)
 {
-	size_t rsize = size;
+	int rsize = size;
 
 	while (size) {
-		ssize_t ret = read(fd, buf, size);
+		int ret = read(fd, buf, size);
 
 		if (ret <= 0)
 			return -1;
 
 		if (repipe) {
-			ssize_t retw = write(STDOUT_FILENO, buf, ret);
+			int retw = write(STDOUT_FILENO, buf, ret);
 
 			if (retw <= 0 || retw != ret) {
 				pr_debug("repiping input file");
@@ -52,13 +51,13 @@ static ssize_t __do_read(int fd, void *buf, size_t size)
 	return rsize;
 }
 
-static ssize_t do_read(void *data, size_t size)
+static int do_read(void *data, int size)
 {
-	ssize_t r;
+	int r;
 
 	r = __do_read(input_fd, data, size);
 	if (r <= 0) {
-		pr_debug("reading input file (size expected=%zu received=%zd)",
+		pr_debug("reading input file (size expected=%d received=%d)",
 			 size, r);
 		return -1;
 	}
@@ -69,19 +68,15 @@ static ssize_t do_read(void *data, size_t size)
 }
 
 /* If it fails, the next read will report it */
-static void skip(size_t size)
+static void skip(int size)
 {
 	char buf[BUFSIZ];
-	ssize_t ret;
+	int r;
 
 	while (size) {
-		size_t len = size > BUFSIZ ? BUFSIZ : size;
-
-		ret = do_read(buf, len);
-		if (ret <= 0)
-			break;
-
-		size -= ret;
+		r = size > BUFSIZ ? BUFSIZ : size;
+		do_read(buf, r);
+		size -= r;
 	}
 }
 
@@ -132,11 +127,6 @@ static char *read_string(void)
 			}
 		}
 
-		if (size >= (int)sizeof(buf) - 1) {
-			pr_debug("string too long (max %zu bytes)", sizeof(buf) - 1);
-			goto out;
-		}
-
 		buf[size++] = c;
 
 		if (!c)
@@ -185,11 +175,6 @@ static int read_ftrace_printk(struct tep_handle *pevent)
 	if (!size)
 		return 0;
 
-	if (size == UINT_MAX) {
-		pr_debug("invalid ftrace printk size\n");
-		return -1;
-	}
-
 	buf = malloc(size + 1);
 	if (buf == NULL)
 		return -1;
@@ -212,7 +197,7 @@ static int read_header_files(struct tep_handle *pevent)
 	unsigned long long size;
 	char *header_page;
 	char buf[BUFSIZ];
-	ssize_t ret = 0;
+	int ret = 0;
 
 	if (do_read(buf, 12) < 0)
 		return -1;
@@ -260,7 +245,7 @@ static int read_header_files(struct tep_handle *pevent)
 
 static int read_ftrace_file(struct tep_handle *pevent, unsigned long long size)
 {
-	ssize_t ret;
+	int ret;
 	char *buf;
 
 	buf = malloc(size);
@@ -286,7 +271,7 @@ out:
 static int read_event_file(struct tep_handle *pevent, char *sys,
 			   unsigned long long size)
 {
-	ssize_t ret;
+	int ret;
 	char *buf;
 
 	buf = malloc(size);
@@ -332,7 +317,7 @@ static int read_event_files(struct tep_handle *pevent)
 	int systems;
 	int count;
 	int i,x;
-	ssize_t ret;
+	int ret;
 
 	systems = read4(pevent);
 
@@ -360,17 +345,12 @@ static int read_saved_cmdline(struct tep_handle *pevent)
 {
 	unsigned long long size;
 	char *buf;
-	ssize_t ret;
+	int ret;
 
 	/* it can have 0 size */
 	size = read8(pevent);
 	if (!size)
 		return 0;
-
-	if (size == ULLONG_MAX) {
-		pr_debug("invalid saved cmdline size");
-		return -1;
-	}
 
 	buf = malloc(size + 1);
 	if (buf == NULL) {

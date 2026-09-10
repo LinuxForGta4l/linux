@@ -464,8 +464,10 @@ static int qcom_mpm_probe(struct platform_device *pdev, struct device_node *pare
 
 	ret = devm_request_irq(dev, irq, qcom_mpm_handler, IRQF_NO_SUSPEND,
 			       "qcom_mpm", priv);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "failed to request irq: %d\n", ret);
 		goto remove_domain;
+	}
 
 	return 0;
 

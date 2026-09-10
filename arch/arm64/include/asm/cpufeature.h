@@ -878,11 +878,11 @@ static inline bool system_supports_pmuv3(void)
 	return cpus_have_final_cap(ARM64_HAS_PMUV3);
 }
 
-bool cpu_supports_bbml3(void);
+bool cpu_supports_bbml2_noabort(void);
 
-static inline bool system_supports_bbml3(void)
+static inline bool system_supports_bbml2_noabort(void)
 {
-	return alternative_has_cap_unlikely(ARM64_HAS_BBML3);
+	return alternative_has_cap_unlikely(ARM64_HAS_BBML2_NOABORT);
 }
 
 int do_emulate_mrs(struct pt_regs *regs, u32 sys_reg, u32 rt);

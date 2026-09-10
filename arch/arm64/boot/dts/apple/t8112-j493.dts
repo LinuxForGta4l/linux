@@ -146,6 +146,3 @@
 		touchscreen-inverted-y;
 	};
 };
-
-#include "hwmon-laptop.dtsi"
-#include "hwmon-fan.dtsi"

@@ -9,7 +9,6 @@
 #include <linux/module.h>
 #include <linux/of.h>
 
-#include <drm/drm_atomic_helper.h>
 #include <drm/drm_bridge.h>
 #include <drm/bridge/aux-bridge.h>
 
@@ -105,9 +104,6 @@ static int drm_aux_bridge_attach(struct drm_bridge *bridge,
 }
 
 static const struct drm_bridge_funcs drm_aux_bridge_funcs = {
-	.atomic_create_state = drm_atomic_helper_bridge_create_state,
-	.atomic_destroy_state = drm_atomic_helper_bridge_destroy_state,
-	.atomic_duplicate_state = drm_atomic_helper_bridge_duplicate_state,
 	.attach	= drm_aux_bridge_attach,
 };
 

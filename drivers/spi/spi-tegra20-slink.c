@@ -1144,6 +1144,7 @@ static void tegra_slink_remove(struct platform_device *pdev)
 		tegra_slink_deinit_dma_param(tspi, true);
 }
 
+#ifdef CONFIG_PM_SLEEP
 static int tegra_slink_suspend(struct device *dev)
 {
 	struct spi_controller *host = dev_get_drvdata(dev);
@@ -1168,8 +1169,9 @@ static int tegra_slink_resume(struct device *dev)
 
 	return spi_controller_resume(host);
 }
+#endif
 
-static int tegra_slink_runtime_suspend(struct device *dev)
+static int __maybe_unused tegra_slink_runtime_suspend(struct device *dev)
 {
 	struct spi_controller *host = dev_get_drvdata(dev);
 	struct tegra_slink_data *tspi = spi_controller_get_devdata(host);
@@ -1181,7 +1183,7 @@ static int tegra_slink_runtime_suspend(struct device *dev)
 	return 0;
 }
 
-static int tegra_slink_runtime_resume(struct device *dev)
+static int __maybe_unused tegra_slink_runtime_resume(struct device *dev)
 {
 	struct spi_controller *host = dev_get_drvdata(dev);
 	struct tegra_slink_data *tspi = spi_controller_get_devdata(host);
@@ -1196,14 +1198,14 @@ static int tegra_slink_runtime_resume(struct device *dev)
 }
 
 static const struct dev_pm_ops slink_pm_ops = {
-	RUNTIME_PM_OPS(tegra_slink_runtime_suspend,
-		       tegra_slink_runtime_resume, NULL)
-	SYSTEM_SLEEP_PM_OPS(tegra_slink_suspend, tegra_slink_resume)
+	SET_RUNTIME_PM_OPS(tegra_slink_runtime_suspend,
+		tegra_slink_runtime_resume, NULL)
+	SET_SYSTEM_SLEEP_PM_OPS(tegra_slink_suspend, tegra_slink_resume)
 };
 static struct platform_driver tegra_slink_driver = {
 	.driver = {
 		.name		= "spi-tegra-slink",
-		.pm		= pm_ptr(&slink_pm_ops),
+		.pm		= &slink_pm_ops,
 		.of_match_table	= tegra_slink_of_match,
 	},
 	.probe =	tegra_slink_probe,

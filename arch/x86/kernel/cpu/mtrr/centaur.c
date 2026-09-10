@@ -65,26 +65,26 @@ static void
 centaur_set_mcr(unsigned int reg, unsigned long base,
 		unsigned long size, mtrr_type type)
 {
-	struct msr val;
+	unsigned long low, high;
 
 	if (size == 0) {
 		/* Disable */
-		val.q = 0;
+		high = low = 0;
 	} else {
-		val.h = base << PAGE_SHIFT;
+		high = base << PAGE_SHIFT;
 		if (centaur_mcr_type == 0) {
 			/* Only support write-combining... */
-			val.l = -size << PAGE_SHIFT | 0x1f;
+			low = -size << PAGE_SHIFT | 0x1f;
 		} else {
 			if (type == MTRR_TYPE_UNCACHABLE)
-				val.l = -size << PAGE_SHIFT | 0x02; /* NC */
+				low = -size << PAGE_SHIFT | 0x02; /* NC */
 			else
-				val.l = -size << PAGE_SHIFT | 0x09; /* WWO, WC */
+				low = -size << PAGE_SHIFT | 0x09; /* WWO, WC */
 		}
 	}
-	centaur_mcr[reg].high = val.h;
-	centaur_mcr[reg].low = val.l;
-	wrmsrq(MSR_IDT_MCR0 + reg, val.q);
+	centaur_mcr[reg].high = high;
+	centaur_mcr[reg].low = low;
+	wrmsr(MSR_IDT_MCR0 + reg, low, high);
 }
 
 static int

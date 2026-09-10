@@ -29,7 +29,6 @@
 #include <nvhw/class/cl507a.h>
 
 #include <drm/drm_atomic_helper.h>
-#include <drm/drm_blend.h>
 #include <drm/drm_fourcc.h>
 
 bool
@@ -165,8 +164,6 @@ curs507a_wndw = {
 	.acquire = curs507a_acquire,
 	.release = curs507a_release,
 	.prepare = curs507a_prepare,
-	// TODO: Cursors also support premulti, but we haven't hooked it up anywhere yet.
-	.blend_modes = BIT(DRM_MODE_BLEND_COVERAGE),
 };
 
 int

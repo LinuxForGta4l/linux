@@ -174,7 +174,7 @@ bool is_event_supported(u8 type, u64 config)
 		}
 
 		evsel__close(evsel);
-		evsel__put(evsel);
+		evsel__delete(evsel);
 	}
 
 	perf_thread_map__put(tmap);

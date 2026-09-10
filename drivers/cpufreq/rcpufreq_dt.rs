@@ -4,19 +4,12 @@
 
 use kernel::{
     clk::Clk,
-    cpu,
-    cpufreq, //
+    cpu, cpufreq,
     cpumask::CpumaskVar,
-    device::{
-        Core,
-        Device, //
-    },
+    device::{Core, Device},
     error::code::*,
     macros::vtable,
-    module_platform_driver,
-    of,
-    opp,
-    platform, //
+    module_platform_driver, of, opp, platform,
     prelude::*,
     str::CString,
     sync::Arc,
@@ -201,6 +194,7 @@ impl cpufreq::Driver for CPUFreqDTDriver {
 
 kernel::of_device_table!(
     OF_TABLE,
+    MODULE_OF_TABLE,
     <CPUFreqDTDriver as platform::Driver>::IdInfo,
     [(of::DeviceId::new(c"operating-points-v2"), ())]
 );

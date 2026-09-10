@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Novatek NT36523 I2C touchscreen driver for Samsung Galaxy Tab A7 (gta4l)
+# (novatek,NVT-ts compatible node, see u-boot embedded DT: address 0x63,
+#  interrupt tlmm 50, reset tlmm 47).
+
+config TOUCHSCREEN_NOVATEK_NT36523_I2C
+	tristate "Novatek NT36523 (NVT-ts) I2C touchscreen"
+	depends on I2C
+	depends on GPIOLIB || COMPILE_TEST
+	help
+	  Novatek NT36523-series touch controller TCM I2C transport.
+	  Ported from the Samsung/LOS nt36xxx SPI driver; the TCM
+	  page/register protocol is identical over I2C.
+
+	  If unsure, say N.
+
+config TOUCHSCREEN_NOVATEK_NT36523_EXT_PROC
+	bool "Novatek NT36523 extended procfs interface"
+	depends on TOUCHSCREEN_NOVATEK_NT36523_I2C
+	help
+	  Adds /proc/nvt_* raw data, baseline and firmware version entries
+	  (used for bring-up debugging).
+
+	  If unsure, say Y.

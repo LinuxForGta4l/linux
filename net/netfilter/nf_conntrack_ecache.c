@@ -245,6 +245,7 @@ void nf_ct_expect_event_report(enum ip_conntrack_expect_events event,
 {
 	struct net *net = nf_ct_exp_net(exp);
 	struct nf_ct_event_notifier *notify;
+	struct nf_conntrack_ecache *e;
 
 	lockdep_nfct_expect_lock_held();
 
@@ -253,7 +254,11 @@ void nf_ct_expect_event_report(enum ip_conntrack_expect_events event,
 	if (!notify)
 		goto out_unlock;
 
-	if (exp->event_mask & (1 << event)) {
+	e = nf_ct_ecache_find(exp->master);
+	if (!e)
+		goto out_unlock;
+
+	if (e->expmask & (1 << event)) {
 		struct nf_exp_event item = {
 			.exp	= exp,
 			.portid	= portid,

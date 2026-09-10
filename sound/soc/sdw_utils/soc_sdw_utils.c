@@ -836,35 +836,6 @@ struct asoc_sdw_codec_info codec_info_list[] = {
 	},
 	{
 		.vendor_id = 0x01fa,
-		.part_id = 0x3562,
-		.name_prefix = "AMP",
-		.is_amp = true,
-		.dais = {
-			{
-				.direction = {true, false},
-				.dai_name = "cs35l56-sdw1",
-				.component_name = "cs35l56",
-				.dai_type = SOC_SDW_DAI_TYPE_AMP,
-				.dailink = {SOC_SDW_AMP_OUT_DAI_ID, SOC_SDW_UNUSED_DAI_ID},
-				.init = asoc_sdw_cs_amp_init,
-				.rtd_init = asoc_sdw_cs_spk_rtd_init,
-				.controls = generic_spk_controls,
-				.num_controls = ARRAY_SIZE(generic_spk_controls),
-				.widgets = generic_spk_widgets,
-				.num_widgets = ARRAY_SIZE(generic_spk_widgets),
-			},
-			{
-				.direction = {false, true},
-				.dai_name = "cs35l56-sdw1c",
-				.dai_type = SOC_SDW_DAI_TYPE_AMP,
-				.dailink = {SOC_SDW_UNUSED_DAI_ID, SOC_SDW_AMP_IN_DAI_ID},
-				.rtd_init = asoc_sdw_cs_spk_feedback_rtd_init,
-			},
-		},
-		.dai_num = 2,
-	},
-	{
-		.vendor_id = 0x01fa,
 		.part_id = 0x3563,
 		.name_prefix = "AMP",
 		.is_amp = true,
@@ -1818,7 +1789,9 @@ static int is_sdca_aux_dev_present(struct device *dev,
 				   int adr_index)
 {
 	struct sdw_slave *slave;
+	struct device *sdw_dev;
 	const char *sdw_codec_name;
+	int ret = 0;
 	int i;
 
 	if (!aux_codec_name)
@@ -1828,8 +1801,7 @@ static int is_sdca_aux_dev_present(struct device *dev,
 	if (!sdw_codec_name)
 		return -ENOMEM;
 
-	struct device *sdw_dev __free(put_device) =
-		bus_find_device_by_name(&sdw_bus_type, NULL, sdw_codec_name);
+	sdw_dev = bus_find_device_by_name(&sdw_bus_type, NULL, sdw_codec_name);
 	if (!sdw_dev) {
 		dev_err(dev, "codec %s not found\n", sdw_codec_name);
 		return -EINVAL;
@@ -1839,19 +1811,24 @@ static int is_sdca_aux_dev_present(struct device *dev,
 
 	if (!slave->sdca_data.interface_revision) {
 		dev_warn(dev, "No SDCA properties, assuming aux '%s' present\n", aux_codec_name);
-		return 1;
+		ret = 1;
+		goto put_dev;
 	}
 
 	for (i = 0; i < slave->sdca_data.num_functions; i++) {
 		const char *fname = slave->sdca_data.function[i].name;
 
-		if (fname && strstr(aux_codec_name, fname))
-			return 1;
+		if (fname && strstr(aux_codec_name, fname)) {
+			ret = 1;
+			goto put_dev;
+		}
 	}
 
 	dev_dbg(dev, "SDCA function for aux '%s' NOT FOUND on slave, skipping\n", aux_codec_name);
 
-	return 0;
+put_dev:
+	put_device(sdw_dev);
+	return ret;
 }
 
 int asoc_sdw_count_sdw_endpoints(struct snd_soc_card *card,
@@ -1951,8 +1928,9 @@ static int is_sdca_endpoint_present(struct device *dev,
 	const struct snd_soc_acpi_endpoint *adr_end;
 	const struct asoc_sdw_dai_info *dai_info;
 	struct sdw_slave *slave;
+	struct device *sdw_dev;
 	const char *sdw_codec_name;
-	int i;
+	int ret, i;
 
 	adr_end = &adr_dev->endpoints[end_index];
 	dai_info = &codec_info->dais[adr_end->num];
@@ -1961,8 +1939,7 @@ static int is_sdca_endpoint_present(struct device *dev,
 	if (!sdw_codec_name)
 		return -ENOMEM;
 
-	struct device *sdw_dev __free(put_device) =
-		bus_find_device_by_name(&sdw_bus_type, NULL, sdw_codec_name);
+	sdw_dev = bus_find_device_by_name(&sdw_bus_type, NULL, sdw_codec_name);
 	if (!sdw_dev) {
 		dev_err(dev, "codec %s not found\n", sdw_codec_name);
 		return -EINVAL;
@@ -1973,7 +1950,8 @@ static int is_sdca_endpoint_present(struct device *dev,
 	/* Make sure BIOS provides SDCA properties */
 	if (!slave->sdca_data.interface_revision) {
 		dev_warn(&slave->dev, "SDCA properties not found in the BIOS\n");
-		return 1;
+		ret = 1;
+		goto put_device;
 	}
 
 	for (i = 0; i < slave->sdca_data.num_functions; i++) {
@@ -1982,7 +1960,8 @@ static int is_sdca_endpoint_present(struct device *dev,
 		if (dai_type == dai_info->dai_type) {
 			dev_dbg(&slave->dev, "DAI type %d sdca function %s found\n",
 				dai_type, slave->sdca_data.function[i].name);
-			return 1;
+			ret = 1;
+			goto put_device;
 		}
 	}
 
@@ -1990,16 +1969,21 @@ static int is_sdca_endpoint_present(struct device *dev,
 		"SDCA device function for DAI type %d not supported, skip endpoint\n",
 		dai_info->dai_type);
 
-	return 0;
+	ret = 0;
+
+put_device:
+	put_device(sdw_dev);
+	return ret;
 }
 
-int asoc_sdw_parse_sdw_endpoints(struct device *dev,
-				 struct asoc_sdw_mc_private *ctx,
+int asoc_sdw_parse_sdw_endpoints(struct snd_soc_card *card,
 				 struct snd_soc_aux_dev *soc_aux,
 				 struct asoc_sdw_dailink *soc_dais,
 				 struct asoc_sdw_endpoint *soc_ends,
 				 int *num_devs)
 {
+	struct device *dev = card->dev;
+	struct asoc_sdw_mc_private *ctx = snd_soc_card_get_drvdata(card);
 	struct snd_soc_acpi_mach *mach = dev_get_platdata(dev);
 	struct snd_soc_acpi_mach_params *mach_params = &mach->mach_params;
 	const struct snd_soc_acpi_link_adr *adr_link;
@@ -2061,7 +2045,7 @@ int asoc_sdw_parse_sdw_endpoints(struct device *dev,
 			ctx->ignore_internal_dmic |= codec_info->ignore_internal_dmic;
 
 			if (codec_info->count_sidecar && codec_info->add_sidecar) {
-				ret = codec_info->count_sidecar(ctx, &num_dais, num_devs);
+				ret = codec_info->count_sidecar(card, &num_dais, num_devs);
 				if (ret)
 					return ret;
 

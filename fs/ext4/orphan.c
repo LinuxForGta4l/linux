@@ -4,7 +4,6 @@
 #include <linux/fs.h>
 #include <linux/quotaops.h>
 #include <linux/buffer_head.h>
-#include <linux/string_choices.h>
 
 #include "ext4.h"
 #include "ext4_jbd2.h"
@@ -389,7 +388,7 @@ void ext4_orphan_cleanup(struct super_block *sb, struct ext4_super_block *es)
 	struct ext4_orphan_info *oi = &EXT4_SB(sb)->s_orphan_info;
 	int inodes_per_ob = ext4_inodes_per_orphan_block(sb);
 
-	if (!es->s_last_orphan && ext4_orphan_file_empty(sb)) {
+	if (!es->s_last_orphan && !oi->of_blocks) {
 		ext4_debug("no orphan inodes to clean up\n");
 		return;
 	}
@@ -487,12 +486,14 @@ void ext4_orphan_cleanup(struct super_block *sb, struct ext4_super_block *es)
 		}
 	}
 
+#define PLURAL(x) (x), ((x) == 1) ? "" : "s"
+
 	if (nr_orphans)
 		ext4_msg(sb, KERN_INFO, "%d orphan inode%s deleted",
-			 nr_orphans, str_plural(nr_orphans));
+		       PLURAL(nr_orphans));
 	if (nr_truncates)
 		ext4_msg(sb, KERN_INFO, "%d truncate%s cleaned up",
-			 nr_truncates, str_plural(nr_truncates));
+		       PLURAL(nr_truncates));
 #ifdef CONFIG_QUOTA
 	/* Turn off quotas if they were enabled for orphan cleanup */
 	if (quota_update) {
@@ -571,7 +572,6 @@ int ext4_init_orphan_info(struct super_block *sb)
 	int i, j;
 	int ret;
 	int free;
-	int loaded = 0;
 	__le32 *bdata;
 	int inodes_per_ob = ext4_inodes_per_orphan_block(sb);
 	struct ext4_orphan_block_tail *ot;
@@ -613,7 +613,6 @@ int ext4_init_orphan_info(struct super_block *sb)
 			ret = -EIO;
 			goto out_free;
 		}
-		loaded++;
 		ot = ext4_orphan_block_tail(sb, oi->of_binfo[i].ob_bh);
 		if (le32_to_cpu(ot->ob_magic) != EXT4_ORPHAN_BLOCK_MAGIC) {
 			ext4_error(sb, "orphan file block %d: bad magic", i);
@@ -636,10 +635,8 @@ int ext4_init_orphan_info(struct super_block *sb)
 	iput(inode);
 	return 0;
 out_free:
-	while (loaded > 0) {
-		loaded--;
-		brelse(oi->of_binfo[loaded].ob_bh);
-	}
+	for (i--; i >= 0; i--)
+		brelse(oi->of_binfo[i].ob_bh);
 	kvfree(oi->of_binfo);
 out_put:
 	iput(inode);

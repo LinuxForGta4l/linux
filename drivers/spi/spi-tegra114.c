@@ -1450,6 +1450,7 @@ static void tegra_spi_remove(struct platform_device *pdev)
 		tegra_spi_runtime_suspend(&pdev->dev);
 }
 
+#ifdef CONFIG_PM_SLEEP
 static int tegra_spi_suspend(struct device *dev)
 {
 	struct spi_controller *host = dev_get_drvdata(dev);
@@ -1475,6 +1476,7 @@ static int tegra_spi_resume(struct device *dev)
 
 	return spi_controller_resume(host);
 }
+#endif
 
 static int tegra_spi_runtime_suspend(struct device *dev)
 {
@@ -1503,14 +1505,14 @@ static int tegra_spi_runtime_resume(struct device *dev)
 }
 
 static const struct dev_pm_ops tegra_spi_pm_ops = {
-	RUNTIME_PM_OPS(tegra_spi_runtime_suspend,
-		       tegra_spi_runtime_resume, NULL)
-	SYSTEM_SLEEP_PM_OPS(tegra_spi_suspend, tegra_spi_resume)
+	SET_RUNTIME_PM_OPS(tegra_spi_runtime_suspend,
+		tegra_spi_runtime_resume, NULL)
+	SET_SYSTEM_SLEEP_PM_OPS(tegra_spi_suspend, tegra_spi_resume)
 };
 static struct platform_driver tegra_spi_driver = {
 	.driver = {
 		.name		= "spi-tegra114",
-		.pm		= pm_ptr(&tegra_spi_pm_ops),
+		.pm		= &tegra_spi_pm_ops,
 		.of_match_table	= tegra_spi_of_match,
 	},
 	.probe =	tegra_spi_probe,

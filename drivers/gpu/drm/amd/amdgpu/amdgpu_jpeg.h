@@ -149,9 +149,6 @@ struct amdgpu_jpeg {
 	u32 *ip_dump;
 	u32 reg_count;
 	const struct amdgpu_hwip_reg_entry *reg_list;
-
-	bool disable_uq;
-	bool disable_kq;
 };
 
 int amdgpu_jpeg_sw_init(struct amdgpu_device *adev);

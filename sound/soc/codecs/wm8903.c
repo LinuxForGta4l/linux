@@ -14,7 +14,6 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/init.h>
-#include <linux/cleanup.h>
 #include <linux/completion.h>
 #include <linux/delay.h>
 #include <linux/gpio/driver.h>
@@ -459,20 +458,22 @@ static int wm8903_put_deemph(struct snd_kcontrol *kcontrol,
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct wm8903_priv *wm8903 = snd_soc_component_get_drvdata(component);
 	unsigned int deemph = ucontrol->value.integer.value[0];
+	int ret = 0;
 
 	if (deemph > 1)
 		return -EINVAL;
 
-	guard(mutex)(&wm8903->lock);
+	mutex_lock(&wm8903->lock);
 	if (wm8903->deemph != deemph) {
 		wm8903->deemph = deemph;
 
 		wm8903_set_deemph(component);
 
-		return 1;
+		ret = 1;
 	}
+	mutex_unlock(&wm8903->lock);
 
-	return 0;
+	return ret;
 }
 
 /* ALSA can only do steps of .01dB */

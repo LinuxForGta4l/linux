@@ -506,8 +506,6 @@ static inline __must_check
 int vma_start_write_killable(struct vm_area_struct *vma) { return 0; }
 static inline void vma_assert_write_locked(struct vm_area_struct *vma)
 		{ mmap_assert_write_locked(vma->vm_mm); }
-static inline bool vma_is_attached(struct vm_area_struct *vma)
-		{ return true; }
 static inline void vma_assert_attached(struct vm_area_struct *vma) {}
 static inline void vma_assert_detached(struct vm_area_struct *vma) {}
 static inline void vma_mark_attached(struct vm_area_struct *vma) {}
@@ -531,12 +529,6 @@ static inline void vma_assert_stabilised(struct vm_area_struct *vma)
 }
 
 #endif /* CONFIG_PER_VMA_LOCK */
-
-static inline void vma_assert_can_modify(struct vm_area_struct *vma)
-{
-	if (vma_is_attached(vma))
-		vma_assert_write_locked(vma);
-}
 
 static inline void mmap_write_lock(struct mm_struct *mm)
 {

@@ -6,7 +6,6 @@
 #include <linux/static_key.h>
 #include <linux/objtool.h>
 #include <linux/linkage.h>
-#include <linux/types.h>
 
 #include <asm/alternative.h>
 #include <asm/cpufeatures.h>

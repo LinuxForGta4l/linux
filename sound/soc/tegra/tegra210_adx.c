@@ -496,12 +496,16 @@ static struct snd_kcontrol_new tegra264_adx_controls[] = {
 static int tegra210_adx_component_probe(struct snd_soc_component *component)
 {
 	struct tegra210_adx *adx = snd_soc_component_get_drvdata(component);
+	int err = 0;
 
-	if (adx->soc_data->num_controls)
-		return snd_soc_add_component_controls(component, adx->soc_data->controls,
-						      adx->soc_data->num_controls);
+	if (adx->soc_data->num_controls) {
+		err = snd_soc_add_component_controls(component, adx->soc_data->controls,
+						     adx->soc_data->num_controls);
+		if (err)
+			dev_err(component->dev, "can't add ADX controls, err: %d\n", err);
+	}
 
-	return 0;
+	return err;
 }
 
 static const struct snd_soc_component_driver tegra210_adx_cmpnt = {

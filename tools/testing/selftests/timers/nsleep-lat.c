@@ -24,10 +24,44 @@
 #include <sys/timex.h>
 #include <string.h>
 #include <signal.h>
-#include "clock-helpers.h"
+#include <include/vdso/time64.h>
 #include "kselftest.h"
 
-#define UNRESONABLE_LATENCY (40 * NSEC_PER_MSEC)
+#define UNRESONABLE_LATENCY 40000000 /* 40ms in nanosecs */
+
+/* CLOCK_HWSPECIFIC == CLOCK_SGI_CYCLE (Deprecated) */
+#define CLOCK_HWSPECIFIC		10
+
+#define UNSUPPORTED 0xf00f
+
+char *clockstring(int clockid)
+{
+	switch (clockid) {
+	case CLOCK_REALTIME:
+		return "CLOCK_REALTIME";
+	case CLOCK_MONOTONIC:
+		return "CLOCK_MONOTONIC";
+	case CLOCK_PROCESS_CPUTIME_ID:
+		return "CLOCK_PROCESS_CPUTIME_ID";
+	case CLOCK_THREAD_CPUTIME_ID:
+		return "CLOCK_THREAD_CPUTIME_ID";
+	case CLOCK_MONOTONIC_RAW:
+		return "CLOCK_MONOTONIC_RAW";
+	case CLOCK_REALTIME_COARSE:
+		return "CLOCK_REALTIME_COARSE";
+	case CLOCK_MONOTONIC_COARSE:
+		return "CLOCK_MONOTONIC_COARSE";
+	case CLOCK_BOOTTIME:
+		return "CLOCK_BOOTTIME";
+	case CLOCK_REALTIME_ALARM:
+		return "CLOCK_REALTIME_ALARM";
+	case CLOCK_BOOTTIME_ALARM:
+		return "CLOCK_BOOTTIME_ALARM";
+	case CLOCK_TAI:
+		return "CLOCK_TAI";
+	};
+	return "UNKNOWN_CLOCKID";
+}
 
 struct timespec timespec_add(struct timespec ts, unsigned long long ns)
 {
@@ -58,68 +92,58 @@ int nanosleep_lat_test(int clockid, long long ns)
 	target.tv_nsec = ns%NSEC_PER_SEC;
 
 	if (clock_gettime(clockid, &start))
-		return KSFT_SKIP;
+		return UNSUPPORTED;
 	if (clock_nanosleep(clockid, 0, &target, NULL))
-		return KSFT_SKIP;
+		return UNSUPPORTED;
 
 	count = 10;
 
 	/* First check relative latency */
-	if (clock_gettime(clockid, &start))
-		return KSFT_FAIL;
-
-	for (i = 0; i < count; i++) {
-		if (clock_nanosleep(clockid, 0, &target, NULL))
-			return KSFT_FAIL;
-	}
-
-	if (clock_gettime(clockid, &end))
-		return KSFT_FAIL;
+	clock_gettime(clockid, &start);
+	for (i = 0; i < count; i++)
+		clock_nanosleep(clockid, 0, &target, NULL);
+	clock_gettime(clockid, &end);
 
 	if (((timespec_sub(start, end)/count)-ns) > UNRESONABLE_LATENCY) {
 		ksft_print_msg("Large rel latency: %lld ns :", (timespec_sub(start, end)/count)-ns);
-		return KSFT_FAIL;
+		return -1;
 	}
 
 	/* Next check absolute latency */
 	for (i = 0; i < count; i++) {
-		if (clock_gettime(clockid, &start))
-			return KSFT_FAIL;
+		clock_gettime(clockid, &start);
 		target = timespec_add(start, ns);
-		if (clock_nanosleep(clockid, TIMER_ABSTIME, &target, NULL))
-			return KSFT_FAIL;
-		if (clock_gettime(clockid, &end))
-			return KSFT_FAIL;
+		clock_nanosleep(clockid, TIMER_ABSTIME, &target, NULL);
+		clock_gettime(clockid, &end);
 		latency += timespec_sub(target, end);
 	}
 
 	if (latency/count > UNRESONABLE_LATENCY) {
 		ksft_print_msg("Large abs latency: %lld ns :", latency/count);
-		return KSFT_FAIL;
+		return -1;
 	}
 
-	return KSFT_PASS;
+	return 0;
 }
+
+#define SKIPPED_CLOCK_COUNT 3
 
 int main(int argc, char **argv)
 {
 	long long length;
 	int clockid, ret;
-
-	static const clockid_t tested_clocks[] = {
-		CLOCK_REALTIME,
-		CLOCK_MONOTONIC,
-		CLOCK_BOOTTIME,
-		CLOCK_BOOTTIME_ALARM,
-		CLOCK_REALTIME_ALARM,
-		CLOCK_TAI,
-	};
+	int max_clocks = CLOCK_TAI + 1;
 
 	ksft_print_header();
-	ksft_set_plan(ARRAY_SIZE(tested_clocks));
+	ksft_set_plan(max_clocks - CLOCK_REALTIME - SKIPPED_CLOCK_COUNT);
 
-	for (size_t clock_index = 0; clock_index < ARRAY_SIZE(tested_clocks); clock_index++) {
-		clockid = tested_clocks[clock_index];
+	for (clockid = CLOCK_REALTIME; clockid < max_clocks; clockid++) {
+
+		/* Skip cputime clockids since nanosleep won't increment cputime */
+		if (clockid == CLOCK_PROCESS_CPUTIME_ID ||
+				clockid == CLOCK_THREAD_CPUTIME_ID ||
+				clockid == CLOCK_HWSPECIFIC)
+			continue;
 
 		length = 10;
 		while (length <= (NSEC_PER_SEC * 10)) {
@@ -130,7 +154,12 @@ int main(int argc, char **argv)
 
 		}
 
-		ksft_test_result_report(ret, "%s\n", clock_name(clockid));
+		if (ret == UNSUPPORTED) {
+			ksft_test_result_skip("%s\n", clockstring(clockid));
+		} else {
+			ksft_test_result(ret >= 0, "%s\n",
+					 clockstring(clockid));
+		}
 	}
 
 	ksft_finished();

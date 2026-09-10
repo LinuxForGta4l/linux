@@ -103,7 +103,6 @@
 #include <linux/stackdepot.h>
 #include <linux/randomize_kstack.h>
 #include <linux/pidfs.h>
-#include <linux/fs_struct.h>
 #include <linux/ptdump.h>
 #include <linux/time_namespace.h>
 #include <linux/unaligned.h>
@@ -671,11 +670,6 @@ static __initdata DECLARE_COMPLETION(kthreadd_done);
 
 static noinline void __ref __noreturn rest_init(void)
 {
-	struct kernel_clone_args init_args = {
-		.flags		= (CLONE_VM | CLONE_UNTRACED),
-		.fn		= kernel_init,
-		.fn_arg		= NULL,
-	};
 	struct task_struct *tsk;
 	int pid;
 
@@ -685,7 +679,7 @@ static noinline void __ref __noreturn rest_init(void)
 	 * the init task will end up wanting to create kthreads, which, if
 	 * we schedule it before we create kthreadd, will OOPS.
 	 */
-	pid = kernel_clone(&init_args);
+	pid = user_mode_thread(kernel_init, NULL, CLONE_FS);
 	/*
 	 * Pin init on the boot CPU. Task migration is not properly working
 	 * until sched_init_smp() has been run. It will set the allowed
@@ -1545,8 +1539,6 @@ void __weak free_initmem(void)
 static int __ref kernel_init(void *unused)
 {
 	int ret;
-
-	init_userspace_fs();
 
 	/*
 	 * Wait until kthreadd is all set-up.

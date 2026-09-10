@@ -345,7 +345,7 @@ static unsigned int get_cur_freq(unsigned int cpu)
 static int centrino_cpu_init(struct cpufreq_policy *policy)
 {
 	struct cpuinfo_x86 *cpu = &cpu_data(policy->cpu);
-	u64 q;
+	unsigned l, h;
 	int i;
 
 	/* Only Intel makes Enhanced Speedstep-capable CPUs */
@@ -378,16 +378,16 @@ static int centrino_cpu_init(struct cpufreq_policy *policy)
 
 	/* Check to see if Enhanced SpeedStep is enabled, and try to
 	   enable it if not. */
-	rdmsrq(MSR_IA32_MISC_ENABLE, q);
+	rdmsr(MSR_IA32_MISC_ENABLE, l, h);
 
-	if (!(q & MSR_IA32_MISC_ENABLE_ENHANCED_SPEEDSTEP)) {
-		q |= MSR_IA32_MISC_ENABLE_ENHANCED_SPEEDSTEP;
-		pr_debug("trying to enable Enhanced SpeedStep (%x)\n", (u32)q);
-		wrmsrq(MSR_IA32_MISC_ENABLE, q);
+	if (!(l & MSR_IA32_MISC_ENABLE_ENHANCED_SPEEDSTEP)) {
+		l |= MSR_IA32_MISC_ENABLE_ENHANCED_SPEEDSTEP;
+		pr_debug("trying to enable Enhanced SpeedStep (%x)\n", l);
+		wrmsr(MSR_IA32_MISC_ENABLE, l, h);
 
 		/* check to see if it stuck */
-		rdmsrq(MSR_IA32_MISC_ENABLE, q);
-		if (!(q & MSR_IA32_MISC_ENABLE_ENHANCED_SPEEDSTEP)) {
+		rdmsr(MSR_IA32_MISC_ENABLE, l, h);
+		if (!(l & MSR_IA32_MISC_ENABLE_ENHANCED_SPEEDSTEP)) {
 			pr_info("couldn't enable Enhanced SpeedStep\n");
 			return -ENODEV;
 		}

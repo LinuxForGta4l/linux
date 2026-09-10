@@ -13,17 +13,18 @@
  */
 
 #include <linux/kernel.h>
-#include <linux/delay.h>
 #include <linux/export.h>
 #include <linux/init.h>
-
+#include <linux/timex.h>
 #include <asm/param.h>
+#include <asm/delay.h>
+#include <asm/timex.h>
 #include <asm/processor.h>
 
-bool delay_read_timer(unsigned long *timer_value)
+int read_current_timer(unsigned long *timer_value)
 {
 	*timer_value = get_cycles();
-	return true;
+	return 0;
 }
 
 void __delay(unsigned long cycles)

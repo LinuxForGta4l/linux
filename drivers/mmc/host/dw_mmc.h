@@ -19,8 +19,6 @@
 #include <linux/interrupt.h>
 #include <linux/workqueue.h>
 
-extern const struct dev_pm_ops dw_mci_pmops;
-
 enum dw_mci_state {
 	STATE_IDLE = 0,
 	STATE_SENDING_CMD,

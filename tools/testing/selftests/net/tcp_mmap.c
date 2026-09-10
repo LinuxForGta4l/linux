@@ -141,12 +141,12 @@ static void *mmap_large_buffer(size_t need, size_t *allocated)
 	buffer = mmap(NULL, sz, PROT_READ | PROT_WRITE,
 		      MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
 
-	if (buffer == MAP_FAILED) {
+	if (buffer == (void *)-1) {
 		sz = need;
 		buffer = mmap(NULL, sz, PROT_READ | PROT_WRITE,
 			      MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE,
 			      -1, 0);
-		if (buffer != MAP_FAILED)
+		if (buffer != (void *)-1)
 			fprintf(stderr, "MAP_HUGETLB attempt failed, look at /sys/kernel/mm/hugepages for optimal performance\n");
 	}
 	*allocated = sz;
@@ -189,13 +189,13 @@ void *child_thread(void *arg)
 
 	fcntl(fd, F_SETFL, O_NDELAY);
 	buffer = mmap_large_buffer(chunk_size, &buffer_sz);
-	if (buffer == MAP_FAILED) {
+	if (buffer == (void *)-1) {
 		perror("mmap");
 		goto error;
 	}
 	if (zflg) {
 		raddr = mmap(NULL, chunk_size + map_align, PROT_READ, flags, fd, 0);
-		if (raddr == MAP_FAILED) {
+		if (raddr == (void *)-1) {
 			perror("mmap");
 			zflg = 0;
 		} else {
@@ -547,7 +547,7 @@ int main(int argc, char *argv[])
 	}
 
 	buffer = mmap_large_buffer(chunk_size, &buffer_sz);
-	if (buffer == MAP_FAILED) {
+	if (buffer == (unsigned char *)-1) {
 		perror("mmap");
 		exit(1);
 	}

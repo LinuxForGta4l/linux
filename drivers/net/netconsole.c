@@ -37,10 +37,8 @@
 #include <linux/udp.h>
 #include <linux/netpoll.h>
 #include <linux/inet.h>
-#include <linux/inetdevice.h>
 #include <linux/unaligned.h>
 #include <net/ip6_checksum.h>
-#include <net/addrconf.h>
 #include <linux/configfs.h>
 #include <linux/etherdevice.h>
 #include <linux/hex.h>
@@ -48,7 +46,6 @@
 #include <linux/utsname.h>
 #include <linux/rtnetlink.h>
 #include <linux/workqueue.h>
-#include <linux/delay.h>
 
 MODULE_AUTHOR("Matt Mackall <mpm@selenic.com>");
 MODULE_DESCRIPTION("Console driver for network interfaces");
@@ -63,19 +60,6 @@ MODULE_IMPORT_NS("NETDEV_INTERNAL");
 					MAX_EXTRADATA_VALUE_LEN - 3)
 #define MAX_USERDATA_ITEMS		256
 #define MAX_PRINT_CHUNK			1000
-
-/*
- * Sizing for the per-target fallback skb pool consulted by find_skb()
- * when its GFP_ATOMIC allocation fails so messages still get out under
- * memory pressure.
- */
-#define MAX_UDP_CHUNK			1460
-#define MAX_SKBS			32
-#define MAX_SKB_SIZE							\
-	(sizeof(struct ethhdr) +					\
-	 sizeof(struct iphdr) +						\
-	 sizeof(struct udphdr) +					\
-	 MAX_UDP_CHUNK)
 
 static char config[MAX_PARAM_LENGTH];
 module_param_string(netconsole, config, MAX_PARAM_LENGTH, 0);
@@ -152,26 +136,12 @@ enum target_state {
 };
 
 /**
- * struct netcons_userdata - Formatted userdata payload of a target.
- * @rcu:	Used to free the payload after a grace period.
- * @length:	Length of @data, excluding the NUL terminator.
- * @data:	Formatted " key=value\n" entries, NUL terminated.
- *
- * Immutable once published, so the transmit path never observes @data and
- * @length disagreeing.
- */
-struct netcons_userdata {
-	struct rcu_head		rcu;
-	size_t			length;
-	char			data[];
-};
-
-/**
  * struct netconsole_target - Represents a configured netconsole target.
  * @list:	Links this target into the target_list.
  * @group:	Links us into the configfs subsystem hierarchy.
  * @userdata_group:	Links to the userdata configfs hierarchy
- * @userdata:		Cached, formatted userdata payload. RCU protected.
+ * @userdata:		Cached, formatted string of append
+ * @userdata_length:	String length of userdata.
  * @sysdata:		Cached, formatted string of append
  * @sysdata_fields:	Sysdata features enabled.
  * @msgcounter:	Message sent counter.
@@ -192,27 +162,22 @@ struct netcons_userdata {
  * @np:		The netpoll structure for this target.
  *		Contains the other userspace visible parameters:
  *		dev_name	(read-write)
+ *		local_port	(read-write)
+ *		remote_port	(read-write)
+ *		local_ip	(read-write)
+ *		remote_ip	(read-write)
  *		local_mac	(read-only)
- * @local_ip:	Source IP address of the target (read-write).
- * @remote_ip:	Destination IP address of the target (read-write).
- * @ipv6:	Whether the target addresses are IPv6 (read-write).
- * @local_port:	Source UDP port of the target (read-write).
- * @remote_port: Destination UDP port of the target (read-write).
- * @remote_mac:	Destination ethernet address of the target (read-write).
+ *		remote_mac	(read-write)
  * @buf:	The buffer used to send the full msg to the network stack
  * @resume_wq:	Workqueue to resume deactivated target
- * @skb_pool:	Per-target fallback skb pool consulted by find_skb() when
- *		its GFP_ATOMIC allocation fails. Lifetime brackets a
- *		successful netpoll_setup() / netpoll_cleanup() pair on @np.
- * @refill_wq:	Work item that asynchronously tops @skb_pool back up to
- *		MAX_SKBS after find_skb() drains an entry.
  */
 struct netconsole_target {
 	struct list_head	list;
 #ifdef	CONFIG_NETCONSOLE_DYNAMIC
 	struct config_group	group;
 	struct config_group	userdata_group;
-	struct netcons_userdata __rcu *userdata;
+	char			*userdata;
+	size_t			userdata_length;
 	char			sysdata[MAX_EXTRADATA_ENTRY_LEN * MAX_SYSDATA_ITEMS];
 
 	/* bit-wise with sysdata_feature bits */
@@ -225,17 +190,11 @@ struct netconsole_target {
 	bool			extended;
 	bool			release;
 	struct netpoll		np;
-	union inet_addr		local_ip, remote_ip;
-	bool			ipv6;
-	u16			local_port, remote_port;
-	u8			remote_mac[ETH_ALEN];
 	/* protected by target_list_lock; +1 gives scnprintf() room for its
 	 * NUL terminator so a full MAX_PRINT_CHUNK payload is not truncated
 	 */
 	char			buf[MAX_PRINT_CHUNK + 1];
 	struct work_struct	resume_wq;
-	struct sk_buff_head	skb_pool;
-	struct work_struct	refill_wq;
 };
 
 #ifdef	CONFIG_NETCONSOLE_DYNAMIC
@@ -333,258 +292,11 @@ static void netcons_release_dev(struct netconsole_target *nt)
 		memset(&nt->np.dev_name, 0, IFNAMSIZ);
 }
 
-static void refill_skbs(struct netconsole_target *nt)
-{
-	struct sk_buff_head *skb_pool = &nt->skb_pool;
-	struct sk_buff *skb;
-
-	while (READ_ONCE(skb_pool->qlen) < MAX_SKBS) {
-		skb = alloc_skb(MAX_SKB_SIZE, GFP_ATOMIC | __GFP_NOWARN);
-		if (!skb)
-			break;
-
-		skb_queue_tail(skb_pool, skb);
-	}
-}
-
-static void refill_skbs_work_handler(struct work_struct *work)
-{
-	struct netconsole_target *nt =
-		container_of(work, struct netconsole_target, refill_wq);
-
-	refill_skbs(nt);
-}
-
-/* Seed the per-target skb pool that find_skb() falls back to. The queue
- * head and refill work are set up once in alloc_and_init(); this only
- * (re)fills the pool. Pair with netconsole_skb_pool_flush().
- */
-static void netconsole_skb_pool_init(struct netconsole_target *nt)
-{
-	refill_skbs(nt);
-}
-
-static void netconsole_skb_pool_flush(struct netconsole_target *nt)
-{
-	cancel_work_sync(&nt->refill_wq);
-	skb_queue_purge_reason(&nt->skb_pool, SKB_CONSUMED);
-}
-
-static void netcons_wait_carrier(struct netpoll *np, struct net_device *ndev)
-{
-	unsigned long atmost;
-
-	atmost = jiffies + netpoll_get_carrier_timeout() * HZ;
-	while (!netif_carrier_ok(ndev)) {
-		if (time_after(jiffies, atmost)) {
-			np_notice(np, "timeout waiting for carrier\n");
-			break;
-		}
-		msleep(1);
-	}
-}
-
-/*
- * Returns a pointer to a string representation of the identifier used
- * to select the egress interface for the given netpoll instance. buf
- * is used to format np->dev_mac when np->dev_name is empty; bufsz must
- * be at least MAC_ADDR_STR_LEN + 1 to fit the formatted MAC address
- * and its NUL terminator.
- */
-static char *netcons_egress_dev(struct netpoll *np, char *buf, size_t bufsz)
-{
-	if (np->dev_name[0])
-		return np->dev_name;
-
-	snprintf(buf, bufsz, "%pM", np->dev_mac);
-	return buf;
-}
-
-/*
- * Populate the target's local_ip with the IPv6 address from ndev.
- */
-static int netcons_take_ipv6(struct netconsole_target *nt,
-			     struct net_device *ndev)
-{
-	char buf[MAC_ADDR_STR_LEN + 1];
-	struct netpoll *np = &nt->np;
-	int err = -EDESTADDRREQ;
-	struct inet6_dev *idev;
-
-	if (!IS_ENABLED(CONFIG_IPV6)) {
-		np_err(np, "IPv6 is not supported %s, aborting\n",
-		       netcons_egress_dev(np, buf, sizeof(buf)));
-		return -EINVAL;
-	}
-
-	idev = __in6_dev_get(ndev);
-	if (idev) {
-		struct inet6_ifaddr *ifp;
-
-		read_lock_bh(&idev->lock);
-		list_for_each_entry(ifp, &idev->addr_list, if_list) {
-			if (!!(ipv6_addr_type(&ifp->addr) & IPV6_ADDR_LINKLOCAL) !=
-				!!(ipv6_addr_type(&nt->remote_ip.in6) & IPV6_ADDR_LINKLOCAL))
-				continue;
-			/* Got the IP, let's return */
-			nt->local_ip.in6 = ifp->addr;
-			err = 0;
-			break;
-		}
-		read_unlock_bh(&idev->lock);
-	}
-	if (err) {
-		np_err(np, "no IPv6 address for %s, aborting\n",
-		       netcons_egress_dev(np, buf, sizeof(buf)));
-		return err;
-	}
-
-	np_info(np, "local IPv6 %pI6c\n", &nt->local_ip.in6);
-	return 0;
-}
-
-/*
- * Populate the target's local_ip with the IPv4 address from ndev.
- */
-static int netcons_take_ipv4(struct netconsole_target *nt,
-			     struct net_device *ndev)
-{
-	char buf[MAC_ADDR_STR_LEN + 1];
-	struct netpoll *np = &nt->np;
-	const struct in_ifaddr *ifa;
-	struct in_device *in_dev;
-
-	in_dev = __in_dev_get_rtnl(ndev);
-	if (!in_dev) {
-		np_err(np, "no IP address for %s, aborting\n",
-		       netcons_egress_dev(np, buf, sizeof(buf)));
-		return -EDESTADDRREQ;
-	}
-
-	ifa = rtnl_dereference(in_dev->ifa_list);
-	if (!ifa) {
-		np_err(np, "no IP address for %s, aborting\n",
-		       netcons_egress_dev(np, buf, sizeof(buf)));
-		return -EDESTADDRREQ;
-	}
-
-	nt->local_ip.ip = ifa->ifa_local;
-	np_info(np, "local IP %pI4\n", &nt->local_ip.ip);
-
-	return 0;
-}
-
-/*
- * Test whether the caller left nt->local_ip unset, so that
- * netcons_netpoll_setup() should auto-populate it from the egress device.
- *
- * nt->local_ip is a union of __be32 (IPv4) and struct in6_addr (IPv6),
- * so an IPv6 address whose first 4 bytes are zero (e.g. ::1, ::2,
- * IPv4-mapped ::ffff:a.b.c.d) must not be tested via the IPv4 arm —
- * doing so would misclassify a caller-supplied address as unset and
- * silently overwrite it with whatever address the device exposes.
- */
-static bool netcons_local_ip_unset(const struct netconsole_target *nt)
-{
-	if (nt->ipv6)
-		return ipv6_addr_any(&nt->local_ip.in6);
-	return !nt->local_ip.ip;
-}
-
-static int netcons_netpoll_setup(struct netconsole_target *nt)
-{
-	struct net *net = current->nsproxy->net_ns;
-	char buf[MAC_ADDR_STR_LEN + 1];
-	struct net_device *ndev = NULL;
-	struct netpoll *np = &nt->np;
-	bool ip_overwritten = false;
-	int err;
-
-	rtnl_lock();
-	if (np->dev_name[0])
-		ndev = __dev_get_by_name(net, np->dev_name);
-	else if (is_valid_ether_addr(np->dev_mac))
-		ndev = dev_getbyhwaddr(net, ARPHRD_ETHER, np->dev_mac);
-
-	if (!ndev) {
-		np_err(np, "%s doesn't exist, aborting\n",
-		       netcons_egress_dev(np, buf, sizeof(buf)));
-		err = -ENODEV;
-		goto unlock;
-	}
-	netdev_hold(ndev, &np->dev_tracker, GFP_KERNEL);
-
-	if (netdev_master_upper_dev_get(ndev)) {
-		np_err(np, "%s is a slave device, aborting\n",
-		       netcons_egress_dev(np, buf, sizeof(buf)));
-		err = -EBUSY;
-		goto put;
-	}
-
-	if (!netif_running(ndev)) {
-		np_info(np, "device %s not up yet, forcing it\n",
-			netcons_egress_dev(np, buf, sizeof(buf)));
-
-		err = dev_open(ndev, NULL);
-		if (err) {
-			np_err(np, "failed to open %s\n", ndev->name);
-			goto put;
-		}
-
-		rtnl_unlock();
-		netcons_wait_carrier(np, ndev);
-		rtnl_lock();
-	}
-
-	if (netcons_local_ip_unset(nt)) {
-		if (!nt->ipv6) {
-			err = netcons_take_ipv4(nt, ndev);
-			if (err)
-				goto put;
-		} else {
-			err = netcons_take_ipv6(nt, ndev);
-			if (err)
-				goto put;
-		}
-		ip_overwritten = true;
-	}
-
-	err = __netpoll_setup(np, ndev);
-	if (err)
-		goto put;
-	rtnl_unlock();
-
-	/* Make sure all NAPI polls which started before dev->npinfo
-	 * was visible have exited before we start calling NAPI poll.
-	 * NAPI skips locking if dev->npinfo is NULL.
-	 */
-	synchronize_rcu();
-
-	return 0;
-
-put:
-	DEBUG_NET_WARN_ON_ONCE(np->dev);
-	if (ip_overwritten)
-		memset(&nt->local_ip, 0, sizeof(nt->local_ip));
-	netdev_put(ndev, &np->dev_tracker);
-unlock:
-	rtnl_unlock();
-	return err;
-}
-
 /* Attempts to resume logging to a deactivated target. */
 static void resume_target(struct netconsole_target *nt)
 {
-	/* Initialise the skb pool before netpoll_setup() makes nt->np.dev
-	 * visible to target_list walkers (e.g. netconsole_netdev_event),
-	 * which otherwise may move the target to the cleanup list and
-	 * call netconsole_skb_pool_flush() on uninitialised state.
-	 */
-	netconsole_skb_pool_init(nt);
-
-	if (netcons_netpoll_setup(nt)) {
+	if (netpoll_setup(&nt->np)) {
 		/* netpoll fails setup once, do not try again. */
-		netconsole_skb_pool_flush(nt);
 		nt->state = STATE_DISABLED;
 		return;
 	}
@@ -646,7 +358,6 @@ static void process_resume_target(struct work_struct *work)
 	rtnl_lock();
 	if (nt->state == STATE_ENABLED && nt->np.dev &&
 	    nt->np.dev->reg_state != NETREG_REGISTERED) {
-		netconsole_skb_pool_flush(nt);
 		netcons_release_dev(nt);
 		nt->state = STATE_DISABLED;
 	}
@@ -682,14 +393,11 @@ static struct netconsole_target *alloc_and_init(void)
 
 	nt->np.name = "netconsole";
 	strscpy(nt->np.dev_name, "eth0", IFNAMSIZ);
-	nt->local_port = 6665;
-	nt->remote_port = 6666;
-	eth_broadcast_addr(nt->remote_mac);
+	nt->np.local_port = 6665;
+	nt->np.remote_port = 6666;
+	eth_broadcast_addr(nt->np.remote_mac);
 	nt->state = STATE_DISABLED;
 	INIT_WORK(&nt->resume_wq, process_resume_target);
-	/* Set up the skb pool primitives once; enabling only refills it. */
-	skb_queue_head_init(&nt->skb_pool);
-	INIT_WORK(&nt->refill_wq, refill_skbs_work_handler);
 
 	return nt;
 }
@@ -709,7 +417,6 @@ static void netconsole_process_cleanups_core(void)
 	list_for_each_entry_safe(nt, tmp, &target_cleanup_list, list) {
 		/* all entries in the cleanup_list needs to be disabled */
 		WARN_ON_ONCE(nt->state == STATE_ENABLED);
-		netconsole_skb_pool_flush(nt);
 		netcons_release_dev(nt);
 		/* moved the cleaned target to target_list. Need to hold both
 		 * locks
@@ -722,23 +429,21 @@ static void netconsole_process_cleanups_core(void)
 	mutex_unlock(&target_cleanup_list_lock);
 }
 
-static void netconsole_print_banner(struct netconsole_target *nt)
+static void netconsole_print_banner(struct netpoll *np)
 {
-	struct netpoll *np = &nt->np;
-
-	np_info(np, "local port %d\n", nt->local_port);
-	if (nt->ipv6)
-		np_info(np, "local IPv6 address %pI6c\n", &nt->local_ip.in6);
+	np_info(np, "local port %d\n", np->local_port);
+	if (np->ipv6)
+		np_info(np, "local IPv6 address %pI6c\n", &np->local_ip.in6);
 	else
-		np_info(np, "local IPv4 address %pI4\n", &nt->local_ip.ip);
+		np_info(np, "local IPv4 address %pI4\n", &np->local_ip.ip);
 	np_info(np, "interface name '%s'\n", np->dev_name);
 	np_info(np, "local ethernet address '%pM'\n", np->dev_mac);
-	np_info(np, "remote port %d\n", nt->remote_port);
-	if (nt->ipv6)
-		np_info(np, "remote IPv6 address %pI6c\n", &nt->remote_ip.in6);
+	np_info(np, "remote port %d\n", np->remote_port);
+	if (np->ipv6)
+		np_info(np, "remote IPv6 address %pI6c\n", &np->remote_ip.in6);
 	else
-		np_info(np, "remote IPv4 address %pI4\n", &nt->remote_ip.ip);
-	np_info(np, "remote ethernet address %pM\n", nt->remote_mac);
+		np_info(np, "remote IPv4 address %pI4\n", &np->remote_ip.ip);
+	np_info(np, "remote ethernet address %pM\n", np->remote_mac);
 }
 
 /* Parse the string and populate the `inet_addr` union. Return 0 if IPv4 is
@@ -856,32 +561,32 @@ static ssize_t dev_name_show(struct config_item *item, char *buf)
 
 static ssize_t local_port_show(struct config_item *item, char *buf)
 {
-	return sysfs_emit(buf, "%d\n", to_target(item)->local_port);
+	return sysfs_emit(buf, "%d\n", to_target(item)->np.local_port);
 }
 
 static ssize_t remote_port_show(struct config_item *item, char *buf)
 {
-	return sysfs_emit(buf, "%d\n", to_target(item)->remote_port);
+	return sysfs_emit(buf, "%d\n", to_target(item)->np.remote_port);
 }
 
 static ssize_t local_ip_show(struct config_item *item, char *buf)
 {
 	struct netconsole_target *nt = to_target(item);
 
-	if (nt->ipv6)
-		return sysfs_emit(buf, "%pI6c\n", &nt->local_ip.in6);
+	if (nt->np.ipv6)
+		return sysfs_emit(buf, "%pI6c\n", &nt->np.local_ip.in6);
 	else
-		return sysfs_emit(buf, "%pI4\n", &nt->local_ip);
+		return sysfs_emit(buf, "%pI4\n", &nt->np.local_ip);
 }
 
 static ssize_t remote_ip_show(struct config_item *item, char *buf)
 {
 	struct netconsole_target *nt = to_target(item);
 
-	if (nt->ipv6)
-		return sysfs_emit(buf, "%pI6c\n", &nt->remote_ip.in6);
+	if (nt->np.ipv6)
+		return sysfs_emit(buf, "%pI6c\n", &nt->np.remote_ip.in6);
 	else
-		return sysfs_emit(buf, "%pI4\n", &nt->remote_ip);
+		return sysfs_emit(buf, "%pI4\n", &nt->np.remote_ip);
 }
 
 static ssize_t local_mac_show(struct config_item *item, char *buf)
@@ -894,7 +599,7 @@ static ssize_t local_mac_show(struct config_item *item, char *buf)
 
 static ssize_t remote_mac_show(struct config_item *item, char *buf)
 {
-	return sysfs_emit(buf, "%pM\n", to_target(item)->remote_mac);
+	return sysfs_emit(buf, "%pM\n", to_target(item)->np.remote_mac);
 }
 
 static ssize_t transmit_errors_show(struct config_item *item, char *buf)
@@ -1051,21 +756,11 @@ static ssize_t enabled_store(struct config_item *item,
 		 * Skip netconsole_parser_cmdline() -- all the attributes are
 		 * already configured via configfs. Just print them out.
 		 */
-		netconsole_print_banner(nt);
+		netconsole_print_banner(&nt->np);
 
-		/* Initialise the skb pool before netpoll_setup() so the pool
-		 * is valid as soon as nt->np.dev becomes visible to
-		 * target_list walkers (netconsole_netdev_event), which would
-		 * otherwise call netconsole_skb_pool_flush() on uninitialised
-		 * state.
-		 */
-		netconsole_skb_pool_init(nt);
-
-		ret = netcons_netpoll_setup(nt);
-		if (ret) {
-			netconsole_skb_pool_flush(nt);
+		ret = netpoll_setup(&nt->np);
+		if (ret)
 			goto out_unlock;
-		}
 
 		nt->state = STATE_ENABLED;
 		pr_info("network logging started\n");
@@ -1190,7 +885,7 @@ static ssize_t local_port_store(struct config_item *item, const char *buf,
 		goto out_unlock;
 	}
 
-	ret = kstrtou16(buf, 10, &nt->local_port);
+	ret = kstrtou16(buf, 10, &nt->np.local_port);
 	if (ret < 0)
 		goto out_unlock;
 	ret = count;
@@ -1212,7 +907,7 @@ static ssize_t remote_port_store(struct config_item *item,
 		goto out_unlock;
 	}
 
-	ret = kstrtou16(buf, 10, &nt->remote_port);
+	ret = kstrtou16(buf, 10, &nt->np.remote_port);
 	if (ret < 0)
 		goto out_unlock;
 	ret = count;
@@ -1235,10 +930,10 @@ static ssize_t local_ip_store(struct config_item *item, const char *buf,
 		goto out_unlock;
 	}
 
-	ipv6 = netpoll_parse_ip_addr(buf, &nt->local_ip);
+	ipv6 = netpoll_parse_ip_addr(buf, &nt->np.local_ip);
 	if (ipv6 == -1)
 		goto out_unlock;
-	nt->ipv6 = !!ipv6;
+	nt->np.ipv6 = !!ipv6;
 
 	ret = count;
 out_unlock:
@@ -1260,10 +955,10 @@ static ssize_t remote_ip_store(struct config_item *item, const char *buf,
 		goto out_unlock;
 	}
 
-	ipv6 = netpoll_parse_ip_addr(buf, &nt->remote_ip);
+	ipv6 = netpoll_parse_ip_addr(buf, &nt->np.remote_ip);
 	if (ipv6 == -1)
 		goto out_unlock;
-	nt->ipv6 = !!ipv6;
+	nt->np.ipv6 = !!ipv6;
 
 	ret = count;
 out_unlock:
@@ -1299,7 +994,7 @@ static ssize_t remote_mac_store(struct config_item *item, const char *buf,
 		goto out_unlock;
 	if (buf[MAC_ADDR_STR_LEN] && buf[MAC_ADDR_STR_LEN] != '\n')
 		goto out_unlock;
-	memcpy(nt->remote_mac, remote_mac, ETH_ALEN);
+	memcpy(nt->np.remote_mac, remote_mac, ETH_ALEN);
 
 	ret = count;
 out_unlock:
@@ -1364,11 +1059,12 @@ static int calc_userdata_len(struct netconsole_target *nt)
 
 static int update_userdata(struct netconsole_target *nt)
 {
-	struct netcons_userdata *new = NULL;
-	struct netcons_userdata *old;
 	struct userdatum *udm_item;
 	struct config_item *item;
 	struct list_head *entry;
+	char *old_buf = NULL;
+	char *new_buf = NULL;
+	unsigned long flags;
 	int offset = 0;
 	int len;
 
@@ -1380,8 +1076,8 @@ static int update_userdata(struct netconsole_target *nt)
 
 	/* Allocate new buffer */
 	if (len) {
-		new = kmalloc_flex(*new, data, len + 1);
-		if (!new)
+		new_buf = kmalloc(len + 1, GFP_KERNEL);
+		if (!new_buf)
 			return -ENOMEM;
 	}
 
@@ -1391,21 +1087,22 @@ static int update_userdata(struct netconsole_target *nt)
 		udm_item = to_userdatum(item);
 		/* Skip userdata with no value set */
 		if (udm_item->value[0]) {
-			offset += scnprintf(&new->data[offset],
-					    len + 1 - offset,
+			offset += scnprintf(&new_buf[offset], len + 1 - offset,
 					    " %s=%s\n", item->ci_name,
 					    udm_item->value);
 		}
 	}
 
 	WARN_ON_ONCE(offset != len);
-	if (new)
-		new->length = offset;
 
-	/* Writers are serialized by dynamic_netconsole_mutex. */
-	old = rcu_replace_pointer(nt->userdata, new,
-				  lockdep_is_held(&dynamic_netconsole_mutex));
-	kfree_rcu(old, rcu);
+	/* Switch to new buffer and free old buffer */
+	spin_lock_irqsave(&target_list_lock, flags);
+	old_buf = nt->userdata;
+	nt->userdata = new_buf;
+	nt->userdata_length = offset;
+	spin_unlock_irqrestore(&target_list_lock, flags);
+
+	kfree(old_buf);
 
 	return 0;
 }
@@ -1695,7 +1392,7 @@ static void netconsole_target_release(struct config_item *item)
 {
 	struct netconsole_target *nt = to_target(item);
 
-	kfree(rcu_access_pointer(nt->userdata));
+	kfree(nt->userdata);
 	kfree(nt);
 }
 
@@ -1784,15 +1481,15 @@ static void drop_netconsole_target(struct config_group *group,
 
 	mutex_lock(&target_cleanup_list_lock);
 	spin_lock_irqsave(&target_list_lock, flags);
-	/* A target moved to target_cleanup_list by netconsole_netdev_event()
-	 * but not yet processed still owns a netpoll; unlinking it below hides
-	 * it from the cleanup worker, so this path must tear it down itself.
-	 * This covers NETDEV_UNREGISTER (STATE_DEACTIVATED) and
-	 * NETDEV_RELEASE / NETDEV_JOIN (STATE_DISABLED); key off nt->np.dev,
-	 * which stays set until the netpoll is cleaned up.
+	/* A STATE_DEACTIVATED target may have been moved to
+	 * target_cleanup_list by netconsole_netdev_event() but not yet
+	 * processed by netconsole_process_cleanups_core(). Unlinking it below
+	 * hides it from the cleanup worker, so this path has to clean it up
+	 * itself. Record that the target still owns a netpoll before the
+	 * state is downgraded.
 	 */
 	needs_cleanup = nt->state == STATE_ENABLED ||
-			nt->state == STATE_DEACTIVATED || nt->np.dev;
+			nt->state == STATE_DEACTIVATED;
 	/* Disable deactivated target to prevent races between resume attempt
 	 * and target removal.
 	 */
@@ -1817,10 +1514,8 @@ static void drop_netconsole_target(struct config_group *group,
 	 * netpoll_cleanup() is idempotent (it skips when np->dev is NULL), so
 	 * it is safe even if the cleanup worker already tore the netpoll down.
 	 */
-	if (needs_cleanup) {
-		netconsole_skb_pool_flush(nt);
+	if (needs_cleanup)
 		netpoll_cleanup(&nt->np);
-	}
 
 	config_item_put(&nt->group.cg_item);
 }
@@ -2011,7 +1706,7 @@ static struct notifier_block netconsole_netdev_notifier = {
  * pool locks and is therefore not NMI-safe. Skip the refill when called
  * from NMI context; the next non-NMI caller will top the pool back up.
  */
-static struct sk_buff *netcons_skb_pop(struct netconsole_target *nt, int len)
+static struct sk_buff *netcons_skb_pop(struct netpoll *np, int len)
 {
 	struct sk_buff *skb;
 
@@ -2023,30 +1718,28 @@ static struct sk_buff *netcons_skb_pop(struct netconsole_target *nt, int len)
 		if (!in_nmi())
 			net_warn_ratelimited("netconsole: dropping message, requested skb len %d exceeds pool buffer size %zu on %s\n",
 					     len, (size_t)MAX_SKB_SIZE,
-					     nt->np.dev->name);
+					     np->dev->name);
 		return NULL;
 	}
 
-	skb = skb_dequeue(&nt->skb_pool);
+	skb = skb_dequeue(&np->skb_pool);
 	if (!in_nmi())
-		schedule_work(&nt->refill_wq);
+		schedule_work(&np->refill_wq);
 
 	return skb;
 }
 
-static struct sk_buff *find_skb(struct netconsole_target *nt, int len,
-				int reserve)
+static struct sk_buff *find_skb(struct netpoll *np, int len, int reserve)
 {
-	struct netpoll *np = &nt->np;
 	int count = 0;
 	struct sk_buff *skb;
 
 	netpoll_zap_completion_queue();
 repeat:
 
-	skb = alloc_skb(len, GFP_ATOMIC | __GFP_NOWARN);
+	skb = alloc_skb(len, GFP_ATOMIC);
 	if (!skb)
-		skb = netcons_skb_pop(nt, len);
+		skb = netcons_skb_pop(np, len);
 
 	if (!skb) {
 		if (++count < 10) {
@@ -2061,8 +1754,8 @@ repeat:
 	return skb;
 }
 
-static void netpoll_udp_checksum(struct netconsole_target *nt,
-				 struct sk_buff *skb, int len)
+static void netpoll_udp_checksum(struct netpoll *np, struct sk_buff *skb,
+				 int len)
 {
 	struct udphdr *udph;
 	int udp_len;
@@ -2072,21 +1765,21 @@ static void netpoll_udp_checksum(struct netconsole_target *nt,
 
 	/* check needs to be set, since it will be consumed in csum_partial */
 	udph->check = 0;
-	if (nt->ipv6)
-		udph->check = csum_ipv6_magic(&nt->local_ip.in6,
-					      &nt->remote_ip.in6,
+	if (np->ipv6)
+		udph->check = csum_ipv6_magic(&np->local_ip.in6,
+					      &np->remote_ip.in6,
 					      udp_len, IPPROTO_UDP,
 					      csum_partial(udph, udp_len, 0));
 	else
-		udph->check = csum_tcpudp_magic(nt->local_ip.ip,
-						nt->remote_ip.ip,
+		udph->check = csum_tcpudp_magic(np->local_ip.ip,
+						np->remote_ip.ip,
 						udp_len, IPPROTO_UDP,
 						csum_partial(udph, udp_len, 0));
 	if (udph->check == 0)
 		udph->check = CSUM_MANGLED_0;
 }
 
-static void push_udp(struct netconsole_target *nt, struct sk_buff *skb, int len)
+static void push_udp(struct netpoll *np, struct sk_buff *skb, int len)
 {
 	struct udphdr *udph;
 	int udp_len;
@@ -2097,30 +1790,28 @@ static void push_udp(struct netconsole_target *nt, struct sk_buff *skb, int len)
 	skb_reset_transport_header(skb);
 
 	udph = udp_hdr(skb);
-	udph->source = htons(nt->local_port);
-	udph->dest = htons(nt->remote_port);
-	udp_set_len_short(udph, udp_len);
+	udph->source = htons(np->local_port);
+	udph->dest = htons(np->remote_port);
+	udph->len = htons(udp_len);
 
-	netpoll_udp_checksum(nt, skb, len);
+	netpoll_udp_checksum(np, skb, len);
 }
 
-static void push_eth(struct netconsole_target *nt, struct sk_buff *skb)
+static void push_eth(struct netpoll *np, struct sk_buff *skb)
 {
-	struct netpoll *np = &nt->np;
 	struct ethhdr *eth;
 
 	eth = skb_push(skb, ETH_HLEN);
 	skb_reset_mac_header(skb);
 	ether_addr_copy(eth->h_source, np->dev->dev_addr);
-	ether_addr_copy(eth->h_dest, nt->remote_mac);
-	if (nt->ipv6)
+	ether_addr_copy(eth->h_dest, np->remote_mac);
+	if (np->ipv6)
 		eth->h_proto = htons(ETH_P_IPV6);
 	else
 		eth->h_proto = htons(ETH_P_IP);
 }
 
-static void push_ipv4(struct netconsole_target *nt, struct sk_buff *skb,
-		      int len)
+static void push_ipv4(struct netpoll *np, struct sk_buff *skb, int len)
 {
 	static atomic_t ip_ident;
 	struct iphdr *iph;
@@ -2141,14 +1832,13 @@ static void push_ipv4(struct netconsole_target *nt, struct sk_buff *skb,
 	iph->ttl = 64;
 	iph->protocol = IPPROTO_UDP;
 	iph->check = 0;
-	put_unaligned(nt->local_ip.ip, &iph->saddr);
-	put_unaligned(nt->remote_ip.ip, &iph->daddr);
+	put_unaligned(np->local_ip.ip, &iph->saddr);
+	put_unaligned(np->remote_ip.ip, &iph->daddr);
 	iph->check = ip_fast_csum((unsigned char *)iph, iph->ihl);
 	skb->protocol = htons(ETH_P_IP);
 }
 
-static void push_ipv6(struct netconsole_target *nt, struct sk_buff *skb,
-		      int len)
+static void push_ipv6(struct netpoll *np, struct sk_buff *skb, int len)
 {
 	struct ipv6hdr *ip6h;
 
@@ -2165,16 +1855,14 @@ static void push_ipv6(struct netconsole_target *nt, struct sk_buff *skb,
 	ip6h->payload_len = htons(sizeof(struct udphdr) + len);
 	ip6h->nexthdr = IPPROTO_UDP;
 	ip6h->hop_limit = 32;
-	ip6h->saddr = nt->local_ip.in6;
-	ip6h->daddr = nt->remote_ip.in6;
+	ip6h->saddr = np->local_ip.in6;
+	ip6h->daddr = np->remote_ip.in6;
 
 	skb->protocol = htons(ETH_P_IPV6);
 }
 
-static int netpoll_send_udp(struct netconsole_target *nt, const char *msg,
-			    int len)
+static int netpoll_send_udp(struct netpoll *np, const char *msg, int len)
 {
-	struct netpoll *np = &nt->np;
 	int total_len, ip_len, udp_len;
 	struct sk_buff *skb;
 
@@ -2182,14 +1870,14 @@ static int netpoll_send_udp(struct netconsole_target *nt, const char *msg,
 		WARN_ON_ONCE(!irqs_disabled());
 
 	udp_len = len + sizeof(struct udphdr);
-	if (nt->ipv6)
+	if (np->ipv6)
 		ip_len = udp_len + sizeof(struct ipv6hdr);
 	else
 		ip_len = udp_len + sizeof(struct iphdr);
 
 	total_len = ip_len + LL_RESERVED_SPACE(np->dev);
 
-	skb = find_skb(nt, total_len + np->dev->needed_tailroom,
+	skb = find_skb(np, total_len + np->dev->needed_tailroom,
 		       total_len - len);
 	if (!skb)
 		return -ENOMEM;
@@ -2197,12 +1885,12 @@ static int netpoll_send_udp(struct netconsole_target *nt, const char *msg,
 	skb_copy_to_linear_data(skb, msg, len);
 	skb_put(skb, len);
 
-	push_udp(nt, skb, len);
-	if (nt->ipv6)
-		push_ipv6(nt, skb, len);
+	push_udp(np, skb, len);
+	if (np->ipv6)
+		push_ipv6(np, skb, len);
 	else
-		push_ipv4(nt, skb, len);
-	push_eth(nt, skb);
+		push_ipv4(np, skb, len);
+	push_eth(np, skb);
 	skb->dev = np->dev;
 
 	return (int)netpoll_send_skb(np, skb);
@@ -2220,7 +1908,7 @@ static int netpoll_send_udp(struct netconsole_target *nt, const char *msg,
  */
 static void send_udp(struct netconsole_target *nt, const char *msg, int len)
 {
-	int result = netpoll_send_udp(nt, msg, len);
+	int result = netpoll_send_udp(&nt->np, msg, len);
 
 	if (IS_ENABLED(CONFIG_NETCONSOLE_DYNAMIC)) {
 		if (result == NET_XMIT_DROP) {
@@ -2238,13 +1926,14 @@ static void send_udp(struct netconsole_target *nt, const char *msg, int len)
 static void send_msg_no_fragmentation(struct netconsole_target *nt,
 				      const char *msg,
 				      int msg_len,
-				      int release_len,
-				      const struct netcons_userdata *userdata)
+				      int release_len)
 {
+	const char *userdata = NULL;
 	const char *sysdata = NULL;
 	const char *release;
 
 #ifdef CONFIG_NETCONSOLE_DYNAMIC
+	userdata = nt->userdata;
 	sysdata = nt->sysdata;
 #endif
 
@@ -2261,7 +1950,7 @@ static void send_msg_no_fragmentation(struct netconsole_target *nt,
 	if (userdata)
 		msg_len += scnprintf(&nt->buf[msg_len],
 				     sizeof(nt->buf) - msg_len, "%s",
-				     userdata->data);
+				     userdata);
 
 	if (sysdata)
 		msg_len += scnprintf(&nt->buf[msg_len],
@@ -2281,8 +1970,7 @@ static void append_release(char *buf)
 
 static void send_fragmented_body(struct netconsole_target *nt,
 				 const char *msgbody_ptr, int header_len,
-				 int msgbody_len, int sysdata_len,
-				 const struct netcons_userdata *userdata)
+				 int msgbody_len, int sysdata_len)
 {
 	const char *userdata_ptr = NULL;
 	const char *sysdata_ptr = NULL;
@@ -2293,12 +1981,12 @@ static void send_fragmented_body(struct netconsole_target *nt,
 	int userdata_len = 0;
 
 #ifdef CONFIG_NETCONSOLE_DYNAMIC
+	userdata_ptr = nt->userdata;
 	sysdata_ptr = nt->sysdata;
+	userdata_len = nt->userdata_length;
 #endif
-	if (userdata) {
-		userdata_ptr = userdata->data;
-		userdata_len = userdata->length;
-	}
+	if (WARN_ON_ONCE(!userdata_ptr && userdata_len != 0))
+		return;
 
 	if (WARN_ON_ONCE(!sysdata_ptr && sysdata_len != 0))
 		return;
@@ -2375,8 +2063,7 @@ static void send_msg_fragmented(struct netconsole_target *nt,
 				const char *msg,
 				int msg_len,
 				int release_len,
-				int sysdata_len,
-				const struct netcons_userdata *userdata)
+				int sysdata_len)
 {
 	int header_len, msgbody_len;
 	const char *msgbody;
@@ -2405,7 +2092,7 @@ static void send_msg_fragmented(struct netconsole_target *nt,
 	 * will be replaced
 	 */
 	send_fragmented_body(nt, msgbody, header_len, msgbody_len,
-			     sysdata_len, userdata);
+			     sysdata_len);
 }
 
 /**
@@ -2420,33 +2107,25 @@ static void send_msg_fragmented(struct netconsole_target *nt,
 static void send_ext_msg_udp(struct netconsole_target *nt,
 			     struct nbcon_write_context *wctxt)
 {
-	const struct netcons_userdata *userdata = NULL;
 	int userdata_len = 0;
 	int release_len = 0;
 	int sysdata_len = 0;
 	int len;
 
-	/* Keeps the payload picked below alive until the last send_udp(). */
-	rcu_read_lock();
-
 #ifdef CONFIG_NETCONSOLE_DYNAMIC
 	sysdata_len = prepare_sysdata(nt, wctxt);
-	userdata = rcu_dereference(nt->userdata);
-	if (userdata)
-		userdata_len = userdata->length;
+	userdata_len = nt->userdata_length;
 #endif
 	if (nt->release)
 		release_len = strlen(init_utsname()->release) + 1;
 
 	len = wctxt->len + release_len + sysdata_len + userdata_len;
 	if (len <= MAX_PRINT_CHUNK)
-		send_msg_no_fragmentation(nt, wctxt->outbuf, wctxt->len,
-					  release_len, userdata);
-	else
-		send_msg_fragmented(nt, wctxt->outbuf, wctxt->len, release_len,
-				    sysdata_len, userdata);
+		return send_msg_no_fragmentation(nt, wctxt->outbuf,
+						 wctxt->len, release_len);
 
-	rcu_read_unlock();
+	return send_msg_fragmented(nt, wctxt->outbuf, wctxt->len, release_len,
+				   sysdata_len);
 }
 
 static void send_msg_udp(struct netconsole_target *nt, const char *msg,
@@ -2524,9 +2203,8 @@ __releases(&target_list_lock)
 	spin_unlock_irqrestore(&target_list_lock, flags);
 }
 
-static int netconsole_parser_cmdline(struct netconsole_target *nt, char *opt)
+static int netconsole_parser_cmdline(struct netpoll *np, char *opt)
 {
-	struct netpoll *np = &nt->np;
 	bool ipversion_set = false;
 	char *cur = opt;
 	char *delim;
@@ -2537,7 +2215,7 @@ static int netconsole_parser_cmdline(struct netconsole_target *nt, char *opt)
 		if (!delim)
 			goto parse_failed;
 		*delim = 0;
-		if (kstrtou16(cur, 10, &nt->local_port))
+		if (kstrtou16(cur, 10, &np->local_port))
 			goto parse_failed;
 		cur = delim;
 	}
@@ -2549,11 +2227,11 @@ static int netconsole_parser_cmdline(struct netconsole_target *nt, char *opt)
 		if (!delim)
 			goto parse_failed;
 		*delim = 0;
-		ipv6 = netpoll_parse_ip_addr(cur, &nt->local_ip);
+		ipv6 = netpoll_parse_ip_addr(cur, &np->local_ip);
 		if (ipv6 < 0)
 			goto parse_failed;
 		else
-			nt->ipv6 = (bool)ipv6;
+			np->ipv6 = (bool)ipv6;
 		cur = delim;
 	}
 	cur++;
@@ -2584,7 +2262,7 @@ static int netconsole_parser_cmdline(struct netconsole_target *nt, char *opt)
 		*delim = 0;
 		if (*cur == ' ' || *cur == '\t')
 			np_info(np, "warning: whitespace is not allowed\n");
-		if (kstrtou16(cur, 10, &nt->remote_port))
+		if (kstrtou16(cur, 10, &np->remote_port))
 			goto parse_failed;
 		cur = delim;
 	}
@@ -2595,22 +2273,22 @@ static int netconsole_parser_cmdline(struct netconsole_target *nt, char *opt)
 	if (!delim)
 		goto parse_failed;
 	*delim = 0;
-	ipv6 = netpoll_parse_ip_addr(cur, &nt->remote_ip);
+	ipv6 = netpoll_parse_ip_addr(cur, &np->remote_ip);
 	if (ipv6 < 0)
 		goto parse_failed;
-	else if (ipversion_set && nt->ipv6 != (bool)ipv6)
+	else if (ipversion_set && np->ipv6 != (bool)ipv6)
 		goto parse_failed;
 	else
-		nt->ipv6 = (bool)ipv6;
+		np->ipv6 = (bool)ipv6;
 	cur = delim + 1;
 
 	if (*cur != 0) {
 		/* MAC address */
-		if (!mac_pton(cur, nt->remote_mac))
+		if (!mac_pton(cur, np->remote_mac))
 			goto parse_failed;
 	}
 
-	netconsole_print_banner(nt);
+	netconsole_print_banner(np);
 
 	return 0;
 
@@ -2648,22 +2326,14 @@ static struct netconsole_target *alloc_param_target(char *target_config,
 	}
 
 	/* Parse parameters and setup netpoll */
-	err = netconsole_parser_cmdline(nt, target_config);
+	err = netconsole_parser_cmdline(&nt->np, target_config);
 	if (err)
 		goto fail;
 
-	/* Initialise the skb pool before netpoll_setup() so the pool is
-	 * valid as soon as nt->np.dev becomes visible. The target is not
-	 * yet on target_list, so a netdev event cannot reach it here, but
-	 * mirror the configfs path for symmetry.
-	 */
-	netconsole_skb_pool_init(nt);
-
-	err = netcons_netpoll_setup(nt);
+	err = netpoll_setup(&nt->np);
 	if (err) {
 		pr_err("Not enabling netconsole for %s%d. Netpoll setup failed\n",
 		       NETCONSOLE_PARAM_TARGET_PREFIX, cmdline_count);
-		netconsole_skb_pool_flush(nt);
 		if (!IS_ENABLED(CONFIG_NETCONSOLE_DYNAMIC))
 			/* only fail if dynamic reconfiguration is set,
 			 * otherwise, keep the target in the list, but disabled.
@@ -2685,11 +2355,9 @@ fail:
 static void free_param_target(struct netconsole_target *nt)
 {
 	cancel_work_sync(&nt->resume_wq);
-	if (nt->state == STATE_ENABLED)
-		netconsole_skb_pool_flush(nt);
 	netpoll_cleanup(&nt->np);
 #ifdef	CONFIG_NETCONSOLE_DYNAMIC
-	kfree(rcu_access_pointer(nt->userdata));
+	kfree(nt->userdata);
 #endif
 	kfree(nt);
 }

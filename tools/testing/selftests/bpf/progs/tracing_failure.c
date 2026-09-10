@@ -30,9 +30,3 @@ int BPF_PROG(fexit_noreturns)
 {
 	return 0;
 }
-
-SEC("?fexit/bpf_testmod_test_int128_ret")
-int BPF_PROG(fexit_int128_ret)
-{
-	return 0;
-}

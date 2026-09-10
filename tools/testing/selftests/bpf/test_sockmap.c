@@ -435,8 +435,7 @@ static int msg_alloc_iov(struct msghdr *msg,
 	return 0;
 unwind_iov:
 	for (i--; i >= 0 ; i--)
-		free(iov[i].iov_base);
-	free(iov);
+		free(msg->msg_iov[i].iov_base);
 	return -ENOMEM;
 }
 

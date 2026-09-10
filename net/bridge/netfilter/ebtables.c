@@ -39,8 +39,6 @@
 #define COUNTER_OFFSET(n) (SMP_ALIGN(n * sizeof(struct ebt_counter)))
 #define COUNTER_BASE(c, n, cpu) ((struct ebt_counter *)(((char *)c) + \
 				 COUNTER_OFFSET(n) * cpu))
-#define MAX_EBT_ENTRIES (((INT_MAX - sizeof(struct ebt_table_info)) / \
-			 NR_CPUS - SMP_CACHE_BYTES) / sizeof(struct ebt_counter))
 
 struct ebt_pernet {
 	struct list_head tables;
@@ -1128,9 +1126,10 @@ static int do_replace(struct net *net, sockptr_t arg, unsigned int len)
 		return -EINVAL;
 
 	/* overflow check */
-	if (tmp.nentries >= MAX_EBT_ENTRIES)
+	if (tmp.nentries >= ((INT_MAX - sizeof(struct ebt_table_info)) /
+			NR_CPUS - SMP_CACHE_BYTES) / sizeof(struct ebt_counter))
 		return -ENOMEM;
-	if (tmp.num_counters >= MAX_EBT_ENTRIES)
+	if (tmp.num_counters >= INT_MAX / sizeof(struct ebt_counter))
 		return -ENOMEM;
 
 	tmp.name[sizeof(tmp.name) - 1] = 0;
@@ -2270,9 +2269,10 @@ static int compat_copy_ebt_replace_from_user(struct ebt_replace *repl,
 	if (tmp.entries_size == 0)
 		return -EINVAL;
 
-	if (tmp.nentries >= MAX_EBT_ENTRIES)
+	if (tmp.nentries >= ((INT_MAX - sizeof(struct ebt_table_info)) /
+			NR_CPUS - SMP_CACHE_BYTES) / sizeof(struct ebt_counter))
 		return -ENOMEM;
-	if (tmp.num_counters >= MAX_EBT_ENTRIES)
+	if (tmp.num_counters >= INT_MAX / sizeof(struct ebt_counter))
 		return -ENOMEM;
 
 	memcpy(repl, &tmp, offsetof(struct ebt_replace, hook_entry));

@@ -78,11 +78,10 @@ static int snd_virmidi_dev_receive_event(struct snd_virmidi_dev *rdev,
 	int len;
 
 	if (atomic)
-		rcu_read_lock();
+		read_lock(&rdev->filelist_lock);
 	else
 		down_read(&rdev->filelist_sem);
-	list_for_each_entry_rcu(vmidi, &rdev->filelist, list,
-				lockdep_is_held(&rdev->filelist_sem)) {
+	list_for_each_entry(vmidi, &rdev->filelist, list) {
 		if (!READ_ONCE(vmidi->trigger))
 			continue;
 		if (ev->type == SNDRV_SEQ_EVENT_SYSEX) {
@@ -97,7 +96,7 @@ static int snd_virmidi_dev_receive_event(struct snd_virmidi_dev *rdev,
 		}
 	}
 	if (atomic)
-		rcu_read_unlock();
+		read_unlock(&rdev->filelist_lock);
 	else
 		up_read(&rdev->filelist_sem);
 
@@ -201,7 +200,8 @@ static int snd_virmidi_input_open(struct snd_rawmidi_substream *substream)
 	vmidi->port = rdev->port;	
 	runtime->private_data = vmidi;
 	scoped_guard(rwsem_write, &rdev->filelist_sem) {
-		list_add_tail_rcu(&vmidi->list, &rdev->filelist);
+		guard(write_lock_irq)(&rdev->filelist_lock);
+		list_add_tail(&vmidi->list, &rdev->filelist);
 	}
 	vmidi->rdev = rdev;
 	return 0;
@@ -243,13 +243,9 @@ static int snd_virmidi_input_close(struct snd_rawmidi_substream *substream)
 	struct snd_virmidi *vmidi = substream->runtime->private_data;
 
 	scoped_guard(rwsem_write, &rdev->filelist_sem) {
-		list_del_rcu(&vmidi->list);
+		guard(write_lock_irq)(&rdev->filelist_lock);
+		list_del(&vmidi->list);
 	}
-	/* wait for a grace period so that lockless readers in the atomic
-	 * delivery path (snd_virmidi_dev_receive_event()) are no longer
-	 * traversing this entry before its parser and memory are freed
-	 */
-	synchronize_rcu();
 	snd_midi_event_free(vmidi->parser);
 	substream->runtime->private_data = NULL;
 	kfree(vmidi);
@@ -512,6 +508,7 @@ int snd_virmidi_new(struct snd_card *card, int device, struct snd_rawmidi **rrmi
 	rdev->device = device;
 	rdev->client = -1;
 	init_rwsem(&rdev->filelist_sem);
+	rwlock_init(&rdev->filelist_lock);
 	INIT_LIST_HEAD(&rdev->filelist);
 	rdev->seq_mode = SNDRV_VIRMIDI_SEQ_DISPATCH;
 	rmidi->private_data = rdev;

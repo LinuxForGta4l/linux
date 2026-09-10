@@ -96,7 +96,8 @@
 				};
 
 				omap5_padconf_global: omap5_padconf_global@5a0 {
-					compatible = "ti,omap5-sysc-padconf-global", "syscon", "simple-bus";
+					compatible = "syscon",
+						     "simple-bus";
 					reg = <0x5a0 0xec>;
 					#address-cells = <1>;
 					#size-cells = <1>;
@@ -2310,8 +2311,7 @@
 				ranges = <0 0 0x60>;
 
 				scm_wkup_pad_conf: scm_conf@0 {
-					compatible = "ti,omap5-scm-wkup-conf",
-						     "syscon", "simple-bus";
+					compatible = "syscon", "simple-bus";
 					reg = <0x0 0x60>;
 					#address-cells = <1>;
 					#size-cells = <1>;

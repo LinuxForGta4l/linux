@@ -280,11 +280,11 @@ static void smca_configure(unsigned int bank, unsigned int cpu)
 	u8 *bank_counts = this_cpu_ptr(smca_bank_counts);
 	const struct smca_hwid *s_hwid;
 	unsigned int i, hwid_mcatype;
-	struct msr val;
+	u32 high, low;
 	u32 smca_config = MSR_AMD64_SMCA_MCx_CONFIG(bank);
 
 	/* Set appropriate bits in MCA_CONFIG */
-	if (!rdmsrq_safe(smca_config, &val.q)) {
+	if (!rdmsr_safe(smca_config, &low, &high)) {
 		/*
 		 * OS is required to set the MCAX bit to acknowledge that it is
 		 * now using the new MSR ranges and new registers under each
@@ -294,7 +294,7 @@ static void smca_configure(unsigned int bank, unsigned int cpu)
 		 *
 		 * MCA_CONFIG[MCAX] is bit 32 (0 in the high portion of the MSR.)
 		 */
-		val.h |= BIT(0);
+		high |= BIT(0);
 
 		/*
 		 * SMCA sets the Deferred Error Interrupt type per bank.
@@ -307,9 +307,9 @@ static void smca_configure(unsigned int bank, unsigned int cpu)
 		 * APIC based interrupt. First, check that no interrupt has been
 		 * set.
 		 */
-		if ((val.l & BIT(5)) && !((val.h >> 5) & 0x3) && data->dfr_intr_en) {
+		if ((low & BIT(5)) && !((high >> 5) & 0x3) && data->dfr_intr_en) {
 			__set_bit(bank, data->dfr_intr_banks);
-			val.h |= BIT(5);
+			high |= BIT(5);
 		}
 
 		/*
@@ -324,33 +324,33 @@ static void smca_configure(unsigned int bank, unsigned int cpu)
 		 * The OS should set this to inform the platform that the OS is ready
 		 * to handle the MCA Thresholding interrupt.
 		 */
-		if ((val.l & BIT(10)) && data->thr_intr_en) {
+		if ((low & BIT(10)) && data->thr_intr_en) {
 			__set_bit(bank, data->thr_intr_banks);
-			val.h |= BIT(8);
+			high |= BIT(8);
 		}
 
-		this_cpu_ptr(mce_banks_array)[bank].lsb_in_status = !!(val.l & BIT(8));
+		this_cpu_ptr(mce_banks_array)[bank].lsb_in_status = !!(low & BIT(8));
 
-		if (val.l & MCI_CONFIG_PADDRV)
+		if (low & MCI_CONFIG_PADDRV)
 			this_cpu_ptr(smca_banks)[bank].paddrv = 1;
 
-		wrmsrq(smca_config, val.q);
+		wrmsr(smca_config, low, high);
 	}
 
-	if (rdmsrq_safe(MSR_AMD64_SMCA_MCx_IPID(bank), &val.q)) {
+	if (rdmsr_safe(MSR_AMD64_SMCA_MCx_IPID(bank), &low, &high)) {
 		pr_warn("Failed to read MCA_IPID for bank %d\n", bank);
 		return;
 	}
 
-	hwid_mcatype = HWID_MCATYPE(val.h & MCI_IPID_HWID,
-				    (val.h & MCI_IPID_MCATYPE) >> 16);
+	hwid_mcatype = HWID_MCATYPE(high & MCI_IPID_HWID,
+				    (high & MCI_IPID_MCATYPE) >> 16);
 
 	for (i = 0; i < ARRAY_SIZE(smca_hwid_mcatypes); i++) {
 		s_hwid = &smca_hwid_mcatypes[i];
 
 		if (hwid_mcatype == s_hwid->hwid_mcatype) {
 			this_cpu_ptr(smca_banks)[bank].hwid = s_hwid;
-			this_cpu_ptr(smca_banks)[bank].id = val.l;
+			this_cpu_ptr(smca_banks)[bank].id = low;
 			this_cpu_ptr(smca_banks)[bank].sysfs_id = bank_counts[s_hwid->bank_type]++;
 			break;
 		}
@@ -432,50 +432,50 @@ static bool lvt_off_valid(struct threshold_block *b, int apic, u32 lo, u32 hi)
 static void threshold_restart_block(void *_tr)
 {
 	struct thresh_restart *tr = _tr;
-	struct msr val;
+	u32 hi, lo;
 
 	/* sysfs write might race against an offline operation */
 	if (!this_cpu_read(threshold_banks) && !tr->set_lvt_off)
 		return;
 
-	rdmsrq(tr->b->address, val.q);
+	rdmsr(tr->b->address, lo, hi);
 
 	/*
 	 * Reset error count and overflow bit.
 	 * This is done during init or after handling an interrupt.
 	 */
-	if (val.h & MASK_OVERFLOW_HI || tr->set_lvt_off) {
-		val.h &= ~(MASK_ERR_COUNT_HI | MASK_OVERFLOW_HI);
-		val.h |= THRESHOLD_MAX - tr->b->threshold_limit;
+	if (hi & MASK_OVERFLOW_HI || tr->set_lvt_off) {
+		hi &= ~(MASK_ERR_COUNT_HI | MASK_OVERFLOW_HI);
+		hi |= THRESHOLD_MAX - tr->b->threshold_limit;
 	} else if (tr->old_limit) {	/* change limit w/o reset */
-		int new_count = (val.h & THRESHOLD_MAX) +
+		int new_count = (hi & THRESHOLD_MAX) +
 		    (tr->old_limit - tr->b->threshold_limit);
 
-		val.h = (val.h & ~MASK_ERR_COUNT_HI) |
+		hi = (hi & ~MASK_ERR_COUNT_HI) |
 		    (new_count & THRESHOLD_MAX);
 	}
 
 	/* clear IntType */
-	val.h &= ~MASK_INT_TYPE_HI;
+	hi &= ~MASK_INT_TYPE_HI;
 
 	if (!tr->b->interrupt_capable)
 		goto done;
 
 	if (tr->set_lvt_off) {
-		if (lvt_off_valid(tr->b, tr->lvt_off, val.l, val.h)) {
+		if (lvt_off_valid(tr->b, tr->lvt_off, lo, hi)) {
 			/* set new lvt offset */
-			val.h &= ~MASK_LVTOFF_HI;
-			val.h |= tr->lvt_off << 20;
+			hi &= ~MASK_LVTOFF_HI;
+			hi |= tr->lvt_off << 20;
 		}
 	}
 
 	if (tr->b->interrupt_enable)
-		val.h |= INT_TYPE_APIC;
+		hi |= INT_TYPE_APIC;
 
  done:
 
-	val.h |= MASK_COUNT_EN_HI;
-	wrmsrq(tr->b->address, val.q);
+	hi |= MASK_COUNT_EN_HI;
+	wrmsr(tr->b->address, lo, hi);
 }
 
 static void threshold_restart_bank(unsigned int bank, bool intr_en)
@@ -726,8 +726,7 @@ static void smca_enable_interrupt_vectors(void)
 void mce_amd_feature_init(struct cpuinfo_x86 *c)
 {
 	unsigned int bank, block, cpu = smp_processor_id();
-	struct msr val = { .q = 0 };
-	u32 address = 0;
+	u32 low = 0, high = 0, address = 0;
 	int offset = -1;
 
 	amd_apply_cpu_quirks(c);
@@ -747,21 +746,21 @@ void mce_amd_feature_init(struct cpuinfo_x86 *c)
 		disable_err_thresholding(c, bank);
 
 		for (block = 0; block < NR_BLOCKS; ++block) {
-			address = get_block_address(address, val.l, val.h, bank, block, cpu);
+			address = get_block_address(address, low, high, bank, block, cpu);
 			if (!address)
 				break;
 
-			if (rdmsrq_safe(address, &val.q))
+			if (rdmsr_safe(address, &low, &high))
 				break;
 
-			if (!(val.h & MASK_VALID_HI))
+			if (!(high & MASK_VALID_HI))
 				continue;
 
-			if (!(val.h & MASK_CNTP_HI)  ||
-			     (val.h & MASK_LOCKED_HI))
+			if (!(high & MASK_CNTP_HI)  ||
+			     (high & MASK_LOCKED_HI))
 				continue;
 
-			offset = prepare_threshold_block(bank, block, address, offset, val.h);
+			offset = prepare_threshold_block(bank, block, address, offset, high);
 		}
 	}
 }
@@ -1084,24 +1083,24 @@ static int allocate_threshold_blocks(unsigned int cpu, struct threshold_bank *tb
 				     u32 address)
 {
 	struct threshold_block *b = NULL;
-	struct msr val;
+	u32 low, high;
 	int err;
 
 	if ((bank >= this_cpu_read(mce_num_banks)) || (block >= NR_BLOCKS))
 		return 0;
 
-	if (rdmsrq_safe(address, &val.q))
+	if (rdmsr_safe(address, &low, &high))
 		return 0;
 
-	if (!(val.h & MASK_VALID_HI)) {
+	if (!(high & MASK_VALID_HI)) {
 		if (block)
 			goto recurse;
 		else
 			return 0;
 	}
 
-	if (!(val.h & MASK_CNTP_HI)  ||
-	     (val.h & MASK_LOCKED_HI))
+	if (!(high & MASK_CNTP_HI)  ||
+	     (high & MASK_LOCKED_HI))
 		goto recurse;
 
 	b = kzalloc_obj(struct threshold_block);
@@ -1113,7 +1112,7 @@ static int allocate_threshold_blocks(unsigned int cpu, struct threshold_bank *tb
 	b->cpu			= cpu;
 	b->address		= address;
 	b->interrupt_enable	= 0;
-	b->interrupt_capable	= lvt_interrupt_supported(bank, val.h);
+	b->interrupt_capable	= lvt_interrupt_supported(bank, high);
 	b->threshold_limit	= get_thr_limit();
 
 	if (b->interrupt_capable) {
@@ -1125,13 +1124,13 @@ static int allocate_threshold_blocks(unsigned int cpu, struct threshold_bank *tb
 
 	list_add(&b->miscj, &tb->miscj);
 
-	mce_threshold_block_init(b, (val.h & MASK_LVTOFF_HI) >> 20);
+	mce_threshold_block_init(b, (high & MASK_LVTOFF_HI) >> 20);
 
 	err = kobject_init_and_add(&b->kobj, &threshold_ktype, tb->kobj, get_name(cpu, bank, b));
 	if (err)
 		goto out_free;
 recurse:
-	address = get_block_address(address, val.l, val.h, bank, ++block, cpu);
+	address = get_block_address(address, low, high, bank, ++block, cpu);
 	if (!address)
 		return 0;
 

@@ -2660,12 +2660,8 @@ bool perf_pmu__wildcard_match(const struct perf_pmu *pmu, const char *wildcard_t
 		pmu->name,
 		pmu->alias_name,
 	};
-	bool need_fnmatch;
+	bool need_fnmatch = strisglob(wildcard_to_match);
 
-	if (pmu->is_core && !strcmp(wildcard_to_match, "default_core"))
-		return true;
-
-	need_fnmatch = strisglob(wildcard_to_match);
 	if (!strncmp(wildcard_to_match, "uncore_", 7))
 		wildcard_to_match += 7;
 

@@ -245,8 +245,9 @@ static int davinci_evm_probe(struct platform_device *pdev)
 
 	snd_soc_card_set_drvdata(&evm_soc_card, drvdata);
 	ret = devm_snd_soc_register_card(&pdev->dev, &evm_soc_card);
+
 	if (ret) {
-		dev_err_probe(&pdev->dev, ret, "snd_soc_register_card() failed\n");
+		dev_err(&pdev->dev, "snd_soc_register_card failed (%d)\n", ret);
 		goto err_put;
 	}
 

@@ -199,10 +199,7 @@ out:
 int main(int argc, char **argv)
 {
 	char root[PATH_MAX];
-	int has_memory_hugetlb_acc;
-
-	ksft_print_header();
-	ksft_set_plan(1);
+	int ret = EXIT_SUCCESS, has_memory_hugetlb_acc;
 
 	has_memory_hugetlb_acc = proc_mount_contains("memory_hugetlb_accounting");
 	if (has_memory_hugetlb_acc < 0)
@@ -214,7 +211,7 @@ int main(int argc, char **argv)
 	if (get_hugepage_size() != 2048) {
 		ksft_print_msg("test_hugetlb_memcg requires 2MB hugepages\n");
 		ksft_test_result_skip("test_hugetlb_memcg\n");
-		ksft_finished();
+		return ret;
 	}
 
 	if (cg_find_unified_root(root, sizeof(root), NULL))
@@ -236,9 +233,10 @@ int main(int argc, char **argv)
 		ksft_test_result_skip("test_hugetlb_memcg\n");
 		break;
 	default:
+		ret = EXIT_FAILURE;
 		ksft_test_result_fail("test_hugetlb_memcg\n");
 		break;
 	}
 
-	ksft_finished();
+	return ret;
 }

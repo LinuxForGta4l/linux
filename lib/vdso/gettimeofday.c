@@ -12,8 +12,6 @@
 #include <vdso/time32.h>
 #include <vdso/time64.h>
 
-#include <uapi/linux/unistd.h>
-
 /*
  * The generic vDSO implementation requires that gettimeofday.h
  * provides:
@@ -24,8 +22,6 @@
  * - clock_getres_fallback(): fallback for clock_getres.
  */
 #include <asm/vdso/gettimeofday.h>
-
-#include <linux/build_bug.h>
 
 /* Bring in default accessors */
 #include <vdso/vsyscall.h>
@@ -327,8 +323,6 @@ __cvdso_clock_gettime32_data(const struct vdso_time_data *vd, clockid_t clock,
 	struct __kernel_timespec ts;
 	bool ok;
 
-	BUILD_BUG_ON(!IS_ENABLED(CONFIG_COMPAT_32BIT_TIME));
-
 	ok = __cvdso_clock_gettime_common(vd, clock, &ts);
 
 	if (unlikely(!ok))
@@ -353,12 +347,6 @@ __cvdso_gettimeofday_data(const struct vdso_time_data *vd,
 			  struct __kernel_old_timeval *tv, struct timezone *tz)
 {
 	const struct vdso_clock *vc = vd->clock_data;
-
-#ifndef __NR_gettimeofday
-	BUILD_BUG();
-#endif
-
-	BUILD_BUG_ON(sizeof(tv->tv_sec) != 8 && !IS_ENABLED(CONFIG_COMPAT_32BIT_TIME));
 
 	if (likely(tv != NULL)) {
 		struct __kernel_timespec ts;
@@ -393,12 +381,6 @@ __cvdso_time_data(const struct vdso_time_data *vd, __kernel_old_time_t *time)
 {
 	const struct vdso_clock *vc = vd->clock_data;
 	__kernel_old_time_t t;
-
-#ifndef __NR_time
-	BUILD_BUG();
-#endif
-
-	BUILD_BUG_ON(sizeof(*time) != 8 && !IS_ENABLED(CONFIG_COMPAT_32BIT_TIME));
 
 	if (vdso_is_timens_clock(vc)) {
 		vd = vdso_timens_data(vd);
@@ -488,8 +470,6 @@ __cvdso_clock_getres_time32_data(const struct vdso_time_data *vd, clockid_t cloc
 {
 	struct __kernel_timespec ts;
 	bool ok;
-
-	BUILD_BUG_ON(!IS_ENABLED(CONFIG_COMPAT_32BIT_TIME));
 
 	ok = __cvdso_clock_getres_common(vd, clock, &ts);
 

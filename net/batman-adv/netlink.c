@@ -52,15 +52,9 @@
 
 struct genl_family batadv_netlink_family;
 
-/**
- * enum batadv_netlink_multicast_groups - batman-adv generic netlink multicast
- *  groups
- */
+/* multicast groups */
 enum batadv_netlink_multicast_groups {
-	/** @BATADV_NL_MCGRP_CONFIG: configuration change notifications */
 	BATADV_NL_MCGRP_CONFIG,
-
-	/** @BATADV_NL_MCGRP_TPMETER: throughput meter result notifications */
 	BATADV_NL_MCGRP_TPMETER,
 };
 
@@ -752,8 +746,8 @@ static int
 batadv_netlink_tp_meter_cancel(struct sk_buff *skb, struct genl_info *info)
 {
 	struct batadv_priv *bat_priv = info->user_ptr[0];
-	int ret = 0;
 	u8 *dst;
+	int ret = 0;
 
 	if (!info->attrs[BATADV_ATTR_ORIG_ADDRESS])
 		return -EINVAL;
@@ -959,10 +953,10 @@ static int batadv_netlink_set_hardif(struct sk_buff *skb,
 static int
 batadv_netlink_dump_hardif(struct sk_buff *msg, struct netlink_callback *cb)
 {
-	int portid = NETLINK_CB(cb->skb).portid;
-	struct batadv_hard_iface *hard_iface;
 	struct net_device *mesh_iface;
+	struct batadv_hard_iface *hard_iface;
 	struct batadv_priv *bat_priv;
+	int portid = NETLINK_CB(cb->skb).portid;
 	int skip = cb->args[0];
 	struct list_head *iter;
 	int i = 0;
@@ -974,7 +968,7 @@ batadv_netlink_dump_hardif(struct sk_buff *msg, struct netlink_callback *cb)
 	bat_priv = netdev_priv(mesh_iface);
 
 	rtnl_lock();
-	cb->seq = bat_priv->hardif_generation << 1 | 1;
+	cb->seq = batadv_hardif_generation << 1 | 1;
 
 	netdev_for_each_lower_private(mesh_iface, hard_iface, iter) {
 		if (i++ < skip)
@@ -1217,9 +1211,7 @@ batadv_netlink_get_hardif_from_ifindex(struct batadv_priv *bat_priv,
 	if (!hard_dev)
 		return ERR_PTR(-ENODEV);
 
-	rtnl_lock();
 	hard_iface = batadv_hardif_get_by_netdev(hard_dev);
-	rtnl_unlock();
 	if (!hard_iface)
 		goto err_put_harddev;
 
@@ -1556,18 +1548,14 @@ struct genl_family batadv_netlink_family __ro_after_init = {
 
 /**
  * batadv_netlink_register() - register batadv genl netlink family
- *
- * Return: 0 on success or negative error number in case of failure
  */
-int __init batadv_netlink_register(void)
+void __init batadv_netlink_register(void)
 {
 	int ret;
 
 	ret = genl_register_family(&batadv_netlink_family);
 	if (ret)
 		pr_warn("unable to register netlink family\n");
-
-	return ret;
 }
 
 /**

@@ -296,14 +296,8 @@ static int amdgpu_atrm_call(acpi_handle atrm_handle, uint8_t *bios,
 	}
 
 	obj = (union acpi_object *)buffer.pointer;
-	if (!obj || obj->type != ACPI_TYPE_BUFFER) {
-		DRM_ERROR("ATRM returned an invalid object\n");
-		kfree(buffer.pointer);
-		return -EINVAL;
-	}
-
-	len = min_t(size_t, obj->buffer.length, len);
-	memcpy(bios+offset, obj->buffer.pointer, len);
+	memcpy(bios+offset, obj->buffer.pointer, obj->buffer.length);
+	len = obj->buffer.length;
 	kfree(buffer.pointer);
 	return len;
 }

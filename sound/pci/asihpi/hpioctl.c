@@ -385,7 +385,8 @@ int asihpi_adapter_probe(struct pci_dev *pci_dev,
 		if (pci_resource_flags(pci_dev, idx) & IORESOURCE_MEM) {
 			memlen = pci_resource_len(pci_dev, idx);
 			pci.ap_mem_base[idx] =
-				pcim_iomap(pci_dev, idx, memlen);
+				ioremap(pci_resource_start(pci_dev, idx),
+				memlen);
 			if (!pci.ap_mem_base[idx]) {
 				HPI_DEBUG_LOG(ERROR,
 					"ioremap failed, aborting\n");
@@ -508,6 +509,13 @@ int asihpi_adapter_probe(struct pci_dev *pci_dev,
 	return 0;
 
 err:
+	while (--idx >= 0) {
+		if (pci.ap_mem_base[idx]) {
+			iounmap(pci.ap_mem_base[idx]);
+			pci.ap_mem_base[idx] = NULL;
+		}
+	}
+
 	if (adapter.p_buffer) {
 		adapter.buffer_size = 0;
 		vfree(adapter.p_buffer);
@@ -519,11 +527,14 @@ err:
 
 void asihpi_adapter_remove(struct pci_dev *pci_dev)
 {
+	int idx;
 	struct hpi_message hm;
 	struct hpi_response hr;
 	struct hpi_adapter *pa;
+	struct hpi_pci pci;
 
 	pa = pci_get_drvdata(pci_dev);
+	pci = pa->adapter->pci;
 
 	/* Disable IRQ generation on DSP side */
 	hpi_init_message_response(&hm, &hr, HPI_OBJ_ADAPTER,
@@ -538,6 +549,10 @@ void asihpi_adapter_remove(struct pci_dev *pci_dev)
 		HPI_ADAPTER_DELETE);
 	hm.adapter_index = pa->adapter->index;
 	hpi_send_recv_ex(&hm, &hr, HOWNER_KERNEL);
+
+	/* unmap PCI memory space, mapped during device init. */
+	for (idx = 0; idx < HPI_MAX_ADAPTER_MEM_SPACES; ++idx)
+		iounmap(pci.ap_mem_base[idx]);
 
 	if (pa->irq)
 		free_irq(pa->irq, pa);

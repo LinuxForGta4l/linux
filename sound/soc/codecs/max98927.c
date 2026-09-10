@@ -742,17 +742,11 @@ static int max98927_suspend(struct device *dev)
 static int max98927_resume(struct device *dev)
 {
 	struct max98927_priv *max98927 = dev_get_drvdata(dev);
-	int ret;
 
 	regmap_write(max98927->regmap, MAX98927_R0100_SOFT_RESET,
 		     MAX98927_SOFT_RESET);
 	regcache_cache_only(max98927->regmap, false);
-	ret = regcache_sync(max98927->regmap);
-	if (ret) {
-		regcache_cache_only(max98927->regmap, true);
-		regcache_mark_dirty(max98927->regmap);
-		return ret;
-	}
+	regcache_sync(max98927->regmap);
 	return 0;
 }
 

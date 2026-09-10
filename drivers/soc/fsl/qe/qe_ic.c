@@ -473,6 +473,7 @@ static struct platform_driver qe_ic_driver =
 
 static int __init qe_ic_of_init(void)
 {
-	return platform_driver_register(&qe_ic_driver);
+	platform_driver_register(&qe_ic_driver);
+	return 0;
 }
 subsys_initcall(qe_ic_of_init);

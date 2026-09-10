@@ -72,8 +72,7 @@ static void batadv_tvlv_handler_put(struct batadv_tvlv_handler *tvlv_handler)
 static struct batadv_tvlv_handler *
 batadv_tvlv_handler_get(struct batadv_priv *bat_priv, u8 type, u8 version)
 {
-	struct batadv_tvlv_handler *tvlv_handler = NULL;
-	struct batadv_tvlv_handler *tvlv_handler_tmp;
+	struct batadv_tvlv_handler *tvlv_handler_tmp, *tvlv_handler = NULL;
 
 	rcu_read_lock();
 	hlist_for_each_entry_rcu(tvlv_handler_tmp,
@@ -135,8 +134,7 @@ static void batadv_tvlv_container_put(struct batadv_tvlv_container *tvlv)
 static struct batadv_tvlv_container *
 batadv_tvlv_container_get(struct batadv_priv *bat_priv, u8 type, u8 version)
 {
-	struct batadv_tvlv_container *tvlv = NULL;
-	struct batadv_tvlv_container *tvlv_tmp;
+	struct batadv_tvlv_container *tvlv_tmp, *tvlv = NULL;
 
 	lockdep_assert_held(&bat_priv->tvlv.container_list_lock);
 
@@ -238,8 +236,7 @@ void batadv_tvlv_container_register(struct batadv_priv *bat_priv,
 				    u8 type, u8 version,
 				    void *tvlv_value, u16 tvlv_value_len)
 {
-	struct batadv_tvlv_container *tvlv_old;
-	struct batadv_tvlv_container *tvlv_new;
+	struct batadv_tvlv_container *tvlv_old, *tvlv_new;
 
 	if (!tvlv_value)
 		tvlv_value_len = 0;
@@ -386,9 +383,8 @@ end:
  * @tvlv_value: tvlv content
  * @tvlv_value_len: tvlv content length
  *
- * Return: NET_RX_SUCCESS if the handler was not found or the return value of
- * the handler callback. The latter is NET_RX_SUCCESS or NET_RX_DROP for the
- * unicast handler and additionally a negative errno code for the mcast handler.
+ * Return: success if the handler was not found or the return value of the
+ * handler callback.
  */
 static int batadv_tvlv_call_handler(struct batadv_priv *bat_priv,
 				    struct batadv_tvlv_handler *tvlv_handler,
@@ -398,8 +394,7 @@ static int batadv_tvlv_call_handler(struct batadv_priv *bat_priv,
 				    u16 tvlv_value_len)
 {
 	unsigned int tvlv_offset;
-	u8 *src;
-	u8 *dst;
+	u8 *src, *dst;
 
 	if (!tvlv_handler)
 		return NET_RX_SUCCESS;
@@ -438,61 +433,16 @@ static int batadv_tvlv_call_handler(struct batadv_priv *bat_priv,
 			return NET_RX_SUCCESS;
 
 		tvlv_offset = (unsigned char *)tvlv_value - skb->data;
+		if (!skb_set_transport_header_careful(skb,
+						      tvlv_offset + tvlv_value_len))
+			return -EINVAL;
+
 		skb_set_network_header(skb, tvlv_offset);
-		skb_set_transport_header(skb, tvlv_offset + tvlv_value_len);
 
 		return tvlv_handler->mcast_handler(bat_priv, skb);
 	}
 
 	return NET_RX_SUCCESS;
-}
-
-/**
- * batadv_tvlv_hdr_next() - move a tvlv buffer cursor to the next container
- * @tvlv_value: cursor into the tvlv buffer, advanced past the returned
- *  container's content on success
- * @tvlv_value_len: remaining length of the tvlv buffer, reduced by the returned
- *  container's size on success
- *
- * Parses a single container header at the current cursor position and, if a
- * complete container is available, advances the cursor and remaining length
- * past it. The returned header stays valid; its content is located at
- * (returned header + 1) and is ntohs(hdr->len) bytes long.
- *
- * Return: pointer to the next tvlv container header, or NULL if no further
- * complete container is present in the buffer.
- */
-static struct batadv_tvlv_hdr *batadv_tvlv_hdr_next(void **tvlv_value, u16 *tvlv_value_len)
-{
-	struct batadv_tvlv_hdr *tvlv_hdr;
-	u16 tvlv_value_cont_len;
-	void *tvlv_value_cont;
-	u16 tvlv_len;
-
-	tvlv_value_cont = *tvlv_value;
-	tvlv_len = *tvlv_value_len;
-
-	if (tvlv_len < sizeof(*tvlv_hdr))
-		return NULL;
-
-	tvlv_hdr = tvlv_value_cont;
-	tvlv_value_cont_len = ntohs(tvlv_hdr->len);
-	tvlv_value_cont = tvlv_hdr + 1;
-	tvlv_len -= sizeof(*tvlv_hdr);
-
-	if (tvlv_value_cont_len > tvlv_len)
-		return NULL;
-
-	/* the next tvlv header is accessed assuming (at least) 2-byte
-	 * alignment, so it must start at an even offset.
-	 */
-	if (tvlv_value_cont_len & 1)
-		return NULL;
-
-	*tvlv_value = (u8 *)tvlv_value_cont + tvlv_value_cont_len;
-	*tvlv_value_len = tvlv_len - tvlv_value_cont_len;
-
-	return tvlv_hdr;
 }
 
 /**
@@ -510,10 +460,28 @@ static bool batadv_tvlv_containers_contain(void *tvlv_value,
 					   u8 version)
 {
 	struct batadv_tvlv_hdr *tvlv_hdr;
+	u16 tvlv_value_cont_len;
 
-	while ((tvlv_hdr = batadv_tvlv_hdr_next(&tvlv_value, &tvlv_value_len))) {
+	while (tvlv_value_len >= sizeof(*tvlv_hdr)) {
+		tvlv_hdr = tvlv_value;
+		tvlv_value_cont_len = ntohs(tvlv_hdr->len);
+		tvlv_value = tvlv_hdr + 1;
+		tvlv_value_len -= sizeof(*tvlv_hdr);
+
+		if (tvlv_value_cont_len > tvlv_value_len)
+			break;
+
+		/* the next tvlv header is accessed assuming (at least) 2-byte
+		 * alignment, so it must start at an even offset.
+		 */
+		if (tvlv_value_cont_len & 1)
+			break;
+
 		if (tvlv_hdr->type == type && tvlv_hdr->version == version)
 			return true;
+
+		tvlv_value = (u8 *)tvlv_value + tvlv_value_cont_len;
+		tvlv_value_len -= tvlv_value_cont_len;
 	}
 
 	return false;
@@ -529,9 +497,8 @@ static bool batadv_tvlv_containers_contain(void *tvlv_value,
  * @tvlv_value: tvlv content
  * @tvlv_value_len: tvlv content length
  *
- * Return: NET_RX_SUCCESS when processing an OGM or the combined return value of
- * all called handler callbacks. The latter is NET_RX_SUCCESS, NET_RX_DROP or,
- * for BATADV_MCAST packets, a negative errno code.
+ * Return: success when processing an OGM or the return value of all called
+ * handler callbacks.
  */
 int batadv_tvlv_containers_process(struct batadv_priv *bat_priv,
 				   u8 packet_type,
@@ -539,30 +506,40 @@ int batadv_tvlv_containers_process(struct batadv_priv *bat_priv,
 				   struct sk_buff *skb, void *tvlv_value,
 				   u16 tvlv_value_len)
 {
-	u8 cifnotfound = BATADV_TVLV_HANDLER_OGM_CIFNOTFND;
 	u16 tvlv_value_start_len = tvlv_value_len;
 	struct batadv_tvlv_handler *tvlv_handler;
 	void *tvlv_value_start = tvlv_value;
 	struct batadv_tvlv_hdr *tvlv_hdr;
-	int ret = NET_RX_SUCCESS;
 	u16 tvlv_value_cont_len;
-	int res;
+	u8 cifnotfound = BATADV_TVLV_HANDLER_OGM_CIFNOTFND;
+	int ret = NET_RX_SUCCESS;
 
-	while ((tvlv_hdr = batadv_tvlv_hdr_next(&tvlv_value, &tvlv_value_len))) {
+	while (tvlv_value_len >= sizeof(*tvlv_hdr)) {
+		tvlv_hdr = tvlv_value;
 		tvlv_value_cont_len = ntohs(tvlv_hdr->len);
+		tvlv_value = tvlv_hdr + 1;
+		tvlv_value_len -= sizeof(*tvlv_hdr);
+
+		if (tvlv_value_cont_len > tvlv_value_len)
+			break;
+
+		/* the next tvlv header is accessed assuming (at least) 2-byte
+		 * alignment, so it must start at an even offset.
+		 */
+		if (tvlv_value_cont_len & 1)
+			break;
 
 		tvlv_handler = batadv_tvlv_handler_get(bat_priv,
 						       tvlv_hdr->type,
 						       tvlv_hdr->version);
 
-		res = batadv_tvlv_call_handler(bat_priv, tvlv_handler,
-					       packet_type, orig_node, skb,
-					       tvlv_hdr + 1,
-					       tvlv_value_cont_len);
-		if (ret == NET_RX_SUCCESS || res < 0)
-			ret = res;
-
+		ret |= batadv_tvlv_call_handler(bat_priv, tvlv_handler,
+						packet_type, orig_node, skb,
+						tvlv_value,
+						tvlv_value_cont_len);
 		batadv_tvlv_handler_put(tvlv_handler);
+		tvlv_value = (u8 *)tvlv_value + tvlv_value_cont_len;
+		tvlv_value_len -= tvlv_value_cont_len;
 	}
 
 	if (packet_type != BATADV_IV_OGM &&
@@ -606,8 +583,8 @@ void batadv_tvlv_ogm_receive(struct batadv_priv *bat_priv,
 			     struct batadv_ogm_packet *batadv_ogm_packet,
 			     struct batadv_orig_node *orig_node)
 {
-	u16 tvlv_value_len;
 	void *tvlv_value;
+	u16 tvlv_value_len;
 
 	if (!batadv_ogm_packet)
 		return;
@@ -727,12 +704,12 @@ void batadv_tvlv_unicast_send(struct batadv_priv *bat_priv, const u8 *src,
 			      void *tvlv_value, u16 tvlv_value_len)
 {
 	struct batadv_unicast_tvlv_packet *unicast_tvlv_packet;
-	ssize_t hdr_len = sizeof(*unicast_tvlv_packet);
-	struct batadv_orig_node *orig_node;
 	struct batadv_tvlv_hdr *tvlv_hdr;
+	struct batadv_orig_node *orig_node;
+	struct sk_buff *skb;
 	unsigned char *tvlv_buff;
 	unsigned int tvlv_len;
-	struct sk_buff *skb;
+	ssize_t hdr_len = sizeof(*unicast_tvlv_packet);
 
 	orig_node = batadv_orig_hash_find(bat_priv, dst);
 	if (!orig_node)

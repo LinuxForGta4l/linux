@@ -110,6 +110,7 @@ impl FromStr for Inner {
 
 kernel::acpi_device_table!(
     ACPI_TABLE,
+    MODULE_ACPI_TABLE,
     <RustDebugFs as platform::Driver>::IdInfo,
     [(acpi::DeviceId::new(c"LNUXBEEF"), ())]
 );
@@ -146,9 +147,7 @@ impl RustDebugFs {
         dir.read_write_file(c"pair", new_mutex!(Inner { x: 3, y: 10 }))
     }
 
-    fn new<'a, 'b>(
-        pdev: &'a platform::Device<Core<'b>>,
-    ) -> impl PinInit<Self, Error> + use<'a, 'b> {
+    fn new<'a>(pdev: &'a platform::Device<Core<'_>>) -> impl PinInit<Self, Error> + 'a {
         let debugfs = Dir::new(c"sample_debugfs");
         let dev = pdev.as_ref();
 

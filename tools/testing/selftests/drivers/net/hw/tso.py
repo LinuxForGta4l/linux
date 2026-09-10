@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0
 
-"""A simple test for TSO."""
+"""Run the tools/testing/selftests/net/csum testsuite."""
 
 import fcntl
 import socket

@@ -108,7 +108,7 @@ test_sysfs_prop_optional_range() {
 
 test_sysfs_prop_optional_list() {
 	PROP=$1
-	shift
+	LIST=$2
 
 	TEST_NAME="$DEVNAME".sysfs."$PROP"
 
@@ -118,9 +118,9 @@ test_sysfs_prop_optional_list() {
 	valid=0
 
 	OLDIFS=$IFS
-	IFS=",$IFS"
-	for item in $*; do
-		if [ "$item" ] && [ "$DATA" = "$item" ]; then
+	IFS=","
+	for item in $LIST; do
+		if [ "$DATA" = "$item" ]; then
 			valid=1
 			break
 		fi

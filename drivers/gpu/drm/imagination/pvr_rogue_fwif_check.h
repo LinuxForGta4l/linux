@@ -4,7 +4,14 @@
 #ifndef PVR_ROGUE_FWIF_CHECK_H
 #define PVR_ROGUE_FWIF_CHECK_H
 
-#include "pvr_check.h"
+#include <linux/build_bug.h>
+
+#define OFFSET_CHECK(type, member, offset) \
+	static_assert(offsetof(type, member) == (offset), \
+		      "offsetof(" #type ", " #member ") incorrect")
+
+#define SIZE_CHECK(type, size) \
+	static_assert(sizeof(type) == (size), #type " is incorrect size")
 
 OFFSET_CHECK(struct rogue_fwif_file_info_buf, path, 0);
 OFFSET_CHECK(struct rogue_fwif_file_info_buf, info, 200);
@@ -150,7 +157,7 @@ OFFSET_CHECK(struct rogue_fwif_frag_ctx_state, frag_reg_pm_deallocated_mask_stat
 OFFSET_CHECK(struct rogue_fwif_frag_ctx_state, frag_reg_dm_pds_mtilefree_status, 4);
 OFFSET_CHECK(struct rogue_fwif_frag_ctx_state, ctx_state_flags, 8);
 OFFSET_CHECK(struct rogue_fwif_frag_ctx_state, frag_reg_isp_store, 12);
-FLEX_ARRAY_CHECK(struct rogue_fwif_frag_ctx_state, frag_reg_isp_store);
+SIZE_CHECK(struct rogue_fwif_frag_ctx_state, 16);
 
 OFFSET_CHECK(struct rogue_fwif_compute_ctx_state, ctx_state_flags, 0);
 SIZE_CHECK(struct rogue_fwif_compute_ctx_state, 4);

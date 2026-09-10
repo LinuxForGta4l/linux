@@ -26,7 +26,7 @@ struct catpt_fw_hdr {
 	u32 reserved[4];
 } __packed;
 
-struct catpt_fw_module_hdr {
+struct catpt_fw_mod_hdr {
 	char signature[FW_SIGNATURE_SIZE];
 	u32 mod_size;
 	u32 blocks;
@@ -81,7 +81,7 @@ catpt_request_region(struct resource *root, resource_size_t size)
 	return __request_region(root, addr, size, NULL, 0);
 }
 
-static int catpt_store_streams_context(struct catpt_dev *cdev, struct dma_chan *chan)
+int catpt_store_streams_context(struct catpt_dev *cdev, struct dma_chan *chan)
 {
 	struct catpt_stream_runtime *stream;
 
@@ -108,7 +108,7 @@ static int catpt_store_streams_context(struct catpt_dev *cdev, struct dma_chan *
 	return 0;
 }
 
-static int catpt_store_module_states(struct catpt_dev *cdev, struct dma_chan *chan)
+int catpt_store_module_states(struct catpt_dev *cdev, struct dma_chan *chan)
 {
 	int i;
 
@@ -138,7 +138,7 @@ static int catpt_store_module_states(struct catpt_dev *cdev, struct dma_chan *ch
 	return 0;
 }
 
-static int catpt_store_dram_data(struct catpt_dev *cdev, struct dma_chan *chan)
+int catpt_store_memdumps(struct catpt_dev *cdev, struct dma_chan *chan)
 {
 	int i;
 
@@ -171,39 +171,6 @@ static int catpt_store_dram_data(struct catpt_dev *cdev, struct dma_chan *chan)
 	return 0;
 }
 
-int catpt_store_firmware_context(struct catpt_dev *cdev)
-{
-	struct dma_chan *chan;
-	int ret;
-
-	chan = catpt_dma_request_config_chan(cdev);
-	if (IS_ERR(chan))
-		return PTR_ERR(chan);
-
-	ret = catpt_dsp_stall(cdev, true);
-	if (ret)
-		goto exit;
-
-	ret = catpt_store_dram_data(cdev, chan);
-	if (ret) {
-		dev_err(cdev->dev, "store memdumps failed: %d\n", ret);
-		goto exit;
-	}
-
-	ret = catpt_store_module_states(cdev, chan);
-	if (ret) {
-		dev_err(cdev->dev, "store module states failed: %d\n", ret);
-		goto exit;
-	}
-
-	ret = catpt_store_streams_context(cdev, chan);
-	if (ret)
-		dev_err(cdev->dev, "store streams ctx failed: %d\n", ret);
-exit:
-	dma_release_channel(chan);
-	return ret;
-}
-
 static int
 catpt_restore_streams_context(struct catpt_dev *cdev, struct dma_chan *chan)
 {
@@ -232,7 +199,7 @@ catpt_restore_streams_context(struct catpt_dev *cdev, struct dma_chan *chan)
 	return 0;
 }
 
-static int catpt_restore_dram_data(struct catpt_dev *cdev, struct dma_chan *chan)
+static int catpt_restore_memdumps(struct catpt_dev *cdev, struct dma_chan *chan)
 {
 	int i;
 
@@ -267,9 +234,9 @@ static int catpt_restore_dram_data(struct catpt_dev *cdev, struct dma_chan *chan
 	return 0;
 }
 
-static int catpt_restore_dram_rodata(struct catpt_dev *cdev,
-				     struct dma_chan *chan, dma_addr_t paddr,
-				     struct catpt_fw_block_hdr *blk)
+static int catpt_restore_fwimage(struct catpt_dev *cdev,
+				 struct dma_chan *chan, dma_addr_t paddr,
+				 struct catpt_fw_block_hdr *blk)
 {
 	struct resource r1 = {};
 	int i;
@@ -357,26 +324,28 @@ static int catpt_load_block(struct catpt_dev *cdev,
 
 static int catpt_restore_basefw(struct catpt_dev *cdev,
 				struct dma_chan *chan, dma_addr_t paddr,
-				struct catpt_fw_module_hdr *basefw)
+				struct catpt_fw_mod_hdr *basefw)
 {
-	u32 off = sizeof(*basefw);
+	u32 offset = sizeof(*basefw);
 	int ret, i;
 
 	print_hex_dump_debug(__func__, DUMP_PREFIX_OFFSET, 8, 4,
 			     basefw, sizeof(*basefw), false);
 
-	/* Restore IRAM and .rodata for DRAM based on the firmware image. */
+	/* restore basefw image */
 	for (i = 0; i < basefw->blocks; i++) {
 		struct catpt_fw_block_hdr *blk;
 
-		blk = (struct catpt_fw_block_hdr *)((u8 *)basefw + off);
+		blk = (struct catpt_fw_block_hdr *)((u8 *)basefw + offset);
 
 		switch (blk->ram_type) {
 		case CATPT_RAM_TYPE_IRAM:
-			ret = catpt_load_block(cdev, chan, paddr + off, blk, false);
+			ret = catpt_load_block(cdev, chan, paddr + offset,
+					       blk, false);
 			break;
 		default:
-			ret = catpt_restore_dram_rodata(cdev, chan, paddr + off, blk);
+			ret = catpt_restore_fwimage(cdev, chan, paddr + offset,
+						    blk);
 			break;
 		}
 
@@ -385,11 +354,11 @@ static int catpt_restore_basefw(struct catpt_dev *cdev,
 			return ret;
 		}
 
-		off += sizeof(*blk) + blk->size;
+		offset += sizeof(*blk) + blk->size;
 	}
 
-	/* Then proceed with DRAM .data saved before D3. */
-	ret = catpt_restore_dram_data(cdev, chan);
+	/* then proceed with memory dumps */
+	ret = catpt_restore_memdumps(cdev, chan);
 	if (ret)
 		dev_err(cdev->dev, "restore memdumps failed: %d\n", ret);
 
@@ -398,9 +367,9 @@ static int catpt_restore_basefw(struct catpt_dev *cdev,
 
 static int catpt_restore_module(struct catpt_dev *cdev,
 				struct dma_chan *chan, dma_addr_t paddr,
-				struct catpt_fw_module_hdr *mod)
+				struct catpt_fw_mod_hdr *mod)
 {
-	u32 off = sizeof(*mod);
+	u32 offset = sizeof(*mod);
 	int i;
 
 	print_hex_dump_debug(__func__, DUMP_PREFIX_OFFSET, 8, 4,
@@ -410,7 +379,7 @@ static int catpt_restore_module(struct catpt_dev *cdev,
 		struct catpt_fw_block_hdr *blk;
 		int ret;
 
-		blk = (struct catpt_fw_block_hdr *)((u8 *)mod + off);
+		blk = (struct catpt_fw_block_hdr *)((u8 *)mod + offset);
 
 		switch (blk->ram_type) {
 		case CATPT_RAM_TYPE_INSTANCE:
@@ -421,7 +390,7 @@ static int catpt_restore_module(struct catpt_dev *cdev,
 					ALIGN(blk->size, 4));
 			break;
 		default:
-			ret = catpt_load_block(cdev, chan, paddr + off,
+			ret = catpt_load_block(cdev, chan, paddr + offset,
 					       blk, false);
 			break;
 		}
@@ -431,7 +400,7 @@ static int catpt_restore_module(struct catpt_dev *cdev,
 			return ret;
 		}
 
-		off += sizeof(*blk) + blk->size;
+		offset += sizeof(*blk) + blk->size;
 	}
 
 	return 0;
@@ -439,10 +408,10 @@ static int catpt_restore_module(struct catpt_dev *cdev,
 
 static int catpt_load_module(struct catpt_dev *cdev,
 			     struct dma_chan *chan, dma_addr_t paddr,
-			     struct catpt_fw_module_hdr *mod)
+			     struct catpt_fw_mod_hdr *mod)
 {
 	struct catpt_module_type *type;
-	u32 off = sizeof(*mod);
+	u32 offset = sizeof(*mod);
 	int i;
 
 	print_hex_dump_debug(__func__, DUMP_PREFIX_OFFSET, 8, 4,
@@ -454,9 +423,9 @@ static int catpt_load_module(struct catpt_dev *cdev,
 		struct catpt_fw_block_hdr *blk;
 		int ret;
 
-		blk = (struct catpt_fw_block_hdr *)((u8 *)mod + off);
+		blk = (struct catpt_fw_block_hdr *)((u8 *)mod + offset);
 
-		ret = catpt_load_block(cdev, chan, paddr + off, blk, true);
+		ret = catpt_load_block(cdev, chan, paddr + offset, blk, true);
 		if (ret) {
 			dev_err(cdev->dev, "load block failed: %d\n", ret);
 			return ret;
@@ -471,7 +440,7 @@ static int catpt_load_module(struct catpt_dev *cdev,
 			type->state_size = blk->size;
 		}
 
-		off += sizeof(*blk) + blk->size;
+		offset += sizeof(*blk) + blk->size;
 	}
 
 	/* init module type static info */
@@ -488,17 +457,17 @@ static int catpt_restore_firmware(struct catpt_dev *cdev,
 				  struct dma_chan *chan, dma_addr_t paddr,
 				  struct catpt_fw_hdr *fw)
 {
-	u32 off = sizeof(*fw);
+	u32 offset = sizeof(*fw);
 	int i;
 
 	print_hex_dump_debug(__func__, DUMP_PREFIX_OFFSET, 8, 4,
 			     fw, sizeof(*fw), false);
 
 	for (i = 0; i < fw->modules; i++) {
-		struct catpt_fw_module_hdr *mod;
+		struct catpt_fw_mod_hdr *mod;
 		int ret;
 
-		mod = (struct catpt_fw_module_hdr *)((u8 *)fw + off);
+		mod = (struct catpt_fw_mod_hdr *)((u8 *)fw + offset);
 		if (strncmp(fw->signature, mod->signature,
 			    FW_SIGNATURE_SIZE)) {
 			dev_err(cdev->dev, "module signature mismatch\n");
@@ -510,10 +479,12 @@ static int catpt_restore_firmware(struct catpt_dev *cdev,
 
 		switch (mod->module_id) {
 		case CATPT_MODID_BASE_FW:
-			ret = catpt_restore_basefw(cdev, chan, paddr + off, mod);
+			ret = catpt_restore_basefw(cdev, chan, paddr + offset,
+						   mod);
 			break;
 		default:
-			ret = catpt_restore_module(cdev, chan, paddr + off, mod);
+			ret = catpt_restore_module(cdev, chan, paddr + offset,
+						   mod);
 			break;
 		}
 
@@ -522,7 +493,7 @@ static int catpt_restore_firmware(struct catpt_dev *cdev,
 			return ret;
 		}
 
-		off += sizeof(*mod) + mod->mod_size;
+		offset += sizeof(*mod) + mod->mod_size;
 	}
 
 	return 0;
@@ -532,17 +503,17 @@ static int catpt_load_firmware(struct catpt_dev *cdev,
 			       struct dma_chan *chan, dma_addr_t paddr,
 			       struct catpt_fw_hdr *fw)
 {
-	u32 off = sizeof(*fw);
+	u32 offset = sizeof(*fw);
 	int i;
 
 	print_hex_dump_debug(__func__, DUMP_PREFIX_OFFSET, 8, 4,
 			     fw, sizeof(*fw), false);
 
 	for (i = 0; i < fw->modules; i++) {
-		struct catpt_fw_module_hdr *mod;
+		struct catpt_fw_mod_hdr *mod;
 		int ret;
 
-		mod = (struct catpt_fw_module_hdr *)((u8 *)fw + off);
+		mod = (struct catpt_fw_mod_hdr *)((u8 *)fw + offset);
 		if (strncmp(fw->signature, mod->signature,
 			    FW_SIGNATURE_SIZE)) {
 			dev_err(cdev->dev, "module signature mismatch\n");
@@ -552,40 +523,44 @@ static int catpt_load_firmware(struct catpt_dev *cdev,
 		if (mod->module_id > CATPT_MODID_LAST)
 			return -EINVAL;
 
-		ret = catpt_load_module(cdev, chan, paddr + off, mod);
+		ret = catpt_load_module(cdev, chan, paddr + offset, mod);
 		if (ret) {
 			dev_err(cdev->dev, "load module failed: %d\n", ret);
 			return ret;
 		}
 
-		off += sizeof(*mod) + mod->mod_size;
+		offset += sizeof(*mod) + mod->mod_size;
 	}
 
 	return 0;
 }
 
-static int catpt_request_load_firmware(struct catpt_dev *cdev, struct dma_chan *chan,
-				       const char *name, bool restore)
+static int catpt_load_image(struct catpt_dev *cdev, struct dma_chan *chan,
+			    const char *name, const char *signature,
+			    bool restore)
 {
 	struct catpt_fw_hdr *fw;
+	struct firmware *img;
 	dma_addr_t paddr;
 	void *vaddr;
 	int ret;
 
-	const struct firmware *img __free(firmware) = NULL;
-	ret = request_firmware(&img, name, cdev->dev);
+	ret = request_firmware((const struct firmware **)&img, name, cdev->dev);
 	if (ret)
 		return ret;
 
 	fw = (struct catpt_fw_hdr *)img->data;
-	if (strncmp(fw->signature, FW_SIGNATURE, FW_SIGNATURE_SIZE)) {
+	if (strncmp(fw->signature, signature, FW_SIGNATURE_SIZE)) {
 		dev_err(cdev->dev, "firmware signature mismatch\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto release_fw;
 	}
 
 	vaddr = dma_alloc_coherent(cdev->dev, img->size, &paddr, GFP_KERNEL);
-	if (!vaddr)
-		return -ENOMEM;
+	if (!vaddr) {
+		ret = -ENOMEM;
+		goto release_fw;
+	}
 
 	memcpy(vaddr, img->data, img->size);
 	fw = (struct catpt_fw_hdr *)vaddr;
@@ -595,10 +570,12 @@ static int catpt_request_load_firmware(struct catpt_dev *cdev, struct dma_chan *
 		ret = catpt_load_firmware(cdev, chan, paddr, fw);
 
 	dma_free_coherent(cdev->dev, img->size, vaddr, paddr);
+release_fw:
+	release_firmware(img);
 	return ret;
 }
 
-static int catpt_request_dma_load_firmware(struct catpt_dev *cdev, bool restore)
+static int catpt_load_images(struct catpt_dev *cdev, bool restore)
 {
 	struct dma_chan *chan;
 	int ret;
@@ -607,7 +584,8 @@ static int catpt_request_dma_load_firmware(struct catpt_dev *cdev, bool restore)
 	if (IS_ERR(chan))
 		return PTR_ERR(chan);
 
-	ret = catpt_request_load_firmware(cdev, chan, cdev->spec->fw_name, restore);
+	ret = catpt_load_image(cdev, chan, cdev->spec->fw_name,
+			       FW_SIGNATURE, restore);
 	if (ret)
 		goto release_dma_chan;
 
@@ -627,7 +605,7 @@ int catpt_boot_firmware(struct catpt_dev *cdev, bool restore)
 
 	catpt_dsp_stall(cdev, true);
 
-	ret = catpt_request_dma_load_firmware(cdev, restore);
+	ret = catpt_load_images(cdev, restore);
 	if (ret) {
 		dev_err(cdev->dev, "load binaries failed: %d\n", ret);
 		return ret;
@@ -641,10 +619,10 @@ int catpt_boot_firmware(struct catpt_dev *cdev, bool restore)
 	if (!ret) {
 		dev_err(cdev->dev, "firmware ready timeout\n");
 		return -ETIMEDOUT;
-	}
 	/* Wake up does not mean FW is ready, an exception could occur. */
-	if (!cdev->ipc.ready)
+	} else if (!cdev->ipc.ready) {
 		return -EREMOTEIO;
+	}
 
 	/* update sram pg & clock once done booting */
 	catpt_dsp_update_srampge(cdev, &cdev->dram, cdev->spec->dram_mask);

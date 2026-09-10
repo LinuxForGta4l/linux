@@ -332,7 +332,7 @@ static int test__hists_filter(struct test_suite *test __maybe_unused, int subtes
 
 out:
 	/* tear down everything */
-	evlist__put(evlist);
+	evlist__delete(evlist);
 	reset_output_field();
 	machines__exit(&machines);
 	put_fake_samples();

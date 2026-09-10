@@ -7,29 +7,13 @@ ParanoidAndNotRoot()
   [ "$(id -u)" != 0 ] && [ "$(cat /proc/sys/kernel/perf_event_paranoid)" -gt $1 ]
 }
 
-test_prog="true"
+test_prog="sleep 0.01"
 system_wide_flag="-a"
 if ParanoidAndNotRoot 0
 then
   system_wide_flag=""
-  test_prog="perf test -w noploop 0.01"
+  test_prog="perf test -w noploop"
 fi
-
-check_metric() {
-  local output="$1"
-  local status="$2"
-  local metric="$3"
-
-  if [[ $status -ne 0 || ! "$output" =~ ${metric:0:50} ]]; then
-    return 1
-  fi
-
-  if [[ "$output" =~ "<not counted>" || "$output" =~ "<not supported>" ]]; then
-    return 1
-  fi
-
-  return 0
-}
 
 skip=0
 err=3
@@ -37,40 +21,29 @@ for m in $(perf list --raw-dump metrics); do
   echo "Testing $m"
   result=$(perf stat -M "$m" $system_wide_flag -- $test_prog 2>&1)
   result_err=$?
-
-  if check_metric "$result" $result_err "$m"; then
+  if [[ $result_err -eq 0 && "$result" =~ ${m:0:50} ]]
+  then
+    # No error result and metric shown.
     if [[ "$err" -ne 1 ]]
     then
       err=0
     fi
     continue
   fi
-
-  if [[ "$result" =~ "Access to performance monitoring and observability operations is limited" || \
-        "$result" =~ "in per-thread mode, enable system wide" || \
-        "$result" =~ "<not supported>" || \
-        "$result" =~ "Cannot resolve IDs for" || \
-        "$result" =~ "No supported events found" || \
-        "$result" =~ "FP_ARITH" || \
-        "$result" =~ "AMX" || \
-        "$result" =~ "PMM" ]]
+  if [[ "$result" =~ "Cannot resolve IDs for" || "$result" =~ "No supported events found" ]]
   then
-    true
-  else
-    result=$(perf stat -M "$m" $system_wide_flag -- perf test -w noploop 0.1 2>&1)
-    result_err=$?
-
-    if check_metric "$result" $result_err "$m"; then
-      if [[ "$err" -ne 1 ]]
-      then
-        err=0
-      fi
+    if [[ $(perf list --raw-dump $m) == "Default"* ]]
+    then
+      echo "[Ignored $m] failed but as a Default metric this can be expected"
+      echo $result
       continue
     fi
-  fi
-
-  # If retry also failed, determine if we skip, ignore, or fail
-  if [[ "$result" =~ "Access to performance monitoring and observability operations is limited" ]]
+    echo "[Failed $m] Metric contains missing events"
+    echo $result
+    err=1 # Fail
+    continue
+  elif [[ "$result" =~ \
+        "Access to performance monitoring and observability operations is limited" ]]
   then
     echo "[Skipped $m] Permission failure"
     echo $result
@@ -88,9 +61,7 @@ for m in $(perf list --raw-dump metrics); do
       skip=1
     fi
     continue
-  elif [[ "$result" =~ "<not supported>" || \
-          "$result" =~ "Cannot resolve IDs for" || \
-          "$result" =~ "No supported events found" ]]
+  elif [[ "$result" =~ "<not supported>" ]]
   then
     if [[ $(perf list --raw-dump $m) == "Default"* ]]
     then
@@ -134,7 +105,19 @@ for m in $(perf list --raw-dump metrics); do
     continue
   fi
 
-  echo "[Failed $m] has non-zero error '$result_err' or not printed/counted in:"
+  # Failed, possibly the workload was too small so retry with something longer.
+  result=$(perf stat -M "$m" $system_wide_flag -- perf bench internals synthesize 2>&1)
+  result_err=$?
+  if [[ $result_err -eq 0 && "$result" =~ ${m:0:50} ]]
+  then
+    # No error result and metric shown.
+    if [[ "$err" -ne 1 ]]
+    then
+      err=0
+    fi
+    continue
+  fi
+  echo "[Failed $m] has non-zero error '$result_err' or not printed in:"
   echo "$result"
   err=1
 done

@@ -380,8 +380,8 @@ static int spdif_probe(struct platform_device *pdev)
 
 	spdif->pclk = devm_clk_get(&pdev->dev, "spdif");
 	if (IS_ERR(spdif->pclk)) {
-		ret = dev_err_probe(&pdev->dev, PTR_ERR(spdif->pclk),
-				    "failed to get peri-clock\n");
+		dev_err(&pdev->dev, "failed to get peri-clock\n");
+		ret = -ENOENT;
 		goto err0;
 	}
 	ret = clk_prepare_enable(spdif->pclk);
@@ -390,8 +390,8 @@ static int spdif_probe(struct platform_device *pdev)
 
 	spdif->sclk = devm_clk_get(&pdev->dev, "sclk_spdif");
 	if (IS_ERR(spdif->sclk)) {
-		ret = dev_err_probe(&pdev->dev, PTR_ERR(spdif->sclk),
-				    "failed to get internal source clock\n");
+		dev_err(&pdev->dev, "failed to get internal source clock\n");
+		ret = -ENOENT;
 		goto err1;
 	}
 	ret = clk_prepare_enable(spdif->sclk);

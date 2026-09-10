@@ -28,14 +28,6 @@
 
 #include "include/fixed31_32.h"
 
-#define DIVIDER 10000
-
-#define S2D13_MIN (-4 * DIVIDER)
-#define S2D13_MAX (39999)
-
-#define S3D12_MIN (-8 * DIVIDER)
-#define S3D12_MAX (79998)
-
 uint16_t fixed_point_to_int_frac(
 	struct fixed31_32 arg,
 	uint8_t integer_bits,
@@ -43,8 +35,7 @@ uint16_t fixed_point_to_int_frac(
 
 void convert_float_matrix(
 	uint16_t *matrix,
-	const struct fixed31_32 *flt,
-	enum cm_gamut_coef_format format,
+	struct fixed31_32 *flt,
 	uint32_t buffer_size);
 
 void reduce_fraction(uint32_t num, uint32_t den,
@@ -52,7 +43,6 @@ void reduce_fraction(uint32_t num, uint32_t den,
 
 void convert_hw_matrix(struct fixed31_32 *matrix,
 		       uint16_t *reg,
-			   enum cm_gamut_coef_format format,
 		       uint32_t buffer_size);
 
 static inline unsigned int log_2(unsigned int num)

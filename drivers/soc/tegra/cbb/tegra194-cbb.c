@@ -2072,15 +2072,20 @@ static int tegra194_cbb_interrupt_enable(struct tegra_cbb *cbb)
 	if (priv->sec_irq) {
 		err = devm_request_irq(dev, priv->sec_irq, tegra194_cbb_err_isr, 0, dev_name(dev),
 				       priv);
-		if (err)
+		if (err) {
+			dev_err(dev, "failed to register interrupt %u: %d\n", priv->sec_irq, err);
 			return err;
+		}
 	}
 
 	if (priv->nonsec_irq) {
 		err = devm_request_irq(dev, priv->nonsec_irq, tegra194_cbb_err_isr, 0,
 				       dev_name(dev), priv);
-		if (err)
+		if (err) {
+			dev_err(dev, "failed to register interrupt %u: %d\n", priv->nonsec_irq,
+				err);
 			return err;
+		}
 	}
 
 	return 0;

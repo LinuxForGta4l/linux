@@ -179,8 +179,7 @@ static int perf_event__prepare_comm(union perf_event *event, pid_t pid, pid_t ti
 
 	size = strlen(event->comm.comm) + 1;
 	size = PERF_ALIGN(size, sizeof(u64));
-	memset((char *)event + offsetof(struct perf_record_comm, comm) + size,
-	       0, machine->id_hdr_size);
+	memset(event->comm.comm + size, 0, machine->id_hdr_size);
 	event->comm.header.size = (sizeof(event->comm) -
 				(sizeof(event->comm.comm) - size) +
 				machine->id_hdr_size);
@@ -292,18 +291,6 @@ static int perf_event__synthesize_fork(const struct perf_tool *tool,
 	return 0;
 }
 
-static void io__drain_line(struct io *io, int ch)
-{
-	if (ch == '\n')
-		return;
-	if (ch == -2 && io->data > io->buf && io->data[-1] == '\n')
-		return;
-
-	do {
-		ch = io__get_char(io);
-	} while (ch >= 0 && ch != '\n');
-}
-
 static bool read_proc_maps_line(struct io *io, __u64 *start, __u64 *end,
 				u32 *prot, u32 *flags, __u64 *offset,
 				u32 *maj, u32 *min,
@@ -312,127 +299,69 @@ static bool read_proc_maps_line(struct io *io, __u64 *start, __u64 *end,
 {
 	__u64 temp;
 	int ch;
-	size_t written = 0;
-	bool overflowed = false;
+	char *start_pathname = pathname;
 
-	ch = io__get_hex(io, start);
-	if (ch != '-') {
-		if (!io->eof)
-			io__drain_line(io, ch);
+	if (io__get_hex(io, start) != '-')
 		return false;
-	}
-	ch = io__get_hex(io, end);
-	if (ch != ' ') {
-		if (!io->eof)
-			io__drain_line(io, ch);
+	if (io__get_hex(io, end) != ' ')
 		return false;
-	}
 
 	/* map protection and flags bits */
 	*prot = 0;
 	ch = io__get_char(io);
 	if (ch == 'r')
 		*prot |= PROT_READ;
-	else if (ch != '-') {
-		if (!io->eof)
-			io__drain_line(io, ch);
+	else if (ch != '-')
 		return false;
-	}
 	ch = io__get_char(io);
 	if (ch == 'w')
 		*prot |= PROT_WRITE;
-	else if (ch != '-') {
-		if (!io->eof)
-			io__drain_line(io, ch);
+	else if (ch != '-')
 		return false;
-	}
 	ch = io__get_char(io);
 	if (ch == 'x')
 		*prot |= PROT_EXEC;
-	else if (ch != '-') {
-		if (!io->eof)
-			io__drain_line(io, ch);
+	else if (ch != '-')
 		return false;
-	}
 	ch = io__get_char(io);
 	if (ch == 's')
 		*flags = MAP_SHARED;
 	else if (ch == 'p')
 		*flags = MAP_PRIVATE;
-	else {
-		if (!io->eof)
-			io__drain_line(io, ch);
+	else
 		return false;
-	}
-	ch = io__get_char(io);
-	if (ch != ' ') {
-		if (!io->eof)
-			io__drain_line(io, ch);
+	if (io__get_char(io) != ' ')
 		return false;
-	}
 
-	ch = io__get_hex(io, offset);
-	if (ch != ' ') {
-		if (!io->eof)
-			io__drain_line(io, ch);
+	if (io__get_hex(io, offset) != ' ')
 		return false;
-	}
 
-	ch = io__get_hex(io, &temp);
-	if (ch != ':') {
-		if (!io->eof)
-			io__drain_line(io, ch);
+	if (io__get_hex(io, &temp) != ':')
 		return false;
-	}
 	*maj = temp;
-	ch = io__get_hex(io, &temp);
-	if (ch != ' ') {
-		if (!io->eof)
-			io__drain_line(io, ch);
+	if (io__get_hex(io, &temp) != ' ')
 		return false;
-	}
 	*min = temp;
 
 	ch = io__get_dec(io, inode);
 	if (ch != ' ') {
-		if (ch == '\n') {
-			pathname[0] = '\0';
-			return true;
-		}
-		if (!io->eof)
-			io__drain_line(io, ch);
-		return false;
+		*pathname = '\0';
+		return ch == '\n';
 	}
-
 	do {
 		ch = io__get_char(io);
 	} while (ch == ' ');
-
 	while (true) {
-		if (ch < 0) {
-			if (overflowed) {
-				strlcpy(pathname, "//toolong", pathname_size);
-				return true;
-			}
-			pathname[written] = '\0';
-			return written > 0;
+		if (ch < 0)
+			return false;
+		if (ch == '\0' || ch == '\n' ||
+		    (pathname + 1 - start_pathname) >= pathname_size) {
+			*pathname = '\0';
+			return true;
 		}
-		if (ch == '\0' || ch == '\n')
-			break;
-
-		if (written < (size_t)pathname_size - 1)
-			pathname[written++] = (char)ch;
-		else
-			overflowed = true;
+		*pathname++ = ch;
 		ch = io__get_char(io);
 	}
-
-	if (overflowed)
-		strlcpy(pathname, "//toolong", pathname_size);
-	else
-		pathname[written] = '\0';
-
-	return true;
 }
 
 static void perf_record_mmap2__read_build_id(struct perf_record_mmap2 *event,
@@ -534,53 +463,45 @@ int perf_event__synthesize_mmap_events(const struct perf_tool *tool,
 	while (!io.eof) {
 		static const char anonstr[] = "//anon";
 		size_t size, aligned_size;
-		__u64 start, end, pgoff, ino;
-		u32 prot, flags, maj, min;
+
+		/* ensure null termination since stack will be reused. */
+		event->mmap2.filename[0] = '\0';
 
 		/* 00400000-0040c000 r-xp 00000000 fd:01 41038  /bin/cat */
-		/* Read directly into event->mmap2.filename, clamping for id_hdr_size! */
-		if (!read_proc_maps_line(&io, &start, &end,
-					 &prot, &flags, &pgoff,
-					 &maj, &min, &ino,
-					 sizeof(event->mmap2.filename) - machine->id_hdr_size,
-					 event->mmap2.filename)) {
-			if (io.eof)
-				break;
+		if (!read_proc_maps_line(&io,
+					&event->mmap2.start,
+					&event->mmap2.len,
+					&event->mmap2.prot,
+					&event->mmap2.flags,
+					&event->mmap2.pgoff,
+					&event->mmap2.maj,
+					&event->mmap2.min,
+					&event->mmap2.ino,
+					sizeof(event->mmap2.filename),
+					event->mmap2.filename))
 			continue;
+
+		if ((rdclock() - t) > timeout) {
+			pr_warning("Reading %s/proc/%d/task/%d/maps time out. "
+				   "You may want to increase "
+				   "the time limit by --proc-map-timeout\n",
+				   machine->root_dir, pid, pid);
+			truncation = true;
+			goto out;
 		}
 
-		if (!strcmp(event->mmap2.filename, ""))
-			strcpy(event->mmap2.filename, anonstr);
-
-		if (hugetlbfs_mnt_len &&
-		    !strncmp(event->mmap2.filename, hugetlbfs_mnt, hugetlbfs_mnt_len)) {
-			strcpy(event->mmap2.filename, anonstr);
-			flags |= MAP_HUGETLB;
-		}
-
-		size = strlen(event->mmap2.filename) + 1;
-		aligned_size = PERF_ALIGN(size, sizeof(u64));
-
-		event->mmap2.header.type = PERF_RECORD_MMAP2;
+		event->mmap2.ino_generation = 0;
 
 		/*
-		 * Just like the kernel, see perf_misc_flags() in
-		 * kernel/events/core.c
+		 * Just like the kernel, see __perf_event_mmap in kernel/perf_event.c
 		 */
 		if (machine__is_host(machine))
 			event->header.misc = PERF_RECORD_MISC_USER;
 		else
 			event->header.misc = PERF_RECORD_MISC_GUEST_USER;
 
-		if ((rdclock() - t) > timeout) {
-			pr_warning("Reading %s/proc/%d/task/%d/maps time out. You may want to increase the time limit by --proc-map-timeout\n",
-				   machine->root_dir, pid, pid);
-			truncation = true;
-			goto out;
-		}
-
-		if ((prot & PROT_EXEC) == 0) {
-			if (!mmap_data || (prot & PROT_READ) == 0)
+		if ((event->mmap2.prot & PROT_EXEC) == 0) {
+			if (!mmap_data || (event->mmap2.prot & PROT_READ) == 0)
 				continue;
 
 			event->header.misc |= PERF_RECORD_MISC_MMAP_DATA;
@@ -590,26 +511,26 @@ out:
 		if (truncation)
 			event->header.misc |= PERF_RECORD_MISC_PROC_MAP_PARSE_TIMEOUT;
 
-		event->mmap2.header.size =
-			offsetof(struct perf_record_mmap2, filename) +
-			aligned_size;
+		if (!strcmp(event->mmap2.filename, ""))
+			strcpy(event->mmap2.filename, anonstr);
 
-		/* Zero the padding and ID header trailer safely! */
-		memset((char *)event + offsetof(struct perf_record_mmap2, filename) + size, 0,
-		       (aligned_size - size) + machine->id_hdr_size);
+		if (hugetlbfs_mnt_len &&
+		    !strncmp(event->mmap2.filename, hugetlbfs_mnt,
+			     hugetlbfs_mnt_len)) {
+			strcpy(event->mmap2.filename, anonstr);
+			event->mmap2.flags |= MAP_HUGETLB;
+		}
 
+		size = strlen(event->mmap2.filename) + 1;
+		aligned_size = PERF_ALIGN(size, sizeof(u64));
+		event->mmap2.len -= event->mmap.start;
+		event->mmap2.header.size = (sizeof(event->mmap2) -
+					(sizeof(event->mmap2.filename) - aligned_size));
+		memset(event->mmap2.filename + size, 0, machine->id_hdr_size +
+			(aligned_size - size));
 		event->mmap2.header.size += machine->id_hdr_size;
-		event->mmap2.start = start;
-		event->mmap2.len = end - start;
-		event->mmap2.pgoff = pgoff;
-		event->mmap2.maj = maj;
-		event->mmap2.min = min;
-		event->mmap2.ino = ino;
-		event->mmap2.ino_generation = 0;
 		event->mmap2.pid = tgid;
 		event->mmap2.tid = pid;
-		event->mmap2.prot = prot;
-		event->mmap2.flags = flags;
 
 		if (!symbol_conf.no_buildid_mmap2)
 			perf_record_mmap2__read_build_id(&event->mmap2, machine, false);
@@ -635,22 +556,15 @@ static int perf_event__synthesize_cgroup(const struct perf_tool *tool,
 					 struct machine *machine)
 {
 	size_t event_size = sizeof(event->cgroup) - sizeof(event->cgroup.path);
-	size_t raw_path_len, path_len, max_path_len;
+	size_t path_len = strlen(path) - mount_len + 1;
 	struct {
 		struct file_handle fh;
 		uint64_t cgroup_id;
 	} handle;
 	int mount_id;
 
-	if (strlen(path) < mount_len)
-		return -1;
-
-	max_path_len = sizeof(event->cgroup.path) - machine->id_hdr_size;
-	raw_path_len = strlen(path) - mount_len + 1;
-	if (raw_path_len > max_path_len)
-		raw_path_len = max_path_len;
-
-	path_len = PERF_ALIGN(raw_path_len, sizeof(u64));
+	while (path_len % sizeof(u64))
+		path[mount_len + path_len++] = '\0';
 
 	memset(&event->cgroup, 0, event_size);
 
@@ -664,9 +578,8 @@ static int perf_event__synthesize_cgroup(const struct perf_tool *tool,
 	}
 
 	event->cgroup.id = handle.cgroup_id;
-	strlcpy(event->cgroup.path, path + mount_len, raw_path_len);
-	memset((char *)event + offsetof(struct perf_record_cgroup, path) + raw_path_len,
-	       0, (path_len - raw_path_len) + machine->id_hdr_size);
+	strncpy(event->cgroup.path, path + mount_len, path_len);
+	memset(event->cgroup.path + path_len, 0, machine->id_hdr_size);
 
 	if (perf_tool__process_synth_event(tool, event, machine, process) < 0) {
 		pr_debug("process synth event failed\n");
@@ -764,7 +677,6 @@ struct perf_event__synthesize_modules_maps_cb_args {
 	perf_event__handler_t process;
 	struct machine *machine;
 	union perf_event *event;
-	u16 misc;
 };
 
 static int perf_event__synthesize_modules_maps_cb(struct map *map, void *data)
@@ -772,78 +684,49 @@ static int perf_event__synthesize_modules_maps_cb(struct map *map, void *data)
 	struct perf_event__synthesize_modules_maps_cb_args *args = data;
 	union perf_event *event = args->event;
 	struct dso *dso;
-	size_t size, aligned_size;
-	int rc = 0;
+	size_t size;
 
 	if (!__map__is_kmodule(map))
 		return 0;
 
 	dso = map__dso(map);
 	if (!symbol_conf.no_buildid_mmap2) {
-		const char *long_name = dso__long_name(dso);
-
-		size = strlen(long_name);
-		if (size >= sizeof(event->mmap2.filename) - args->machine->id_hdr_size)
-			size = sizeof(event->mmap2.filename) - args->machine->id_hdr_size - 1;
-
-		strlcpy(event->mmap2.filename, long_name,
-			sizeof(event->mmap2.filename) - args->machine->id_hdr_size);
-
-		aligned_size = PERF_ALIGN(size + 1, sizeof(u64));
+		size = PERF_ALIGN(dso__long_name_len(dso) + 1, sizeof(u64));
 		event->mmap2.header.type = PERF_RECORD_MMAP2;
-		event->mmap2.header.misc = args->misc;
-		event->mmap2.header.size =
-			offsetof(struct perf_record_mmap2, filename) +
-			aligned_size;
-
-		/* Zero the padding and ID header trailer safely! */
-		memset((char *)event + offsetof(struct perf_record_mmap2, filename) + size, 0,
-		       (aligned_size - size) + args->machine->id_hdr_size);
-
+		event->mmap2.header.size = (sizeof(event->mmap2) -
+					(sizeof(event->mmap2.filename) - size));
+		memset(event->mmap2.filename + size, 0, args->machine->id_hdr_size);
 		event->mmap2.header.size += args->machine->id_hdr_size;
 		event->mmap2.start = map__start(map);
 		event->mmap2.len   = map__size(map);
 		event->mmap2.pid   = args->machine->pid;
 
-		/* Clear stale build ID and entire union from previous module iteration */
+		memcpy(event->mmap2.filename, dso__long_name(dso), dso__long_name_len(dso) + 1);
+
+		/* Clear stale build ID from previous module iteration */
 		event->mmap2.header.misc &= ~PERF_RECORD_MISC_MMAP_BUILD_ID;
 		memset(event->mmap2.build_id, 0, sizeof(event->mmap2.build_id));
 		event->mmap2.build_id_size = 0;
-		event->mmap2.__reserved_1 = 0;
-		event->mmap2.__reserved_2 = 0;
 
 		perf_record_mmap2__read_build_id(&event->mmap2, args->machine, false);
 	} else {
-		const char *long_name = dso__long_name(dso);
-
-		size = strlen(long_name);
-		if (size >= sizeof(event->mmap.filename) - args->machine->id_hdr_size)
-			size = sizeof(event->mmap.filename) - args->machine->id_hdr_size - 1;
-
-		strlcpy(event->mmap.filename, long_name,
-			sizeof(event->mmap.filename) - args->machine->id_hdr_size);
-
-		aligned_size = PERF_ALIGN(size + 1, sizeof(u64));
+		size = PERF_ALIGN(dso__long_name_len(dso) + 1, sizeof(u64));
 		event->mmap.header.type = PERF_RECORD_MMAP;
-		event->mmap.header.misc = args->misc;
-		event->mmap.header.size =
-			offsetof(struct perf_record_mmap, filename) +
-			aligned_size;
-
-		/* Zero the padding and ID header trailer safely! */
-		memset((char *)event + offsetof(struct perf_record_mmap, filename) + size, 0,
-		       (aligned_size - size) + args->machine->id_hdr_size);
-
+		event->mmap.header.size = (sizeof(event->mmap) -
+					(sizeof(event->mmap.filename) - size));
+		memset(event->mmap.filename + size, 0, args->machine->id_hdr_size);
 		event->mmap.header.size += args->machine->id_hdr_size;
 		event->mmap.start = map__start(map);
 		event->mmap.len   = map__size(map);
 		event->mmap.pid   = args->machine->pid;
+
+		memcpy(event->mmap.filename, dso__long_name(dso), dso__long_name_len(dso) + 1);
 	}
 
 	if (perf_tool__process_synth_event(args->tool, event, args->machine, args->process) != 0)
-		rc = -1;
+		return -1;
 
-	return rc;
+	return 0;
 }
 
 int perf_event__synthesize_modules(const struct perf_tool *tool, perf_event__handler_t process,
@@ -868,13 +751,13 @@ int perf_event__synthesize_modules(const struct perf_tool *tool, perf_event__han
 	}
 
 	/*
-	 * Just like the kernel, see perf_misc_flags() in
-	 * kernel/events/core.c
+	 * kernel uses 0 for user space maps, see kernel/perf_event.c
+	 * __perf_event_mmap
 	 */
 	if (machine__is_host(machine))
-		args.misc = PERF_RECORD_MISC_KERNEL;
+		args.event->header.misc = PERF_RECORD_MISC_KERNEL;
 	else
-		args.misc = PERF_RECORD_MISC_GUEST_KERNEL;
+		args.event->header.misc = PERF_RECORD_MISC_GUEST_KERNEL;
 
 	rc = maps__for_each_map(maps, perf_event__synthesize_modules_maps_cb, &args);
 
@@ -1175,7 +1058,7 @@ int perf_event__synthesize_threads(const struct perf_tool *tool,
 	else
 		thread_nr = nr_threads_synthesize;
 
-	if (thread_nr <= 1 || n <= 1) {
+	if (thread_nr <= 1) {
 		err = __perf_event__synthesize_threads(tool, process,
 						       machine,
 						       needs_mmap, mmap_data,
@@ -1221,8 +1104,8 @@ int perf_event__synthesize_threads(const struct perf_tool *tool,
 	}
 	err = 0;
 out_join:
-	for (j = 0; j < i; j++)
-		pthread_join(synthesize_threads[j], NULL);
+	for (i = 0; i < thread_nr; i++)
+		pthread_join(synthesize_threads[i], NULL);
 	free(args);
 free_threads:
 	free(synthesize_threads);
@@ -2364,7 +2247,7 @@ int perf_event__synthesize_tracing_data(const struct perf_tool *tool, int fd, st
 	 * - write the tracing data from the temp file
 	 *   to the pipe
 	 */
-	tdata = tracing_data_get(&evlist__core(evlist)->entries, fd, true);
+	tdata = tracing_data_get(&evlist->core.entries, fd, true);
 	if (!tdata)
 		return -1;
 
@@ -2457,18 +2340,13 @@ int perf_event__synthesize_mmap2_build_id(const struct perf_tool *tool,
 	size_t filename_len = strlen(filename);
 	size_t ev_len;
 	u64 sample_type = sample->evsel ? sample->evsel->core.attr.sample_type : 0;
-	void *array = &ev;
+	void *array;
 	int ret;
-	size_t max_filename_len;
 
-	max_filename_len = min(sizeof(ev.mmap2.filename) - 1,
-			       sizeof(ev) - (MAX_ID_HDR_ENTRIES * sizeof(__u64)) -
-			       offsetof(struct perf_record_mmap2, filename) - 1);
+	if (filename_len >= sizeof(ev.mmap2.filename))
+		return -EINVAL;
 
-	if (filename_len > max_filename_len)
-		filename_len = max_filename_len;
-
-	ev_len = offsetof(struct perf_record_mmap2, filename) + filename_len + 1;
+	ev_len = sizeof(ev.mmap2) - sizeof(ev.mmap2.filename) + filename_len + 1;
 	ev_len = PERF_ALIGN(ev_len, sizeof(u64));
 
 	if (ev_len + MAX_ID_HDR_ENTRIES * sizeof(__u64) > sizeof(ev))
@@ -2488,15 +2366,16 @@ int perf_event__synthesize_mmap2_build_id(const struct perf_tool *tool,
 
 	ev.mmap2.build_id_size = bid->size;
 	if (ev.mmap2.build_id_size > sizeof(ev.mmap2.build_id))
-		ev.mmap2.build_id_size = sizeof(ev.mmap2.build_id);
+		ev.build_id.size = sizeof(ev.mmap2.build_id);
 	memcpy(ev.mmap2.build_id, bid->data, ev.mmap2.build_id_size);
 
 	ev.mmap2.prot = prot;
 	ev.mmap2.flags = flags;
 
-	strlcpy(ev.mmap2.filename, filename, filename_len + 1);
+	memcpy(ev.mmap2.filename, filename, min(strlen(filename), sizeof(ev.mmap.filename)));
 
-	array = (void *)((char *)&ev + ev.header.size);
+	array = &ev;
+	array += ev.header.size;
 	ret = perf_event__synthesize_id_sample(array, sample_type, sample);
 	if (ret < 0)
 		return ret;
@@ -2525,16 +2404,13 @@ int perf_event__synthesize_stat_events(struct perf_stat_config *config, const st
 	}
 
 	err = perf_event__synthesize_extra_attr(tool, evlist, process, attrs);
-	err = perf_event__synthesize_thread_map2(tool, evlist__core(evlist)->threads,
-						process, /*machine=*/NULL);
+	err = perf_event__synthesize_thread_map2(tool, evlist->core.threads, process, NULL);
 	if (err < 0) {
 		pr_err("Couldn't synthesize thread map.\n");
 		return err;
 	}
 
-	err = perf_event__synthesize_cpu_map(tool,
-					     evlist__core(evlist)->user_requested_cpus,
-					     process, /*machine=*/NULL);
+	err = perf_event__synthesize_cpu_map(tool, evlist->core.user_requested_cpus, process, NULL);
 	if (err < 0) {
 		pr_err("Couldn't synthesize thread map.\n");
 		return err;
@@ -2642,7 +2518,7 @@ int perf_event__synthesize_for_pipe(const struct perf_tool *tool,
 	ret += err;
 
 #ifdef HAVE_LIBTRACEEVENT
-	if (have_tracepoints(&evlist__core(evlist)->entries)) {
+	if (have_tracepoints(&evlist->core.entries)) {
 		int fd = perf_data__fd(data);
 
 		/*

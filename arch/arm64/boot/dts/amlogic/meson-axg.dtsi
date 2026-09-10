@@ -328,7 +328,6 @@
 			phys = <&mipi_pcie_analog_dphy>;
 			phy-names = "analog";
 			#phy-cells = <0>;
-			status = "disabled";
 		};
 
 		pdm: audio-controller@ff632000 {
@@ -482,8 +481,7 @@
 							 "nand_ale",
 							 "nand_cle",
 							 "nand_wen_clk",
-							 "nand_ren_wr",
-							 "nand_rb0";
+							 "nand_ren_wr";
 						function = "nand";
 						input-enable;
 						bias-pull-up;
@@ -2001,7 +1999,6 @@
 				clocks = <&clkc CLKID_SD_EMMC_C>,
 					 <&clkc CLKID_FCLK_DIV2>;
 				clock-names = "core", "device";
-				status = "disabled";
 			};
 
 			usb2_phy1: phy@9020 {

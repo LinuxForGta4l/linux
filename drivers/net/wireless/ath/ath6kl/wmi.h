@@ -125,7 +125,6 @@ struct wmi {
 
 	u8 *last_mgmt_tx_frame;
 	size_t last_mgmt_tx_frame_len;
-	u64 last_mgmt_tx_cookie;
 	u8 saved_pwr_mode;
 };
 

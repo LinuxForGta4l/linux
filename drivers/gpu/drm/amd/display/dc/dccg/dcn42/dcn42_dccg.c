@@ -77,26 +77,13 @@ void dccg42_otg_drop_pixel(struct dccg *dccg,
 	}
 }
 
-void dccg42_enable_global_fgcg(struct dccg *dccg, bool enable)
+void dccg42_enable_global_fgcg(struct dccg *dccg, bool value)
 {
 	struct dcn_dccg *dccg_dcn = TO_DCN_DCCG(dccg);
 
-	/* Temporary workaround for IOMMU mismatch issue.
-	 * Fine grain control via bit2 of debug flag.
-	 */
-	if (dccg->ctx->dc->debug.disable_clock_gate || (dccg->ctx->dc->debug.iommu_mismatch_temp_wka & 0x4))
-		enable = false;
-
-	REG_UPDATE(DCCG_GLOBAL_FGCG_REP_CNTL, DCCG_GLOBAL_FGCG_REP_DIS, !enable);
-}
-
-bool dccg42_get_global_fgcg_status(struct dccg *dccg)
-{
-	struct dcn_dccg *dccg_dcn = TO_DCN_DCCG(dccg);
-	uint32_t disabled = 0;
-
-	REG_GET(DCCG_GLOBAL_FGCG_REP_CNTL, DCCG_GLOBAL_FGCG_REP_DIS, &disabled);
-	return disabled & 0x1;
+	if (dccg->ctx->dc->debug.disable_clock_gate)
+		value = false;
+	REG_UPDATE(DCCG_GLOBAL_FGCG_REP_CNTL, DCCG_GLOBAL_FGCG_REP_DIS, !value);
 }
 
 void dccg42_set_physymclk(
@@ -278,42 +265,47 @@ void dccg42_trigger_dio_fifo_resync(struct dccg *dccg)
 
 static void dccg42_init(struct dccg *dccg)
 {
-	unsigned int i;
-	struct resource_pool *res_pool = dccg->ctx->dc->res_pool;
+	int otg_inst;
+	struct dcn_dccg *dccg_dcn = TO_DCN_DCCG(dccg);
 
 	/* Set HPO stream encoder to use refclk to avoid case where PHY is
 	 * disabled and SYMCLK32 for HPO SE is sourced from PHYD32CLK which
 	 * will cause DCN to hang.
 	 */
-	for (i = 0; i < res_pool->hpo_dp_stream_enc_count; i++)
-		dccg35_disable_symclk32_se(dccg, i);
+	for (otg_inst = 0; otg_inst < 4; otg_inst++)
+		dccg35_disable_symclk32_se(dccg, otg_inst);
 
 	if (dccg->ctx->dc->debug.root_clock_optimization.bits.symclk32_le) {
-		for (i = 0; i < res_pool->hpo_dp_link_enc_count; i++)
-			dccg401_disable_symclk32_le(dccg, i);
+		dccg401_disable_symclk32_le(dccg, 0);
+		dccg401_disable_symclk32_le(dccg, 1);
+		dccg401_disable_symclk32_le(dccg, 2);
+		dccg401_disable_symclk32_le(dccg, 3);
 	}
 
 	if (dccg->ctx->dc->debug.root_clock_optimization.bits.dpstream) {
-		for (i = 0; i < res_pool->hpo_dp_stream_enc_count; i++)
-			dccg401_disable_dpstreamclk(dccg, i);
+		dccg401_disable_dpstreamclk(dccg, 0);
+		dccg401_disable_dpstreamclk(dccg, 1);
+		dccg401_disable_dpstreamclk(dccg, 2);
+		dccg401_disable_dpstreamclk(dccg, 3);
 	}
-
+	if (!dccg->ctx->dc->debug.root_clock_optimization.bits.physymclk) {
+		REG_UPDATE_5(DCCG_GATE_DISABLE_CNTL2,
+			PHYASYMCLK_ROOT_GATE_DISABLE, 1,
+			PHYBSYMCLK_ROOT_GATE_DISABLE, 1,
+			PHYCSYMCLK_ROOT_GATE_DISABLE, 1,
+			PHYDSYMCLK_ROOT_GATE_DISABLE, 1,
+			PHYESYMCLK_ROOT_GATE_DISABLE, 1);
+	}
 	dccg42_disable_hdmistreamclk(dccg);
 	if (dccg->ctx->dc->debug.root_clock_optimization.bits.hdmichar)
 		dccg42_disable_hdmicharclk(dccg, 0);
-
-	if (dccg->ctx->dc->debug.root_clock_optimization.bits.dpp) {
-		for (i = 0; i < res_pool->pipe_count; i++) {
-			dccg35_dpp_root_clock_control(dccg, i, true);
-		}
-	}
 }
 
 
 static const struct dccg_funcs dccg42_funcs = {
 	.enable_hdmicharclk = dccg401_enable_hdmicharclk,
 	.disable_hdmicharclk = dccg42_disable_hdmicharclk,
-	.set_hdmistreamclk = dccg35_set_hdmistreamclk,
+	.set_hdmistreamclk = dccg401_set_hdmistreamclk,
 	.set_hdmistreamclk_root_clock_gating = dccg35_set_hdmistreamclk_root_clock_gating,
 	.update_dpp_dto = dccg35_update_dpp_dto,
 	.dpp_root_clock_control = dccg35_dpp_root_clock_control,
@@ -348,8 +340,7 @@ static const struct dccg_funcs dccg42_funcs = {
 	.dccg_root_gate_disable_control = dccg35_root_gate_disable_control,
 	.dccg_read_reg_state = dccg31_read_reg_state,
 	.dccg_enable_global_fgcg = dccg42_enable_global_fgcg,
-	.allow_clock_gating = dccg2_allow_clock_gating,
-	.dccg_get_global_fgcg_status = dccg42_get_global_fgcg_status,
+	.allow_clock_gating = dccg2_allow_clock_gating
 };
 
 struct dccg *dccg42_create(

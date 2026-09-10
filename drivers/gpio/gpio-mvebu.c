@@ -37,7 +37,6 @@
 #include <linux/gpio/consumer.h>
 #include <linux/gpio/machine.h>
 #include <linux/init.h>
-#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/irq.h>
 #include <linux/irqchip/chained_irq.h>
@@ -115,7 +114,7 @@ struct mvebu_gpio_chip {
 	struct regmap     *regs;
 	u32		   offset;
 	struct regmap     *percpu_regs;
-	int		   bank_irq[4];
+	int		   irqbase;
 	struct irq_domain *domain;
 	int		   soc_variant;
 
@@ -603,34 +602,6 @@ static const struct regmap_config mvebu_gpio_regmap_config = {
 	.reg_stride = 4,
 	.val_bits = 32,
 };
-
-/*
- * Forward wake-up configuration to the parent bank IRQ.
- * @d:		interrupt data
- * @enable:	enable as wake-up if non-zero
- *
- * Return: 0 on success, or a negative error code.
- */
-static int mvebu_gpio_set_wake_irq(struct irq_data *d, unsigned int enable)
-{
-	struct irq_chip_generic *gc = irq_data_get_irq_chip_data(d);
-	struct mvebu_gpio_chip *mvchip = gc->private;
-	int bank;
-	int irq;
-
-	bank = d->hwirq / 8;
-	if (bank >= ARRAY_SIZE(mvchip->bank_irq))
-		return -EINVAL;
-
-	irq = mvchip->bank_irq[bank];
-	if (irq <= 0)
-		return -EINVAL;
-
-	if (enable)
-		return enable_irq_wake(irq);
-
-	return disable_irq_wake(irq);
-}
 
 /*
  * Functions implementing the pwm_chip methods
@@ -1282,7 +1253,7 @@ static int mvebu_gpio_probe(struct platform_device *pdev)
 
 	err = irq_alloc_domain_generic_chips(
 	    mvchip->domain, ngpios, 2, np->name, handle_level_irq,
-	    IRQ_NOREQUEST | IRQ_NOPROBE | IRQ_LEVEL, 0, IRQ_GC_INIT_NESTED_LOCK);
+	    IRQ_NOREQUEST | IRQ_NOPROBE | IRQ_LEVEL, 0, 0);
 	if (err) {
 		dev_err(&pdev->dev, "couldn't allocate irq chips %s (DT).\n",
 			mvchip->chip.label);
@@ -1296,22 +1267,18 @@ static int mvebu_gpio_probe(struct platform_device *pdev)
 	gc = irq_get_domain_generic_chip(mvchip->domain, 0);
 	gc->private = mvchip;
 	ct = &gc->chip_types[0];
-	ct->type = IRQ_TYPE_LEVEL_MASK;
+	ct->type = IRQ_TYPE_LEVEL_HIGH | IRQ_TYPE_LEVEL_LOW;
 	ct->chip.irq_mask = mvebu_gpio_level_irq_mask;
 	ct->chip.irq_unmask = mvebu_gpio_level_irq_unmask;
 	ct->chip.irq_set_type = mvebu_gpio_irq_set_type;
-	ct->chip.irq_set_wake = mvebu_gpio_set_wake_irq;
-	ct->chip.flags = IRQCHIP_SET_TYPE_MASKED | IRQCHIP_MASK_ON_SUSPEND;
 	ct->chip.name = mvchip->chip.label;
 
 	ct = &gc->chip_types[1];
-	ct->type = IRQ_TYPE_EDGE_BOTH;
+	ct->type = IRQ_TYPE_EDGE_RISING | IRQ_TYPE_EDGE_FALLING;
 	ct->chip.irq_ack = mvebu_gpio_irq_ack;
 	ct->chip.irq_mask = mvebu_gpio_edge_irq_mask;
 	ct->chip.irq_unmask = mvebu_gpio_edge_irq_unmask;
 	ct->chip.irq_set_type = mvebu_gpio_irq_set_type;
-	ct->chip.irq_set_wake = mvebu_gpio_set_wake_irq;
-	ct->chip.flags = IRQCHIP_SET_TYPE_MASKED | IRQCHIP_MASK_ON_SUSPEND;
 	ct->handler = handle_edge_irq;
 	ct->chip.name = mvchip->chip.label;
 
@@ -1320,14 +1287,13 @@ static int mvebu_gpio_probe(struct platform_device *pdev)
 	 * interrupt handlers, with each handler dealing with 8 GPIO
 	 * pins.
 	 */
-	for (i = 0; i < ARRAY_SIZE(mvchip->bank_irq); i++) {
+	for (i = 0; i < 4; i++) {
 		int irq = platform_get_irq_optional(pdev, i);
 
 		if (irq < 0)
 			continue;
 		irq_set_chained_handler_and_data(irq, mvebu_gpio_irq_handler,
 						 mvchip);
-		mvchip->bank_irq[i] = irq;
 	}
 
 	return 0;

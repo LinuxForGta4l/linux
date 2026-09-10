@@ -120,23 +120,29 @@ static int holtekff_play(struct input_dev *dev, void *data,
 	return 0;
 }
 
-static int holtek_input_configured(struct hid_device *hid, struct hid_input *hidinput)
+static int holtekff_init(struct hid_device *hid)
 {
 	struct holtekff_device *holtekff;
 	struct hid_report *report;
+	struct hid_input *hidinput;
 	struct list_head *report_list =
 			&hid->report_enum[HID_OUTPUT_REPORT].report_list;
-	struct input_dev *dev = hidinput->input;
+	struct input_dev *dev;
 	int error;
 
-	if (!list_is_first(&hidinput->list, &hid->inputs))
-		return 0;
+	if (list_empty(&hid->inputs)) {
+		hid_err(hid, "no inputs found\n");
+		return -ENODEV;
+	}
+	hidinput = list_entry(hid->inputs.next, struct hid_input, list);
+	dev = hidinput->input;
 
-	report = list_first_entry_or_null(report_list, struct hid_report, list);
-	if (!report) {
+	if (list_empty(report_list)) {
 		hid_err(hid, "no output report found\n");
 		return -ENODEV;
 	}
+
+	report = list_entry(report_list->next, struct hid_report, list);
 
 	if (report->maxfield < 1 || report->field[0]->report_count != 7) {
 		hid_err(hid, "unexpected output report layout\n");
@@ -166,12 +172,34 @@ static int holtek_input_configured(struct hid_device *hid, struct hid_input *hid
 	return 0;
 }
 #else
-static inline int holtek_input_configured(struct hid_device *hid,
-					  struct hid_input *hidinput)
+static inline int holtekff_init(struct hid_device *hid)
 {
 	return 0;
 }
 #endif
+
+static int holtek_probe(struct hid_device *hdev, const struct hid_device_id *id)
+{
+	int ret;
+
+	ret = hid_parse(hdev);
+	if (ret) {
+		hid_err(hdev, "parse failed\n");
+		goto err;
+	}
+
+	ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT & ~HID_CONNECT_FF);
+	if (ret) {
+		hid_err(hdev, "hw start failed\n");
+		goto err;
+	}
+
+	holtekff_init(hdev);
+
+	return 0;
+err:
+	return ret;
+}
 
 static const struct hid_device_id holtek_devices[] = {
 	{ HID_USB_DEVICE(USB_VENDOR_ID_HOLTEK, USB_DEVICE_ID_HOLTEK_ON_LINE_GRIP) },
@@ -182,7 +210,7 @@ MODULE_DEVICE_TABLE(hid, holtek_devices);
 static struct hid_driver holtek_driver = {
 	.name = "holtek",
 	.id_table = holtek_devices,
-	.input_configured = holtek_input_configured,
+	.probe = holtek_probe,
 };
 module_hid_driver(holtek_driver);
 

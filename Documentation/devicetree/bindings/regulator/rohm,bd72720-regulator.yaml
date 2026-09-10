@@ -26,27 +26,41 @@ patternProperties:
     type: object
     description:
       Properties for single LDO regulator.
-    allOf:
-      - $ref: regulator.yaml#
-      - $ref: rohm,pmic-states.yaml#
+    $ref: regulator.yaml#
 
     properties:
       regulator-name:
         pattern: "^ldo([1-9]|1[0-1])$"
 
       rohm,dvs-run-voltage:
+        description:
+          PMIC default "RUN" state voltage in uV. See below table for
+          LDOs which support this. 0 means disabled.
+        $ref: /schemas/types.yaml#/definitions/uint32
         minimum: 0
         maximum: 3300000
 
       rohm,dvs-idle-voltage:
+        description:
+          PMIC default "IDLE" state voltage in uV. See below table for
+          LDOs which support this. 0 means disabled.
+        $ref: /schemas/types.yaml#/definitions/uint32
         minimum: 0
         maximum: 3300000
 
       rohm,dvs-suspend-voltage:
+        description:
+          PMIC default "SUSPEND" state voltage in uV. See below table for
+          LDOs which support this. 0 means disabled.
+        $ref: /schemas/types.yaml#/definitions/uint32
         minimum: 0
         maximum: 3300000
 
       rohm,dvs-lpsr-voltage:
+        description:
+          PMIC default "deep-idle" state voltage in uV. See below table for
+          LDOs which support this. 0 means disabled.
+        $ref: /schemas/types.yaml#/definitions/uint32
         minimum: 0
         maximum: 3300000
 
@@ -68,9 +82,7 @@ patternProperties:
     type: object
     description:
       Properties for single BUCK regulator.
-    allOf:
-      - $ref: regulator.yaml#
-      - $ref: rohm,pmic-states.yaml#
+    $ref: regulator.yaml#
 
     properties:
       regulator-name:
@@ -85,18 +97,34 @@ patternProperties:
         maximum: 300000
 
       rohm,dvs-run-voltage:
+        description:
+          PMIC default "RUN" state voltage in uV. See below table for
+          bucks which support this. 0 means disabled.
+        $ref: /schemas/types.yaml#/definitions/uint32
         minimum: 0
         maximum: 3300000
 
       rohm,dvs-idle-voltage:
+        description:
+          PMIC default "IDLE" state voltage in uV. See below table for
+          bucks which support this. 0 means disabled.
+        $ref: /schemas/types.yaml#/definitions/uint32
         minimum: 0
         maximum: 3300000
 
       rohm,dvs-suspend-voltage:
+        description:
+          PMIC default "SUSPEND" state voltage in uV. See below table for
+          bucks which support this. 0 means disabled.
+        $ref: /schemas/types.yaml#/definitions/uint32
         minimum: 0
         maximum: 3300000
 
       rohm,dvs-lpsr-voltage:
+        description:
+          PMIC default "deep-idle" state voltage in uV. See below table for
+          bucks which support this. 0 means disabled.
+        $ref: /schemas/types.yaml#/definitions/uint32
         minimum: 0
         maximum: 3300000
 

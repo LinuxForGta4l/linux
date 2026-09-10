@@ -243,7 +243,7 @@ affs_unlink(struct inode *dir, struct dentry *dentry)
 
 int
 affs_create(struct mnt_idmap *idmap, struct inode *dir,
-	    struct dentry *dentry, umode_t mode)
+	    struct dentry *dentry, umode_t mode, bool excl)
 {
 	struct super_block *sb = dir->i_sb;
 	struct inode	*inode;
@@ -287,7 +287,7 @@ affs_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 	if (!inode)
 		return ERR_PTR(-ENOSPC);
 
-	inode->i_mode = mode;
+	inode->i_mode = S_IFDIR | mode;
 	affs_mode_to_prot(inode);
 
 	inode->i_op = &affs_dir_inode_operations;
@@ -373,7 +373,7 @@ affs_symlink(struct mnt_idmap *idmap, struct inode *dir,
 	}
 	*p = 0;
 	inode->i_size = i + 1;
-	mark_buffer_dirty(bh);
+	mmb_mark_buffer_dirty(bh, &AFFS_I(inode)->i_metadata_bhs);
 	affs_brelse(bh);
 	mark_inode_dirty(inode);
 
@@ -443,7 +443,8 @@ affs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	/* TODO: move it back to old_dir, if error? */
 
 done:
-	mark_buffer_dirty(bh);
+	mmb_mark_buffer_dirty(bh,
+			&AFFS_I(retval ? old_dir : new_dir)->i_metadata_bhs);
 	affs_brelse(bh);
 	return retval;
 }
@@ -496,8 +497,8 @@ affs_xrename(struct inode *old_dir, struct dentry *old_dentry,
 	retval = affs_insert_hash(old_dir, bh_new);
 	affs_unlock_dir(old_dir);
 done:
-	mark_buffer_dirty(bh_old);
-	mark_buffer_dirty(bh_new);
+	mmb_mark_buffer_dirty(bh_old, &AFFS_I(new_dir)->i_metadata_bhs);
+	mmb_mark_buffer_dirty(bh_new, &AFFS_I(old_dir)->i_metadata_bhs);
 	affs_brelse(bh_old);
 	affs_brelse(bh_new);
 	return retval;

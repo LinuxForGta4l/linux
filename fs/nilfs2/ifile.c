@@ -49,7 +49,7 @@ static inline struct nilfs_ifile_info *NILFS_IFILE_I(struct inode *ifile)
  * * %-ENOMEM	- Insufficient memory available.
  * * %-ENOSPC	- No inode left.
  */
-int nilfs_ifile_create_inode(struct inode *ifile, u64 *out_ino,
+int nilfs_ifile_create_inode(struct inode *ifile, ino_t *out_ino,
 			     struct buffer_head **out_bh)
 {
 	struct nilfs_palloc_req req;
@@ -72,7 +72,7 @@ int nilfs_ifile_create_inode(struct inode *ifile, u64 *out_ino,
 	nilfs_palloc_commit_alloc_entry(ifile, &req);
 	mark_buffer_dirty(req.pr_entry_bh);
 	nilfs_mdt_mark_dirty(ifile);
-	*out_ino = req.pr_entry_nr;
+	*out_ino = (ino_t)req.pr_entry_nr;
 	*out_bh = req.pr_entry_bh;
 	return 0;
 }
@@ -88,7 +88,7 @@ int nilfs_ifile_create_inode(struct inode *ifile, u64 *out_ino,
  * * %-ENOENT	- Inode number unallocated.
  * * %-ENOMEM	- Insufficient memory available.
  */
-int nilfs_ifile_delete_inode(struct inode *ifile, u64 ino)
+int nilfs_ifile_delete_inode(struct inode *ifile, ino_t ino)
 {
 	struct nilfs_palloc_req req = {
 		.pr_entry_nr = ino, .pr_entry_bh = NULL
@@ -123,20 +123,21 @@ int nilfs_ifile_delete_inode(struct inode *ifile, u64 ino)
 	return 0;
 }
 
-int nilfs_ifile_get_inode_block(struct inode *ifile, u64 ino,
+int nilfs_ifile_get_inode_block(struct inode *ifile, ino_t ino,
 				struct buffer_head **out_bh)
 {
 	struct super_block *sb = ifile->i_sb;
 	int err;
 
 	if (unlikely(!NILFS_VALID_INODE(sb, ino))) {
-		nilfs_error(sb, "bad inode number: %llu", ino);
+		nilfs_error(sb, "bad inode number: %lu", (unsigned long)ino);
 		return -EINVAL;
 	}
 
 	err = nilfs_palloc_get_entry_block(ifile, ino, 0, out_bh);
 	if (unlikely(err))
-		nilfs_warn(sb, "error %d reading inode: ino=%llu", err, ino);
+		nilfs_warn(sb, "error %d reading inode: ino=%lu",
+			   err, (unsigned long)ino);
 	return err;
 }
 

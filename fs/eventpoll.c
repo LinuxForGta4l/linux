@@ -2264,6 +2264,7 @@ static int ep_poll(struct eventpoll *ep, struct epoll_event __user *events,
 	lockdep_assert_irqs_enabled();
 
 	if (timeout && (timeout->tv_sec | timeout->tv_nsec)) {
+		slack = select_estimate_accuracy(timeout);
 		to = &expires;
 		*to = timespec64_to_ktime(*timeout);
 	} else if (timeout) {
@@ -2342,13 +2343,10 @@ static int ep_poll(struct eventpoll *ep, struct epoll_event __user *events,
 
 		spin_unlock_irq(&ep->lock);
 
-		if (!eavail) {
-			if (to)
-				slack = select_estimate_accuracy(timeout);
+		if (!eavail)
 			timed_out = !ep_schedule_timeout(to) ||
 				!schedule_hrtimeout_range(to, slack,
 							  HRTIMER_MODE_ABS);
-		}
 		__set_current_state(TASK_RUNNING);
 
 		/*

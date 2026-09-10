@@ -566,8 +566,7 @@ anx6345_bridge_mode_valid(struct drm_bridge *bridge,
 	return MODE_OK;
 }
 
-static void anx6345_bridge_disable(struct drm_bridge *bridge,
-				   struct drm_atomic_commit *commit)
+static void anx6345_bridge_disable(struct drm_bridge *bridge)
 {
 	struct anx6345 *anx6345 = bridge_to_anx6345(bridge);
 
@@ -581,8 +580,7 @@ static void anx6345_bridge_disable(struct drm_bridge *bridge,
 		anx6345_poweroff(anx6345);
 }
 
-static void anx6345_bridge_enable(struct drm_bridge *bridge,
-				  struct drm_atomic_commit *commit)
+static void anx6345_bridge_enable(struct drm_bridge *bridge)
 {
 	struct anx6345 *anx6345 = bridge_to_anx6345(bridge);
 	int err;
@@ -602,14 +600,11 @@ static void anx6345_bridge_enable(struct drm_bridge *bridge,
 }
 
 static const struct drm_bridge_funcs anx6345_bridge_funcs = {
-	.atomic_create_state = drm_atomic_helper_bridge_create_state,
-	.atomic_destroy_state = drm_atomic_helper_bridge_destroy_state,
-	.atomic_duplicate_state = drm_atomic_helper_bridge_duplicate_state,
 	.attach = anx6345_bridge_attach,
 	.detach = anx6345_bridge_detach,
 	.mode_valid = anx6345_bridge_mode_valid,
-	.atomic_disable = anx6345_bridge_disable,
-	.atomic_enable = anx6345_bridge_enable,
+	.disable = anx6345_bridge_disable,
+	.enable = anx6345_bridge_enable,
 };
 
 static void unregister_i2c_dummy_clients(struct anx6345 *anx6345)
@@ -663,11 +658,6 @@ static bool anx6345_get_chip_id(struct anx6345 *anx6345)
 	return false;
 }
 
-static void anx6345_panel_put_action(void *data)
-{
-	drm_panel_put(data);
-}
-
 static int anx6345_i2c_probe(struct i2c_client *client)
 {
 	struct anx6345 *anx6345;
@@ -695,13 +685,6 @@ static int anx6345_i2c_probe(struct i2c_client *client)
 
 	if (err)
 		DRM_DEBUG("No panel found\n");
-
-	if (anx6345->panel) {
-		err = devm_add_action_or_reset(dev, anx6345_panel_put_action,
-					       anx6345->panel);
-		if (err)
-			return err;
-	}
 
 	/* 1.2V digital core power regulator  */
 	anx6345->dvdd12 = devm_regulator_get(dev, "dvdd12");
@@ -783,7 +766,7 @@ static void anx6345_i2c_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id anx6345_id[] = {
-	{ .name = "anx6345" },
+	{ "anx6345" },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(i2c, anx6345_id);

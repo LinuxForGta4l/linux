@@ -118,14 +118,13 @@ static unsigned int calc_speed(int mult)
 
 static int longhaul_get_cpu_mult(void)
 {
-	unsigned long invalue = 0;
-	u64 val;
+	unsigned long invalue = 0, lo, hi;
 
-	rdmsrq(MSR_IA32_EBL_CR_POWERON, val);
-	invalue = (val & (1<<22|1<<23|1<<24|1<<25))>>22;
+	rdmsr(MSR_IA32_EBL_CR_POWERON, lo, hi);
+	invalue = (lo & (1<<22|1<<23|1<<24|1<<25))>>22;
 	if (longhaul_version == TYPE_LONGHAUL_V2 ||
 	    longhaul_version == TYPE_POWERSAVER) {
-		if (val & (1<<27))
+		if (lo & (1<<27))
 			invalue += 16;
 	}
 	return eblcr[invalue];
@@ -762,7 +761,7 @@ static int longhaul_cpu_init(struct cpufreq_policy *policy)
 	struct cpuinfo_x86 *c = &cpu_data(0);
 	char *cpuname = NULL;
 	int ret;
-	u64 val;
+	u32 lo, hi;
 
 	/* Check what we have on this motherboard */
 	switch (c->x86_model) {
@@ -836,8 +835,8 @@ static int longhaul_cpu_init(struct cpufreq_policy *policy)
 	}
 	/* Check Longhaul ver. 2 */
 	if (longhaul_version == TYPE_LONGHAUL_V2) {
-		rdmsrq(MSR_VIA_LONGHAUL, val);
-		if (val == 0)
+		rdmsr(MSR_VIA_LONGHAUL, lo, hi);
+		if (lo == 0 && hi == 0)
 			/* Looks like MSR isn't present */
 			longhaul_version = TYPE_LONGHAUL_V1;
 	}

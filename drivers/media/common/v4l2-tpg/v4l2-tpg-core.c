@@ -2346,11 +2346,9 @@ static void tpg_fill_params_extras(const struct tpg_data *tpg,
 			(params->is_60hz ? V4L2_FIELD_TOP : V4L2_FIELD_BOTTOM);
 }
 
-/* noinline to work around clang KASAN issues */
-static noinline_for_stack void
-tpg_fill_plane_extras(const struct tpg_data *tpg,
-		      const struct tpg_draw_params *params,
-		      unsigned p, unsigned h, u8 *vbuf)
+static void tpg_fill_plane_extras(const struct tpg_data *tpg,
+				  const struct tpg_draw_params *params,
+				  unsigned p, unsigned h, u8 *vbuf)
 {
 	unsigned twopixsize = params->twopixsize;
 	unsigned img_width = params->img_width;
@@ -2485,9 +2483,9 @@ tpg_fill_plane_extras(const struct tpg_data *tpg,
 	}
 }
 
-static noinline_for_stack void
-tpg_fill_plane_pattern(const struct tpg_data *tpg, const struct tpg_draw_params *params,
-		       unsigned p, unsigned h, u8 *vbuf)
+static void tpg_fill_plane_pattern(const struct tpg_data *tpg,
+				   const struct tpg_draw_params *params,
+				   unsigned p, unsigned h, u8 *vbuf)
 {
 	unsigned twopixsize = params->twopixsize;
 	unsigned img_width = params->img_width;

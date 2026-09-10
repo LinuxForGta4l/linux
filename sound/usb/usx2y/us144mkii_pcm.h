@@ -7,7 +7,7 @@
 #include "us144mkii.h"
 
 /**
- * var tascam_pcm_hw - Hardware capabilities for TASCAM US-144MKII PCM.
+ * tascam_pcm_hw - Hardware capabilities for TASCAM US-144MKII PCM.
  *
  * Defines the supported PCM formats, rates, channels, and buffer/period sizes
  * for the TASCAM US-144MKII audio interface.
@@ -15,14 +15,14 @@
 extern const struct snd_pcm_hardware tascam_pcm_hw;
 
 /**
- * var tascam_playback_ops - ALSA PCM operations for playback.
+ * tascam_playback_ops - ALSA PCM operations for playback.
  *
  * This structure defines the callback functions for playback stream operations.
  */
 extern const struct snd_pcm_ops tascam_playback_ops;
 
 /**
- * var tascam_capture_ops - ALSA PCM operations for capture.
+ * tascam_capture_ops - ALSA PCM operations for capture.
  *
  * This structure defines the callback functions for capture stream operations.
  */

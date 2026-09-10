@@ -13,7 +13,6 @@
 #include <drm/drm_connector.h>
 #include <drm/drm_crtc.h>
 #include <drm/drm_mipi_dsi.h>
-#include <drm/drm_of.h>
 #include <drm/drm_panel.h>
 
 #include <video/mipi_display.h>
@@ -796,7 +795,7 @@ static int ili9882t_add(struct ili9882t *ili)
 
 	gpiod_set_value_cansleep(ili->enable_gpio, 0);
 
-	err = drm_of_get_panel_orientation(dev->of_node, &ili->orientation);
+	err = of_drm_get_panel_orientation(dev->of_node, &ili->orientation);
 	if (err < 0) {
 		dev_err(dev, "%pOF: failed to get orientation %d\n", dev->of_node, err);
 		return err;

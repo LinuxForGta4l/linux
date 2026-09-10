@@ -14,14 +14,24 @@
 
 #define SMB_COMPRESS_MIN_LEN	PAGE_SIZE
 
-static int __ksmbd_decompress_request(struct ksmbd_conn *conn,
-					     void *request_buf, void **out_buf)
+/**
+ * ksmbd_decompress_request() - replace a compressed request with its SMB2 PDU
+ * @conn: connection which owns the current RFC1002 request buffer
+ *
+ * Derive the uncompressed size from the transform variant, enforce ksmbd's
+ * normal message limits, and ask the common decoder to validate every payload.
+ * On success, replace conn->request_buf with a regular RFC1002-framed SMB2
+ * message so the rest of the request path needs no compression awareness.
+ *
+ * Return: 0 on success, otherwise a negative errno.
+ */
+int ksmbd_decompress_request(struct ksmbd_conn *conn)
 {
 	struct smb2_compression_hdr *hdr;
-	unsigned int pdu_size = get_rfc1002_len(request_buf);
+	unsigned int pdu_size = get_rfc1002_len(conn->request_buf);
 	u32 orig_size, offset, out_size;
 	u32 max_allowed_pdu_size;
-	char *out;
+	char *buf, *out;
 	int rc;
 
 	if (pdu_size < sizeof(struct smb2_compression_hdr))
@@ -31,7 +41,7 @@ static int __ksmbd_decompress_request(struct ksmbd_conn *conn,
 	    conn->compress_algorithm == SMB3_COMPRESS_NONE)
 		return -EINVAL;
 
-	hdr = smb_get_msg(request_buf);
+	hdr = smb_get_msg(conn->request_buf);
 	if (hdr->ProtocolId != SMB2_COMPRESSION_TRANSFORM_ID)
 		return -EINVAL;
 
@@ -64,69 +74,19 @@ static int __ksmbd_decompress_request(struct ksmbd_conn *conn,
 	if (!out)
 		return -ENOMEM;
 
+	buf = (char *)hdr;
 	*(__be32 *)out = cpu_to_be32(out_size);
 	rc = smb_compression_decompress(conn->compress_algorithm,
 					conn->compress_chained,
 					conn->compress_pattern,
-					(char *)hdr, pdu_size, out + 4, out_size);
+					buf, pdu_size, out + 4, out_size);
 	if (rc) {
 		kvfree(out);
 		return rc;
 	}
 
-	*out_buf = out;
-	return 0;
-}
-
-/**
- * ksmbd_decompress_request() - replace a compressed request with its SMB2 PDU
- * @conn: connection which owns the current RFC1002 request buffer
- *
- * Derive the uncompressed size from the transform variant, enforce ksmbd's
- * normal message limits, and ask the common decoder to validate every payload.
- * On success, replace conn->request_buf with a regular RFC1002-framed SMB2
- * message so the rest of the request path needs no compression awareness.
- *
- * Return: 0 on success, otherwise a negative errno.
- */
-int ksmbd_decompress_request(struct ksmbd_conn *conn)
-{
-	void *out_buf;
-	int rc;
-
-	rc = __ksmbd_decompress_request(conn, conn->request_buf, &out_buf);
-	if (rc)
-		return rc;
-
 	kvfree(conn->request_buf);
-	conn->request_buf = out_buf;
-	return 0;
-}
-
-/**
- * ksmbd_decompress_work_request() - decompress an encrypted work request
- * @work: work item whose request buffer contains a compression transform
- *
- * SMB3 encrypts a compressed message by applying compression first and
- * encryption second.  The receive loop can therefore only decode the
- * compression transform before work allocation for an unencrypted request;
- * an encrypted request must be decompressed after its encryption layer has
- * been removed.
- *
- * Return: 0 on success, otherwise a negative errno.
- */
-int ksmbd_decompress_work_request(struct ksmbd_work *work)
-{
-	void *out_buf;
-	int rc;
-
-	rc = __ksmbd_decompress_request(work->conn, work->request_buf,
-					&out_buf);
-	if (rc)
-		return rc;
-
-	kvfree(work->request_buf);
-	work->request_buf = out_buf;
+	conn->request_buf = out;
 	return 0;
 }
 

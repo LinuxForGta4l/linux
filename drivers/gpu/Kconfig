@@ -7,8 +7,7 @@ config GPU_BUDDY
 
 config GPU_BUDDY_KUNIT_TEST
        tristate "KUnit tests for GPU buddy allocator" if !KUNIT_ALL_TESTS
-       depends on KUNIT
-       select GPU_BUDDY
+       depends on GPU_BUDDY && KUNIT
        default KUNIT_ALL_TESTS
        help
          KUnit tests for the GPU buddy allocator.

@@ -19,7 +19,7 @@ properties:
 
   realtek,power-up-delay-ms:
     description: Set a delay time for flush work to be completed,
-      this value is adjustable depending on platform.
+      this vlaue is adjustable depending on platform.
     maxItems: 1
 
 required:

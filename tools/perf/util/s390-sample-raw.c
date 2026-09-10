@@ -12,26 +12,25 @@
  * sample was taken from.
  */
 
-#include <inttypes.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+#include <inttypes.h>
 
-#include <asm/byteorder.h>
+#include <sys/stat.h>
 #include <linux/compiler.h>
 #include <linux/err.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#include <asm/byteorder.h>
 
-#include "color.h"
 #include "debug.h"
-#include "evlist.h"
-#include "hashmap.h"
-#include "pmu.h"
-#include "pmus.h"
-#include "s390-cpumcf-kernel.h"
-#include "sample-raw.h"
-#include "sample.h"
 #include "session.h"
+#include "evlist.h"
+#include "color.h"
+#include "hashmap.h"
+#include "sample-raw.h"
+#include "s390-cpumcf-kernel.h"
+#include "util/pmu.h"
+#include "util/sample.h"
 
 static size_t ctrset_size(struct cf_ctrset_entry *set)
 {
@@ -343,7 +342,6 @@ void evlist__s390_sample_raw(struct evlist *evlist, union perf_event *event,
 		sample->evsel = evlist__event2evsel(evlist, event);
 		if (!sample->evsel)
 			return;
-		evsel__get(sample->evsel);
 	}
 
 	/* Check for raw data in sample */

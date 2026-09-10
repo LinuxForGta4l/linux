@@ -21,7 +21,7 @@
 
 #define RESET_DATA(x)	((TEGRA_RESET_##x)*4)
 
-#ifndef __ASSEMBLER__
+#ifndef __ASSEMBLY__
 
 #include "irammap.h"
 

@@ -13,10 +13,7 @@ use pin_init::{PinInit, Wrapper, Zeroable};
 
 #[doc(hidden)]
 pub mod for_lt;
-pub use for_lt::{
-    CovariantForLt,
-    ForLt, //
-};
+pub use for_lt::ForLt;
 
 /// Used to transfer ownership to and from foreign (non-Rust) languages.
 ///
@@ -420,13 +417,13 @@ impl<T> Opaque<T> {
 
 impl<T> Wrapper<T> for Opaque<T> {
     /// Create an opaque pin-initializer from the given pin-initializer.
-    fn pin_init<E>(init: impl PinInit<T, E>) -> impl PinInit<Self, E> {
-        Self::try_ffi_init(|slot: *mut T| {
+    fn pin_init<E>(slot: impl PinInit<T, E>) -> impl PinInit<Self, E> {
+        Self::try_ffi_init(|ptr: *mut T| {
             // SAFETY:
-            //   - `slot` is a valid pointer to uninitialized memory,
+            //   - `ptr` is a valid pointer to uninitialized memory,
             //   - `slot` is not accessed on error,
             //   - `slot` is pinned in memory.
-            unsafe { pin_init::raw_try_init(slot, init) }
+            unsafe { PinInit::<T, E>::__pinned_init(slot, ptr) }
         })
     }
 }

@@ -290,8 +290,7 @@
 
 &usb3 {
 	status = "okay";
-	phys = <&usb2_utmi_otg_phy>, <&comphy2 0>;
-	phy-names = "usb2-phy", "usb3-phy";
+	phys = <&comphy2 0>;
 };
 
 &mdio {

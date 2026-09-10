@@ -1525,25 +1525,22 @@ static int scan_should_stop(void)
 
 /*
  * Scan a memory block (exclusive range) for valid pointers and add those
- * found to the gray list. Return non-zero if the scan was interrupted.
+ * found to the gray list.
  */
-static int scan_block(void *_start, void *_end,
-		      struct kmemleak_object *scanned)
+static void scan_block(void *_start, void *_end,
+		       struct kmemleak_object *scanned)
 {
 	unsigned long *ptr;
 	unsigned long *start = PTR_ALIGN(_start, BYTES_PER_POINTER);
 	unsigned long *end = _end - (BYTES_PER_POINTER - 1);
 	unsigned long flags;
-	int stop = 0;
 
 	raw_spin_lock_irqsave(&kmemleak_lock, flags);
 	for (ptr = start; ptr < end; ptr++) {
 		unsigned long pointer;
 
-		if (scan_should_stop()) {
-			stop = 1;
+		if (scan_should_stop())
 			break;
-		}
 
 		kasan_disable_current();
 		pointer = *(unsigned long *)kasan_reset_tag((void *)ptr);
@@ -1553,28 +1550,22 @@ static int scan_block(void *_start, void *_end,
 		pointer_update_refs(scanned, pointer, OBJECT_PERCPU);
 	}
 	raw_spin_unlock_irqrestore(&kmemleak_lock, flags);
-
-	return stop;
 }
 
 /*
  * Scan a large memory block in MAX_SCAN_SIZE chunks to reduce the latency.
- * Return non-zero if the scan was interrupted.
  */
 #ifdef CONFIG_SMP
-static int scan_large_block(void *start, void *end)
+static void scan_large_block(void *start, void *end)
 {
 	void *next;
 
 	while (start < end) {
 		next = min(start + MAX_SCAN_SIZE, end);
-		if (scan_block(start, next, NULL))
-			return 1;
+		scan_block(start, next, NULL);
 		start = next;
 		cond_resched();
 	}
-
-	return 0;
 }
 #endif
 
@@ -1706,43 +1697,6 @@ unlock_put:
 }
 
 /*
- * Scan all task kernel stacks, rescheduling between tasks. Each task is looked
- * up and pinned within its own RCU read-side section, so no lock is held across
- * the scan and the walk cannot trip the soft lockup watchdog.
- */
-static void kmemleak_scan_task_stacks(void)
-{
-	struct pid *pid;
-	int nr = 1;
-	int stop = 0;
-
-	do {
-		struct task_struct *p = NULL;
-
-		rcu_read_lock();
-		pid = find_ge_pid(nr, &init_pid_ns);
-		if (pid) {
-			nr = pid_nr(pid) + 1;
-			p = pid_task(pid, PIDTYPE_PID);
-			if (p)
-				get_task_struct(p);
-		}
-		rcu_read_unlock();
-
-		if (p) {
-			void *stack = try_get_task_stack(p);
-
-			if (stack) {
-				stop = scan_block(stack, stack + THREAD_SIZE, NULL);
-				put_task_stack(p);
-			}
-			put_task_struct(p);
-		}
-		cond_resched();
-	} while (pid && !stop);
-}
-
-/*
  * Print one leak inline. The hex dump is gated on OBJECT_ALLOCATED so it
  * does not touch user memory that was freed concurrently; the rest of the
  * report (backtrace, comm, pid) is always emitted since the kmemleak_object
@@ -1851,7 +1805,6 @@ static void kmemleak_scan(void)
 	int __maybe_unused i;
 	struct xarray dedup;
 	int new_leaks = 0;
-	int stop = 0;
 
 	jiffies_last_scan = jiffies;
 
@@ -1895,11 +1848,9 @@ static void kmemleak_scan(void)
 
 #ifdef CONFIG_SMP
 	/* per-cpu sections scanning */
-	for_each_possible_cpu(i) {
-		if (scan_large_block(__per_cpu_start + per_cpu_offset(i),
-				     __per_cpu_end + per_cpu_offset(i)))
-			goto scan_gray;
-	}
+	for_each_possible_cpu(i)
+		scan_large_block(__per_cpu_start + per_cpu_offset(i),
+				 __per_cpu_end + per_cpu_offset(i));
 #endif
 
 	/*
@@ -1926,28 +1877,32 @@ static void kmemleak_scan(void)
 			/* only scan if page is in use */
 			if (page_count(page) == 0)
 				continue;
-			stop = scan_block(page, page + 1, NULL);
-			if (stop)
-				break;
+			scan_block(page, page + 1, NULL);
 		}
-		if (stop)
-			break;
 	}
 	put_online_mems();
-	if (stop)
-		goto scan_gray;
 
 	/*
 	 * Scanning the task stacks (may introduce false negatives).
 	 */
-	if (kmemleak_stack_scan)
-		kmemleak_scan_task_stacks();
+	if (kmemleak_stack_scan) {
+		struct task_struct *p, *g;
+
+		rcu_read_lock();
+		for_each_process_thread(g, p) {
+			void *stack = try_get_task_stack(p);
+			if (stack) {
+				scan_block(stack, stack + THREAD_SIZE, NULL);
+				put_task_stack(p);
+			}
+		}
+		rcu_read_unlock();
+	}
 
 	/*
 	 * Scan the objects already referenced from the sections scanned
 	 * above.
 	 */
-scan_gray:
 	scan_gray_list();
 
 	/*

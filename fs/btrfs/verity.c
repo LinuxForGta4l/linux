@@ -638,7 +638,7 @@ rollback:
 	rollback_ret = rollback_verity(inode);
 	if (rollback_ret)
 		btrfs_err(inode->root->fs_info,
-			  "failed to rollback verity items: %pe", ERR_PTR(rollback_ret));
+			  "failed to rollback verity items: %d", rollback_ret);
 	return ret;
 }
 
@@ -720,18 +720,14 @@ again:
 			goto out;
 
 		folio_lock(folio);
-		/* Folio was truncated from mapping. */
-		if (!folio->mapping) {
+		/* If it's not uptodate after we have the lock, we got a read error. */
+		if (!folio_test_uptodate(folio)) {
 			folio_unlock(folio);
 			folio_put(folio);
-			goto again;
+			return ERR_PTR(-EIO);
 		}
-		/* Another reader may have filled the folio while we waited. */
-		if (folio_test_uptodate(folio)) {
-			folio_unlock(folio);
-			goto out;
-		}
-		goto read_folio;
+		folio_unlock(folio);
+		goto out;
 	}
 
 	folio = filemap_alloc_folio(mapping_gfp_constraint(inode->i_mapping, ~__GFP_FS),
@@ -748,7 +744,6 @@ again:
 		return ERR_PTR(ret);
 	}
 
-read_folio:
 	/*
 	 * Merkle item keys are indexed from byte 0 in the merkle tree.
 	 * They have the form:
@@ -758,7 +753,6 @@ read_folio:
 	ret = read_key_bytes(BTRFS_I(inode), BTRFS_VERITY_MERKLE_ITEM_KEY, off,
 			     folio_address(folio), PAGE_SIZE, folio);
 	if (ret < 0) {
-		folio_unlock(folio);
 		folio_put(folio);
 		return ERR_PTR(ret);
 	}

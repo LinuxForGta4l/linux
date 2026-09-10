@@ -106,16 +106,11 @@ static int damon_sample_prcl_start(void)
 	damon_set_schemes(ctx, &scheme, 1);
 
 	err = damon_start(&ctx, 1, true);
-	if (err) {
-		damon_destroy_ctx(ctx);
+	if (err)
 		return err;
-	}
 
 	repeat_call_control.data = ctx;
-	err = damon_call(ctx, &repeat_call_control);
-	if (err)
-		damon_destroy_ctx(ctx);
-	return err;
+	return damon_call(ctx, &repeat_call_control);
 }
 
 static void damon_sample_prcl_stop(void)

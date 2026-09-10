@@ -22,9 +22,7 @@
 };
 
 &ipa {
-	/delete-property/ memory-region;
 	qcom,gsi-loader = "modem";
-
 	status = "okay";
 };
 

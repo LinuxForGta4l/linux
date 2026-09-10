@@ -949,7 +949,6 @@ static int __udp6_lib_mcast_deliver(struct net *net, struct sk_buff *skb,
 	struct udp_hslot *hslot;
 	struct sk_buff *nskb;
 	bool use_hash2;
-	int ret;
 
 	hash2_any = 0;
 	hash2 = 0;
@@ -999,9 +998,8 @@ start_lookup:
 	}
 
 	if (first) {
-		ret = udpv6_queue_rcv_skb(first, skb);
-		if (ret > 0)
-			return ret;
+		if (udpv6_queue_rcv_skb(first, skb) > 0)
+			consume_skb(skb);
 	} else {
 		kfree_skb(skb);
 		__UDP6_INC_STATS(net, UDP_MIB_IGNOREDMULTI);
@@ -1083,12 +1081,12 @@ INDIRECT_CALLABLE_SCOPE int udpv6_rcv(struct sk_buff *skb)
 	daddr = &ipv6_hdr(skb)->daddr;
 	uh = udp_hdr(skb);
 
-	ulen = udp_get_len(skb, uh, 0);
+	ulen = ntohs(uh->len);
 	if (ulen > skb->len)
 		goto short_packet;
 
 	/* Check for jumbo payload */
-	if (ulen == 0 && inet6_is_jumbogram(skb))
+	if (ulen == 0)
 		ulen = skb->len;
 
 	if (ulen < sizeof(*uh))
@@ -1371,8 +1369,7 @@ static int udp_v6_send_skb(struct sk_buff *skb, struct flowi6 *fl6,
 	uh = udp_hdr(skb);
 	uh->source = fl6->fl6_sport;
 	uh->dest = fl6->fl6_dport;
-	/* Datagram length checked in udpv6_sendmsg. */
-	udp_set_len_short(uh, len);
+	uh->len = htons(len);
 	uh->check = 0;
 
 	if (cork->gso_size) {
@@ -1829,22 +1826,9 @@ static int udpv6_setsockopt(struct sock *sk, int level, int optname,
 static int udpv6_getsockopt(struct sock *sk, int level, int optname,
 			    char __user *optval, int __user *optlen)
 {
-	sockopt_t opt;
-	int err;
-
-	if (level != SOL_UDP)
-		return ipv6_getsockopt(sk, level, optname, optval, optlen);
-
-	err = sockopt_init_user(&opt, optval, optlen);
-	if (err)
-		return err;
-
-	err = udp_lib_getsockopt(sk, level, optname, &opt);
-	if (err)
-		return err;
-	if (put_user(opt.optlen, optlen))
-		return -EFAULT;
-	return 0;
+	if (level == SOL_UDP)
+		return udp_lib_getsockopt(sk, level, optname, optval, optlen);
+	return ipv6_getsockopt(sk, level, optname, optval, optlen);
 }
 
 

@@ -578,7 +578,6 @@ static void synchronize_rcu_expedited_stall(unsigned long jiffies_start, unsigne
 			if (!(READ_ONCE(rnp->expmask) & mask))
 				continue;
 			ndetected++;
-			cpumask_set_cpu(cpu, &rcu_exp_stall_cpumask);
 			rdp = per_cpu_ptr(&rcu_data, cpu);
 			pr_cont(" %d-%c%c%c%c", cpu,
 				"O."[!!cpu_online(cpu)],
@@ -666,8 +665,6 @@ static void synchronize_rcu_expedited_wait(void)
 		if (rcu_stall_is_suppressed())
 			continue;
 
-		cpumask_clear(&rcu_exp_stall_cpumask);
-
 		nbcon_cpu_emergency_enter();
 
 		j = jiffies;
@@ -678,7 +675,7 @@ static void synchronize_rcu_expedited_wait(void)
 
 		nbcon_cpu_emergency_exit();
 
-		panic_on_rcu_stall(&rcu_exp_stall_cpumask);
+		panic_on_rcu_stall();
 	}
 }
 

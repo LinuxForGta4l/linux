@@ -5337,7 +5337,7 @@ void dml31_ModeSupportAndSystemConfigurationFull(struct display_mode_lib *mode_l
 		for (j = 0; j <= 1; ++j) {
 			double VMDataOnlyReturnBWPerState;
 			double HostVMInefficiencyFactor = 1;
-			unsigned int NextPrefetchModeState = MinPrefetchMode;
+			int NextPrefetchModeState = MinPrefetchMode;
 			bool UnboundedRequestEnabledThisState = false;
 			unsigned int CompressedBufferSizeInkByteThisState = 0;
 			double dummy;

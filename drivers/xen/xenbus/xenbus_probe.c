@@ -681,15 +681,13 @@ void xenbus_dev_changed(const char *node, struct xen_bus_type *bus)
 							    dev->otherend_id);
 
 		if (state == XenbusStateInitialising &&
-		    (state != dev->state ||
-		     (dev->otherend && backend != dev->otherend_id))) {
+		    (state != dev->state || backend != dev->otherend_id)) {
 			/*
 			 * State has been reset, assume the old one vanished
 			 * and new one needs to be probed.
 			 */
 			dev_warn(&dev->dev,
-				 "state reset occurred (xenstore state %u, local state %u, xenstore backend %u, local backend %u), reconnecting\n",
-				 state, dev->state, backend, dev->otherend_id);
+				 "state reset occurred, reconnecting\n");
 			dev->vanished = true;
 		}
 		if (dev->vanished) {
@@ -833,7 +831,7 @@ static void xenbus_probe(void)
  */
 static bool xs_hvm_defer_init_for_callback(void)
 {
-#ifdef CONFIG_X86
+#ifdef CONFIG_XEN_PVHVM
 	return xen_store_domain_type == XS_HVM &&
 		!xen_have_vector_callback;
 #else

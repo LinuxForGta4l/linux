@@ -124,7 +124,7 @@ static int gmc_v6_0_init_microcode(struct amdgpu_device *adev)
 		chip_name = "hainan";
 		break;
 	default:
-		return -EINVAL;
+		BUG();
 	}
 
 	/* this memory configuration requires special firmware */

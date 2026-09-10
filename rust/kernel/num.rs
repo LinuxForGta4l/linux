@@ -5,8 +5,6 @@
 use core::ops;
 
 pub mod bounded;
-pub mod casts;
-
 pub use bounded::*;
 
 /// Designates unsigned primitive types.

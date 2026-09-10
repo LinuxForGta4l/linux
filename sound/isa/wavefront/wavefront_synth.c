@@ -2053,7 +2053,7 @@ wavefront_download_firmware (snd_wavefront_t *dev, char *path)
 	const unsigned char *buf;
 	int len, err;
 	int section_cnt_downloaded = 0;
-	const struct firmware *firmware __free(firmware) = NULL;
+	const struct firmware *firmware;
 
 	err = request_firmware(&firmware, path, dev->card->dev);
 	if (err < 0) {
@@ -2108,9 +2108,11 @@ wavefront_download_firmware (snd_wavefront_t *dev, char *path)
 		section_cnt_downloaded++;
 	}
 
+	release_firmware(firmware);
 	return 0;
 
  failure:
+	release_firmware(firmware);
 	dev_err(dev->card->dev, "firmware download failed!!!\n");
 	return 1;
 }

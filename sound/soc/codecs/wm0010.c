@@ -9,7 +9,6 @@
  *          Scott Ling <sl@opensource.wolfsonmicro.com>
  */
 
-#include <linux/cleanup.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/interrupt.h>
@@ -149,11 +148,13 @@ static const char *wm0010_state_to_str(enum wm0010_state state)
 static void wm0010_halt(struct snd_soc_component *component)
 {
 	struct wm0010_priv *wm0010 = snd_soc_component_get_drvdata(component);
+	unsigned long flags;
 	enum wm0010_state state;
 
 	/* Fetch the wm0010 state */
-	scoped_guard(spinlock_irqsave, &wm0010->irq_lock)
-		state = wm0010->state;
+	spin_lock_irqsave(&wm0010->irq_lock, flags);
+	state = wm0010->state;
+	spin_unlock_irqrestore(&wm0010->irq_lock, flags);
 
 	switch (state) {
 	case WM0010_POWER_OFF:
@@ -172,8 +173,9 @@ static void wm0010_halt(struct snd_soc_component *component)
 		break;
 	}
 
-	scoped_guard(spinlock_irqsave, &wm0010->irq_lock)
-		wm0010->state = WM0010_POWER_OFF;
+	spin_lock_irqsave(&wm0010->irq_lock, flags);
+	wm0010->state = WM0010_POWER_OFF;
+	spin_unlock_irqrestore(&wm0010->irq_lock, flags);
 }
 
 struct wm0010_boot_xfer {
@@ -188,9 +190,11 @@ struct wm0010_boot_xfer {
 static void wm0010_mark_boot_failure(struct wm0010_priv *wm0010)
 {
 	enum wm0010_state state;
+	unsigned long flags;
 
-	scoped_guard(spinlock_irqsave, &wm0010->irq_lock)
-		state = wm0010->state;
+	spin_lock_irqsave(&wm0010->irq_lock, flags);
+	state = wm0010->state;
+	spin_unlock_irqrestore(&wm0010->irq_lock, flags);
 
 	dev_err(wm0010->dev, "Failed to transition from `%s' state to `%s' state\n",
 		wm0010_state_to_str(state), wm0010_state_to_str(state + 1));
@@ -333,6 +337,7 @@ static int wm0010_firmware_load(const char *name, struct snd_soc_component *comp
 	struct wm0010_boot_xfer *xfer;
 	int ret;
 	DECLARE_COMPLETION_ONSTACK(done);
+	const struct firmware *fw;
 	const struct dfw_binrec *rec;
 	const struct dfw_inforec *inforec;
 	u64 *img;
@@ -341,7 +346,6 @@ static int wm0010_firmware_load(const char *name, struct snd_soc_component *comp
 
 	INIT_LIST_HEAD(&xfer_list);
 
-	const struct firmware *fw __free(firmware) = NULL;
 	ret = request_firmware(&fw, name, component->dev);
 	if (ret != 0) {
 		dev_err(component->dev, "Failed to request application(%s): %d\n",
@@ -360,14 +364,16 @@ static int wm0010_firmware_load(const char *name, struct snd_soc_component *comp
 	/* First record should be INFO */
 	if (rec->command != DFW_CMD_INFO) {
 		dev_err(component->dev, "First record not INFO\r\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto abort;
 	}
 
 	if (inforec->info_version != INFO_VERSION) {
 		dev_err(component->dev,
 			"Unsupported version (%02d) of INFO record\r\n",
 			inforec->info_version);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto abort;
 	}
 
 	dev_dbg(component->dev, "Version v%02d INFO record found\r\n",
@@ -376,7 +382,8 @@ static int wm0010_firmware_load(const char *name, struct snd_soc_component *comp
 	/* Check it's a DSP file */
 	if (dsp != DEVICE_ID_WM0010) {
 		dev_err(component->dev, "Not a WM0010 firmware file.\r\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto abort;
 	}
 
 	/* Skip the info record as we don't need to send it */
@@ -401,14 +408,14 @@ static int wm0010_firmware_load(const char *name, struct snd_soc_component *comp
 		out = kzalloc(len, GFP_KERNEL | GFP_DMA);
 		if (!out) {
 			ret = -ENOMEM;
-			goto abort;
+			goto abort1;
 		}
 		xfer->t.rx_buf = out;
 
 		img = kzalloc(len, GFP_KERNEL | GFP_DMA);
 		if (!img) {
 			ret = -ENOMEM;
-			goto abort;
+			goto abort1;
 		}
 		xfer->t.tx_buf = img;
 
@@ -446,13 +453,13 @@ static int wm0010_firmware_load(const char *name, struct snd_soc_component *comp
 		ret = spi_async(spi, &xfer->m);
 		if (ret != 0) {
 			dev_err(component->dev, "Write failed: %d\n", ret);
-			goto abort;
+			goto abort1;
 		}
 
 		if (wm0010->boot_failed) {
 			dev_dbg(component->dev, "Boot fail!\n");
 			ret = -EINVAL;
-			goto abort;
+			goto abort1;
 		}
 	}
 
@@ -460,7 +467,7 @@ static int wm0010_firmware_load(const char *name, struct snd_soc_component *comp
 
 	ret = 0;
 
-abort:
+abort1:
 	while (!list_empty(&xfer_list)) {
 		xfer = list_first_entry(&xfer_list, struct wm0010_boot_xfer,
 					list);
@@ -470,6 +477,8 @@ abort:
 		kfree(xfer);
 	}
 
+abort:
+	release_firmware(fw);
 	return ret;
 }
 
@@ -477,12 +486,14 @@ static int wm0010_stage2_load(struct snd_soc_component *component)
 {
 	struct spi_device *spi = to_spi_device(component->dev);
 	struct wm0010_priv *wm0010 = snd_soc_component_get_drvdata(component);
+	const struct firmware *fw;
 	struct spi_message m;
 	struct spi_transfer t;
+	u32 *img;
+	u8 *out;
 	int i;
 	int ret = 0;
 
-	const struct firmware *fw __free(firmware) = NULL;
 	ret = request_firmware(&fw, "wm0010_stage2.bin", component->dev);
 	if (ret != 0) {
 		dev_err(component->dev, "Failed to request stage2 loader: %d\n",
@@ -493,15 +504,17 @@ static int wm0010_stage2_load(struct snd_soc_component *component)
 	dev_dbg(component->dev, "Downloading %zu byte stage 2 loader\n", fw->size);
 
 	/* Copy to local buffer first as vmalloc causes problems for dma */
-	u32 *img __free(kfree) =
-		kmemdup(&fw->data[0], fw->size, GFP_KERNEL | GFP_DMA);
-	if (!img)
-		return -ENOMEM;
+	img = kmemdup(&fw->data[0], fw->size, GFP_KERNEL | GFP_DMA);
+	if (!img) {
+		ret = -ENOMEM;
+		goto abort2;
+	}
 
-	u8 *out __free(kfree) =
-		kzalloc(fw->size, GFP_KERNEL | GFP_DMA);
-	if (!out)
-		return -ENOMEM;
+	out = kzalloc(fw->size, GFP_KERNEL | GFP_DMA);
+	if (!out) {
+		ret = -ENOMEM;
+		goto abort1;
+	}
 
 	spi_message_init(&m);
 	memset(&t, 0, sizeof(t));
@@ -518,7 +531,7 @@ static int wm0010_stage2_load(struct snd_soc_component *component)
 	ret = spi_sync(spi, &m);
 	if (ret != 0) {
 		dev_err(component->dev, "Initial download failed: %d\n", ret);
-		return ret;
+		goto abort;
 	}
 
 	/* Look for errors from the boot ROM */
@@ -527,11 +540,18 @@ static int wm0010_stage2_load(struct snd_soc_component *component)
 			dev_err(component->dev, "Boot ROM error: %x in %d\n",
 				out[i], i);
 			wm0010_mark_boot_failure(wm0010);
-			return -EBUSY;
+			ret = -EBUSY;
+			goto abort;
 		}
 	}
+abort:
+	kfree(out);
+abort1:
+	kfree(img);
+abort2:
+	release_firmware(fw);
 
-	return 0;
+	return ret;
 }
 
 static int wm0010_boot(struct snd_soc_component *component)
@@ -714,8 +734,9 @@ static int wm0010_set_bias_level(struct snd_soc_component *component,
 		break;
 	case SND_SOC_BIAS_STANDBY:
 		if (snd_soc_dapm_get_bias_level(dapm) == SND_SOC_BIAS_PREPARE) {
-			scoped_guard(mutex, &wm0010->lock)
-				wm0010_halt(component);
+			mutex_lock(&wm0010->lock);
+			wm0010_halt(component);
+			mutex_unlock(&wm0010->lock);
 		}
 		break;
 	case SND_SOC_BIAS_OFF:
@@ -811,8 +832,9 @@ static irqreturn_t wm0010_irq(int irq, void *data)
 	case WM0010_OUT_OF_RESET:
 	case WM0010_BOOTROM:
 	case WM0010_STAGE2:
-		scoped_guard(spinlock, &wm0010->irq_lock)
-			complete(&wm0010->boot_completion);
+		spin_lock(&wm0010->irq_lock);
+		complete(&wm0010->boot_completion);
+		spin_unlock(&wm0010->irq_lock);
 		return IRQ_HANDLED;
 	default:
 		return IRQ_NONE;

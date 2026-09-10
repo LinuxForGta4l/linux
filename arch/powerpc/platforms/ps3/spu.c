@@ -13,7 +13,6 @@
 #include <linux/export.h>
 #include <linux/io.h>
 #include <linux/mm.h>
-#include <linux/processor.h>
 
 #include <asm/spu.h>
 #include <asm/spu_priv1.h>
@@ -362,9 +361,12 @@ static int __init ps3_create_spu(struct spu *spu, void *data)
 	if (result)
 		goto fail_enable;
 
-	while (in_be64(&spu_pdata(spu)->shadow->spe_execution_status) !=
-	       SPE_EX_STATE_EXECUTED)
-		cpu_relax();
+	/* Make sure the spu is in SPE_EX_STATE_EXECUTED. */
+
+	/* need something better here!!! */
+	while (in_be64(&spu_pdata(spu)->shadow->spe_execution_status)
+		!= SPE_EX_STATE_EXECUTED)
+		(void)0;
 
 	return result;
 

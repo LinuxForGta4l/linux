@@ -439,13 +439,13 @@ static int dm_pcache_message(struct dm_target *ti, unsigned int argc,
 			     char **argv, char *result, unsigned int maxlen)
 {
 	struct dm_pcache *pcache = ti->private;
-	u8 val;
+	unsigned long val;
 
 	if (argc != 2)
 		goto err;
 
 	if (!strcasecmp(argv[0], "gc_percent")) {
-		if (kstrtou8(argv[1], 10, &val))
+		if (kstrtoul(argv[1], 10, &val))
 			goto err;
 
 		return pcache_cache_set_gc_percent(&pcache->cache, val);

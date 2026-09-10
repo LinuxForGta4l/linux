@@ -17,12 +17,7 @@ static void run_libarena_asan_test(struct libarena_asan *skel,
 {
 	int ret;
 
-	if (strstr(name, "test_buddy")) {
-		/* Buddy tests initialize the allocator directly. */
-		ret = libarena_run_prog(bpf_program__fd(skel->progs.arena_buddy_destroy));
-		if (!ASSERT_OK(ret, "arena_buddy_destroy"))
-			return;
-	} else {
+	if (!strstr(name, "test_buddy")) {
 		ret = libarena_run_prog(bpf_program__fd(skel->progs.arena_buddy_reset));
 		if (!ASSERT_OK(ret, "arena_buddy_reset"))
 			return;
@@ -85,7 +80,7 @@ out:
  * Run the test depending on whether LLVM can compile arena ASAN
  * programs.
  */
-void serial_test_libarena_asan(void)
+void test_libarena_asan(void)
 {
 #ifdef HAS_BPF_ARENA_ASAN
 	run_test();
@@ -95,3 +90,4 @@ void serial_test_libarena_asan(void)
 
 	return;
 }
+

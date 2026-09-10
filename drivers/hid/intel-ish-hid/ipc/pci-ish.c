@@ -232,8 +232,10 @@ static int ish_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	ret = devm_request_irq(dev, pdev->irq, ish_irq_handler,
 			       irq_flag, KBUILD_MODNAME, ishtp);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "ISH: request IRQ %d failed\n", pdev->irq);
 		return ret;
+	}
 
 	dev_set_drvdata(ishtp->devc, ishtp);
 

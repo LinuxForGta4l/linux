@@ -38,7 +38,6 @@
 #include "intel_de.h"
 #include "intel_display_types.h"
 #include "intel_display_wa.h"
-#include "intel_dp.h"
 #include "intel_lpe_audio.h"
 
 /**
@@ -697,13 +696,6 @@ static void ibx_audio_codec_enable(struct intel_encoder *encoder,
 	mutex_unlock(&display->audio.mutex);
 }
 
-static
-bool intel_audio_needs_cpu_transcoder_id(const struct intel_crtc_state *crtc_state)
-{
-	return intel_crtc_has_type(crtc_state, INTEL_OUTPUT_DP_MST) ||
-	       intel_dp_is_uhbr(crtc_state);
-}
-
 bool intel_audio_compute_config(struct intel_encoder *encoder,
 				struct intel_crtc_state *crtc_state,
 				struct drm_connector_state *conn_state)
@@ -770,8 +762,6 @@ void intel_audio_codec_enable(struct intel_encoder *encoder,
 	audio_state = &display->audio.state[cpu_transcoder];
 
 	audio_state->encoder = encoder;
-	audio_state->needs_cpu_transcoder_id =
-			intel_audio_needs_cpu_transcoder_id(crtc_state);
 	BUILD_BUG_ON(sizeof(audio_state->eld) != sizeof(crtc_state->eld));
 	memcpy(audio_state->eld, crtc_state->eld, sizeof(audio_state->eld));
 
@@ -779,12 +769,8 @@ void intel_audio_codec_enable(struct intel_encoder *encoder,
 
 	if (acomp && acomp->base.audio_ops &&
 	    acomp->base.audio_ops->pin_eld_notify) {
-		/*
-		 * Audio drivers expect cpu_transcoder = -1 to indicate
-		 * Non-MST/HBR cases. MST and UHBR SST are addressed by
-		 * a real cpu_transcoder.
-		 */
-		if (!intel_audio_needs_cpu_transcoder_id(crtc_state))
+		/* audio drivers expect cpu_transcoder = -1 to indicate Non-MST cases */
+		if (!intel_crtc_has_type(crtc_state, INTEL_OUTPUT_DP_MST))
 			cpu_transcoder = -1;
 		acomp->base.audio_ops->pin_eld_notify(acomp->base.audio_ops->audio_ptr,
 						      (int)port, (int)cpu_transcoder);
@@ -833,19 +819,14 @@ void intel_audio_codec_disable(struct intel_encoder *encoder,
 	audio_state = &display->audio.state[cpu_transcoder];
 
 	audio_state->encoder = NULL;
-	audio_state->needs_cpu_transcoder_id = false;
 	memset(audio_state->eld, 0, sizeof(audio_state->eld));
 
 	mutex_unlock(&display->audio.mutex);
 
 	if (acomp && acomp->base.audio_ops &&
 	    acomp->base.audio_ops->pin_eld_notify) {
-		/*
-		 * Audio drivers expect cpu_transcoder = -1 to indicate
-		 * Non-MST/HBR cases. MST and UHBR SST are addressed by
-		 * a real cpu_transcoder.
-		 */
-		if (!intel_audio_needs_cpu_transcoder_id(old_crtc_state))
+		/* audio drivers expect cpu_transcoder = -1 to indicate Non-MST cases */
+		if (!intel_crtc_has_type(old_crtc_state, INTEL_OUTPUT_DP_MST))
 			cpu_transcoder = -1;
 		acomp->base.audio_ops->pin_eld_notify(acomp->base.audio_ops->audio_ptr,
 						      (int)port, (int)cpu_transcoder);
@@ -1137,24 +1118,18 @@ static int intel_audio_component_get_cdclk_freq(struct device *kdev)
 }
 
 /*
- * Get the intel audio state for a given (port, cpu_transcoder).
- *
- * Streams are addressed either by a real cpu_transcoder (DP MST and UHBR SST,
- * i.e. entries whose stored needs_cpu_transcoder_id is true) or by port alone
- * (legacy SST). Both the signalling side (pin_eld_notify()) and the lookup
- * side use the same predicate, so the two are symmetric.
- *
- * cpu_transcoder >= 0 & needs_cpu_transcoder_id: return audio.state[cpu_transcoder]
- *   when the port matches.
- * cpu_transcoder <  0 & !needs_cpu_transcoder_id: return the first port-matching
- *   entry.
- * cpu_transcoder =  0 & !needs_cpu_transcoder_id: falls to the port-only
- *   loop so the first device entry of a legacy SST port is still found.
+ * get the intel audio state according to the parameter port and cpu_transcoder
+ * MST & (cpu_transcoder >= 0): return the audio.state[cpu_transcoder].encoder],
+ *   when port is matched
+ * MST & (cpu_transcoder < 0): this is invalid
+ * Non-MST & (cpu_transcoder >= 0): only cpu_transcoder = 0 (the first device entry)
+ *   will get the right intel_encoder with port matched
+ * Non-MST & (cpu_transcoder < 0): get the right intel_encoder with port matched
  */
 static struct intel_audio_state *find_audio_state(struct intel_display *display,
 						  int port, int cpu_transcoder)
 {
-	/* MST, or UHBR SST. */
+	/* MST */
 	if (cpu_transcoder >= 0) {
 		struct intel_audio_state *audio_state;
 		struct intel_encoder *encoder;
@@ -1167,11 +1142,11 @@ static struct intel_audio_state *find_audio_state(struct intel_display *display,
 		encoder = audio_state->encoder;
 
 		if (encoder && encoder->port == port &&
-		    audio_state->needs_cpu_transcoder_id)
+		    encoder->type == INTEL_OUTPUT_DP_MST)
 			return audio_state;
 	}
 
-	/* Legacy SST. */
+	/* Non-MST */
 	if (cpu_transcoder > 0)
 		return NULL;
 
@@ -1183,7 +1158,7 @@ static struct intel_audio_state *find_audio_state(struct intel_display *display,
 		encoder = audio_state->encoder;
 
 		if (encoder && encoder->port == port &&
-		    !audio_state->needs_cpu_transcoder_id)
+		    encoder->type != INTEL_OUTPUT_DP_MST)
 			return audio_state;
 	}
 

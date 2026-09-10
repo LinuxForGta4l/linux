@@ -349,11 +349,7 @@ static int __init armada_xp_timer_init(struct device_node *np)
 
 	timer_clk = clk_get_rate(clk);
 
-	ret = armada_370_xp_timer_common_init(np);
-	if (ret)
-		clk_disable_unprepare(clk);
-
-	return ret;
+	return armada_370_xp_timer_common_init(np);
 }
 TIMER_OF_DECLARE(armada_xp, "marvell,armada-xp-timer",
 		       armada_xp_timer_init);
@@ -391,11 +387,7 @@ static int __init armada_375_timer_init(struct device_node *np)
 		timer25Mhz = false;
 	}
 
-	ret = armada_370_xp_timer_common_init(np);
-	if (ret)
-		clk_disable_unprepare(clk);
-
-	return ret;
+	return armada_370_xp_timer_common_init(np);
 }
 TIMER_OF_DECLARE(armada_375, "marvell,armada-375-timer",
 		       armada_375_timer_init);
@@ -418,11 +410,7 @@ static int __init armada_370_timer_init(struct device_node *np)
 	timer_clk = clk_get_rate(clk) / TIMER_DIVIDER;
 	timer25Mhz = false;
 
-	ret = armada_370_xp_timer_common_init(np);
-	if (ret)
-		clk_disable_unprepare(clk);
-
-	return ret;
+	return armada_370_xp_timer_common_init(np);
 }
 TIMER_OF_DECLARE(armada_370, "marvell,armada-370-timer",
 		       armada_370_timer_init);

@@ -56,7 +56,7 @@ static int event_cb(void *state, struct pmu_event_info *info)
 			*ret = TEST_FAIL;
 		}
 	}
-	evlist__put(evlist);
+	evlist__delete(evlist);
 	return 0;
 }
 
@@ -174,7 +174,7 @@ static int test_sort(const char *str, int expected_slots_group_size,
 	CHECK_COND(slots_seen, "slots seen");
 	ret = TEST_OK;
 out_err:
-	evlist__put(evlist);
+	evlist__delete(evlist);
 	parse_events_error__exit(&err);
 	return ret;
 }

@@ -1051,12 +1051,14 @@ static int rawv6_setsockopt(struct sock *sk, int level, int optname,
 	return do_rawv6_setsockopt(sk, level, optname, optval, optlen);
 }
 
-static int do_rawv6_getsockopt(struct sock *sk, int optname, sockopt_t *opt)
+static int do_rawv6_getsockopt(struct sock *sk, int level, int optname,
+			    char __user *optval, int __user *optlen)
 {
 	struct raw6_sock *rp = raw6_sk(sk);
 	int val, len;
 
-	len = opt->optlen;
+	if (get_user(len, optlen))
+		return -EFAULT;
 
 	switch (optname) {
 	case IPV6_HDRINCL:
@@ -1078,10 +1080,11 @@ static int do_rawv6_getsockopt(struct sock *sk, int optname, sockopt_t *opt)
 		return -ENOPROTOOPT;
 	}
 
-	len = umin(sizeof(int), len);
+	len = min_t(unsigned int, sizeof(int), len);
 
-	opt->optlen = len;
-	if (copy_to_iter(&val, len, &opt->iter_out) != len)
+	if (put_user(len, optlen))
+		return -EFAULT;
+	if (copy_to_user(optval, &val, len))
 		return -EFAULT;
 	return 0;
 }
@@ -1089,9 +1092,6 @@ static int do_rawv6_getsockopt(struct sock *sk, int optname, sockopt_t *opt)
 static int rawv6_getsockopt(struct sock *sk, int level, int optname,
 			  char __user *optval, int __user *optlen)
 {
-	sockopt_t opt;
-	int err;
-
 	switch (level) {
 	case SOL_RAW:
 		break;
@@ -1109,18 +1109,7 @@ static int rawv6_getsockopt(struct sock *sk, int level, int optname,
 		return ipv6_getsockopt(sk, level, optname, optval, optlen);
 	}
 
-	err = sockopt_init_user(&opt, optval, optlen);
-	if (err)
-		return err;
-
-	err = do_rawv6_getsockopt(sk, optname, &opt);
-	if (err)
-		return err;
-
-	if (put_user(opt.optlen, optlen))
-		return -EFAULT;
-
-	return 0;
+	return do_rawv6_getsockopt(sk, level, optname, optval, optlen);
 }
 
 static int rawv6_ioctl(struct sock *sk, int cmd, int *karg)

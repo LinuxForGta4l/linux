@@ -2,7 +2,6 @@
 /* Copyright(c) 2024 Intel Corporation */
 
 #include <linux/slab.h>
-#include <linux/string.h>
 #include <linux/types.h>
 #include "adf_mstate_mgr.h"
 
@@ -159,7 +158,7 @@ static struct adf_mstate_sect_h *adf_mstate_sect_add_header(struct adf_mstate_mg
 		return NULL;
 	}
 
-	strscpy(sect->id, id);
+	strscpy(sect->id, id, sizeof(sect->id));
 	sect->size = 0;
 	sect->sub_sects = 0;
 	mgr->state += sizeof(*sect);

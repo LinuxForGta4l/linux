@@ -10,8 +10,7 @@
 
 SEC("raw_tp")
 __arch_x86_64
-__log_level(4)
-__msg("subprog 0 (simple) main insns_self {{[0-9]+}} insns_total {{[0-9]+}} stack 8")
+__log_level(4) __msg("stack depth 8")
 __xlated("4: r5 = 5")
 __xlated("5: r0 = ")
 __xlated("6: r0 = &(void __percpu *)(r0)")
@@ -97,8 +96,7 @@ __naked void canary_zero_spills(void)
 
 SEC("raw_tp")
 __arch_x86_64
-__log_level(4)
-__msg("subprog 0 (wrong_reg_in_pattern1) main {{.*}} stack 16")
+__log_level(4) __msg("stack depth 16")
 __xlated("1: *(u64 *)(r10 -16) = r1")
 __xlated("...")
 __xlated("3: r0 = &(void __percpu *)(r0)")
@@ -600,8 +598,7 @@ __naked static void subprogs_use_independent_offsets_aux(void)
 
 SEC("raw_tp")
 __arch_x86_64
-__log_level(4)
-__msg("subprog 0 (helper_call_does_not_prevent_bpf_fastcall) main {{.*}} stack 8")
+__log_level(4) __msg("stack depth 8")
 __xlated("2: r0 = &(void __percpu *)(r0)")
 __success
 __naked void helper_call_does_not_prevent_bpf_fastcall(void)
@@ -623,8 +620,7 @@ __naked void helper_call_does_not_prevent_bpf_fastcall(void)
 
 SEC("raw_tp")
 __arch_x86_64
-__log_level(4)
-__msg("subprog 0 (may_goto_interaction_x86_64) main {{.*}} stack 24")
+__log_level(4) __msg("stack depth 24")
 /* may_goto counter at -24 */
 __xlated("0: *(u64 *)(r10 -24) =")
 /* may_goto timestamp at -16 */
@@ -664,10 +660,7 @@ __naked void may_goto_interaction_x86_64(void)
 
 SEC("raw_tp")
 __arch_arm64
-__arch_riscv64
-__arch_loongarch
-__log_level(4)
-__msg("subprog 0 (may_goto_interaction) main {{.*}} stack 24")
+__log_level(4) __msg("stack depth 24")
 /* may_goto counter at -24 */
 __xlated("0: *(u64 *)(r10 -24) =")
 /* may_goto timestamp at -16 */
@@ -686,7 +679,7 @@ __xlated("10: *(u64 *)(r10 -24) = r12")
 __xlated("11: *(u64 *)(r10 -8) = r1")
 __xlated("12: exit")
 __success
-__naked void may_goto_interaction(void)
+__naked void may_goto_interaction_arm64(void)
 {
 	asm volatile (
 	"r1 = 1;"
@@ -714,9 +707,7 @@ __naked static void dummy_loop_callback(void)
 
 SEC("raw_tp")
 __arch_x86_64
-__log_level(4)
-__msg("subprog 0 (bpf_loop_interaction1) main {{.*}} stack 32")
-__msg("subprog 1 (dummy_loop_callback) static {{.*}} stack 0")
+__log_level(4) __msg("stack depth 32+0")
 __xlated("2: r1 = 1")
 __xlated("3: r0 =")
 __xlated("4: r0 = &(void __percpu *)(r0)")
@@ -764,9 +755,7 @@ __naked int bpf_loop_interaction1(void)
 
 SEC("raw_tp")
 __arch_x86_64
-__log_level(4)
-__msg("subprog 0 (bpf_loop_interaction2) main {{.*}} stack 40")
-__msg("subprog 1 (dummy_loop_callback) static {{.*}} stack 0")
+__log_level(4) __msg("stack depth 40+0")
 /* call bpf_get_smp_processor_id */
 __xlated("2: r1 = 42")
 __xlated("3: r0 =")
@@ -810,10 +799,7 @@ __naked int bpf_loop_interaction2(void)
 
 SEC("raw_tp")
 __arch_x86_64
-__log_level(4)
-__msg("stack depth max 512")
-__msg("subprog 0 (cumulative_stack_depth) main {{.*}} stack 512")
-__msg("subprog 1 (cumulative_stack_depth_subprog) static {{.*}} stack 0")
+__log_level(4) __msg("stack depth 512+0 max 512")
 /* just to print xlated version when debugging */
 __xlated("r0 = &(void __percpu *)(r0)")
 __success

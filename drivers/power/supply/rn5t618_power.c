@@ -800,8 +800,11 @@ static int rn5t618_power_probe(struct platform_device *pdev)
 						"rn5t618_power",
 						&pdev->dev);
 
-		if (ret < 0)
+		if (ret < 0) {
+			dev_err(&pdev->dev, "request IRQ:%d fail\n",
+				info->irq);
 			info->irq = -1;
+		}
 	}
 
 	return 0;

@@ -15,7 +15,6 @@
 #include <linux/errno.h>
 #include <linux/module.h>
 #include <linux/ioport.h>
-#include <linux/of_platform.h>
 
 #include <asm/io.h>
 #include <soc/fsl/qe/qe.h>
@@ -185,17 +184,3 @@ int par_io_of_config(struct device_node *np)
 	return 0;
 }
 EXPORT_SYMBOL(par_io_of_config);
-
-static int __init par_io_populate(void)
-{
-	struct device_node *np = of_find_node_by_type(NULL, "par_io");
-
-	if (!np)
-		return 0;
-
-	of_platform_default_populate(np, NULL, NULL);
-	of_node_put(np);
-
-	return 0;
-}
-arch_initcall(par_io_populate);

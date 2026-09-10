@@ -2,24 +2,20 @@
 #include <errno.h>
 #include <math.h>
 #include <stdio.h>
-
-#include <linux/zalloc.h>
-
-#include "cgroup.h"
+#include "evsel.h"
+#include "stat.h"
 #include "color.h"
 #include "debug.h"
-#include "evlist.h"
-#include "evsel.h"
-#include "expr.h"
-#include "hashmap.h"
-#include "iostat.h"
-#include "metricgroup.h"
 #include "pmu.h"
-#include "pmus.h"
 #include "rblist.h"
-#include "stat.h"
-#include "tool_pmu.h"
+#include "evlist.h"
+#include "expr.h"
+#include "metricgroup.h"
+#include "cgroup.h"
 #include "units.h"
+#include "iostat.h"
+#include "util/hashmap.h"
+#include "tool_pmu.h"
 
 static bool tool_pmu__is_time_event(const struct perf_stat_config *config,
 				   const struct evsel *evsel, int *tool_aggr_idx)
@@ -287,7 +283,7 @@ void *perf_stat__print_shadow_stats_metricgroup(struct perf_stat_config *config,
 	void *ctxp = out->ctx;
 	bool header_printed = false;
 	const char *name = NULL;
-	struct rblist *metric_events = evlist__metric_events(evsel->evlist);
+	struct rblist *metric_events = &evsel->evlist->metric_events;
 
 	me = metricgroup__lookup(metric_events, evsel, false);
 	if (me == NULL)
@@ -355,5 +351,5 @@ bool perf_stat__skip_metric_event(struct evsel *evsel)
 	if (!evsel->default_metricgroup)
 		return false;
 
-	return !metricgroup__lookup(evlist__metric_events(evsel->evlist), evsel, false);
+	return !metricgroup__lookup(&evsel->evlist->metric_events, evsel, false);
 }

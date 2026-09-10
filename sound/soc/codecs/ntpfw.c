@@ -89,7 +89,7 @@ int ntpfw_load(struct i2c_client *i2c, const char *name, u32 magic)
 {
 	struct device *dev = &i2c->dev;
 	const struct ntpfw_chunk *chunk;
-	const struct firmware *fw __free(firmware) = NULL;
+	const struct firmware *fw;
 	const u8 *data;
 	size_t leftover;
 	int ret;
@@ -101,8 +101,10 @@ int ntpfw_load(struct i2c_client *i2c, const char *name, u32 magic)
 		return ret;
 	}
 
-	if (!ntpfw_verify(dev, fw->data, fw->size, magic))
-		return -EINVAL;
+	if (!ntpfw_verify(dev, fw->data, fw->size, magic)) {
+		ret = -EINVAL;
+		goto done;
+	}
 
 	data = fw->data + sizeof(struct ntpfw_header);
 	leftover = fw->size - sizeof(struct ntpfw_header);
@@ -110,18 +112,23 @@ int ntpfw_load(struct i2c_client *i2c, const char *name, u32 magic)
 	while (leftover) {
 		chunk = (struct ntpfw_chunk *)data;
 
-		if (!ntpfw_verify_chunk(dev, chunk, leftover))
-			return -EINVAL;
+		if (!ntpfw_verify_chunk(dev, chunk, leftover)) {
+			ret = -EINVAL;
+			goto done;
+		}
 
 		ret = ntpfw_send_chunk(i2c, chunk);
 		if (ret)
-			return ret;
+			goto done;
 
 		data += be16_to_cpu(chunk->length) + sizeof(*chunk);
 		leftover -= be16_to_cpu(chunk->length) + sizeof(*chunk);
 	}
 
-	return 0;
+done:
+	release_firmware(fw);
+
+	return ret;
 }
 EXPORT_SYMBOL_GPL(ntpfw_load);
 

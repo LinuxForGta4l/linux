@@ -56,7 +56,6 @@ SCSI host adapter drivers
    g_NCR5380
    hpsa
    hptiop
-   leapraid
    libsas
    lpfc
    megaraid

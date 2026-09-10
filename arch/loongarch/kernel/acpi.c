@@ -13,7 +13,6 @@
 #include <linux/export.h>
 #include <linux/irq.h>
 #include <linux/irqdomain.h>
-#include <linux/kvm_host.h>
 #include <linux/memblock.h>
 #include <linux/of_fdt.h>
 #include <linux/serial_core.h>
@@ -203,7 +202,7 @@ static void __init acpi_process_madt(void)
 
 int pptt_enabled;
 static int acpi_nr_packages;
-static int acpi_package_ids[MAX(MAX_PACKAGES, KVM_MAX_VCPUS)];
+static int acpi_package_ids[MAX_PACKAGES];
 
 int __init parse_acpi_topology(void)
 {

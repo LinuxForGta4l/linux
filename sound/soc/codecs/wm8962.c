@@ -10,7 +10,6 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/init.h>
-#include <linux/cleanup.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/pm.h>
@@ -1565,10 +1564,11 @@ static int wm8962_dsp2_ena_put(struct snd_kcontrol *kcontrol,
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct wm8962_priv *wm8962 = snd_soc_component_get_drvdata(component);
 	int old = wm8962->dsp2_ena;
+	int ret = 0;
 	int dsp2_running = snd_soc_component_read(component, WM8962_DSP2_POWER_MANAGEMENT) &
 		WM8962_DSP2_ENA;
 
-	guard(mutex)(&wm8962->dsp2_ena_lock);
+	mutex_lock(&wm8962->dsp2_ena_lock);
 
 	if (ucontrol->value.integer.value[0])
 		wm8962->dsp2_ena |= 1 << shift;
@@ -1576,7 +1576,9 @@ static int wm8962_dsp2_ena_put(struct snd_kcontrol *kcontrol,
 		wm8962->dsp2_ena &= ~(1 << shift);
 
 	if (wm8962->dsp2_ena == old)
-		return 0;
+		goto out;
+
+	ret = 1;
 
 	if (dsp2_running) {
 		if (wm8962->dsp2_ena)
@@ -1585,7 +1587,10 @@ static int wm8962_dsp2_ena_put(struct snd_kcontrol *kcontrol,
 			wm8962_dsp2_stop(component);
 	}
 
-	return 1;
+out:
+	mutex_unlock(&wm8962->dsp2_ena_lock);
+
+	return ret;
 }
 
 /* The VU bits for the headphones are in a different register to the mute
@@ -3932,9 +3937,7 @@ static int wm8962_runtime_resume(struct device *dev)
 			   WM8962_OSC_ENA | WM8962_PLL2_ENA | WM8962_PLL3_ENA,
 			   0);
 
-	ret = regcache_sync(wm8962->regmap);
-	if (ret)
-		goto cache_sync_err;
+	regcache_sync(wm8962->regmap);
 
 	regmap_update_bits(wm8962->regmap, WM8962_ANTI_POP,
 			   WM8962_STARTUP_BIAS_ENA | WM8962_VMID_BUF_ENA,
@@ -3952,11 +3955,6 @@ static int wm8962_runtime_resume(struct device *dev)
 
 	return 0;
 
-cache_sync_err:
-	regcache_cache_only(wm8962->regmap, true);
-	regcache_mark_dirty(wm8962->regmap);
-	regulator_bulk_disable(ARRAY_SIZE(wm8962->supplies),
-			       wm8962->supplies);
 disable_clock:
 	clk_disable_unprepare(wm8962->pdata.mclk);
 	return ret;

@@ -430,22 +430,19 @@ static int swap_write_page(struct swap_map_handle *handle, void *buf,
 
 	if (!handle->cur)
 		return -EINVAL;
-
-	/*
-	 * If the current map page is full, allocate and link next one first.
-	 * Delaying this until here avoids writing an empty swap map page when
-	 * the image size is an exact MAP_PAGE_ENTRIES multiple.
-	 */
+	offset = alloc_swapdev_block(root_swap);
+	error = write_page(buf, offset, hb);
+	if (error)
+		return error;
+	handle->cur->entries[handle->k++] = offset;
 	if (handle->k >= MAP_PAGE_ENTRIES) {
 		offset = alloc_swapdev_block(root_swap);
 		if (!offset)
 			return -ENOSPC;
-
 		handle->cur->next_swap = offset;
 		error = write_page(handle->cur, handle->cur_swap, hb);
 		if (error)
-			return error;
-
+			goto out;
 		clear_page(handle->cur);
 		handle->cur_swap = offset;
 		handle->k = 0;
@@ -453,7 +450,7 @@ static int swap_write_page(struct swap_map_handle *handle, void *buf,
 		if (hb && low_free_pages() <= handle->reqd_free_pages) {
 			error = hib_wait_io(hb);
 			if (error)
-				return error;
+				goto out;
 			/*
 			 * Recalculate the number of required free pages, to
 			 * make sure we never take more than half.
@@ -461,21 +458,14 @@ static int swap_write_page(struct swap_map_handle *handle, void *buf,
 			handle->reqd_free_pages = reqd_free_pages();
 		}
 	}
-
-	offset = alloc_swapdev_block(root_swap);
-	error = write_page(buf, offset, hb);
-	if (error)
-		return error;
-	handle->cur->entries[handle->k++] = offset;
-	return 0;
+ out:
+	return error;
 }
 
 static int flush_swap_writer(struct swap_map_handle *handle)
 {
-	if (handle->cur && handle->cur_swap && handle->k)
+	if (handle->cur && handle->cur_swap)
 		return write_page(handle->cur, handle->cur_swap, NULL);
-	else if (handle->cur && handle->cur_swap)
-		return 0;
 	else
 		return -EINVAL;
 }
@@ -749,7 +739,7 @@ static int save_compressed_image(struct swap_map_handle *handle,
 
 		data[thr].cc = crypto_alloc_acomp(hib_comp_algo, 0, CRYPTO_ALG_ASYNC);
 		if (IS_ERR_OR_NULL(data[thr].cc)) {
-			pr_err("Could not allocate comp stream %pe\n", data[thr].cc);
+			pr_err("Could not allocate comp stream %ld\n", PTR_ERR(data[thr].cc));
 			ret = -EFAULT;
 			goto out_clean;
 		}
@@ -1253,7 +1243,7 @@ static int load_compressed_image(struct swap_map_handle *handle,
 
 		data[thr].cc = crypto_alloc_acomp(hib_comp_algo, 0, CRYPTO_ALG_ASYNC);
 		if (IS_ERR_OR_NULL(data[thr].cc)) {
-			pr_err("Could not allocate comp stream %pe\n", data[thr].cc);
+			pr_err("Could not allocate comp stream %ld\n", PTR_ERR(data[thr].cc));
 			ret = -EFAULT;
 			goto out_clean;
 		}

@@ -333,22 +333,16 @@ struct machine *machines__findnew(struct machines *machines, pid_t pid)
 	if ((pid != HOST_KERNEL_ID) &&
 	    (pid != DEFAULT_GUEST_KERNEL_ID) &&
 	    (symbol_conf.guestmount)) {
-		if (snprintf(path, sizeof(path), "%s/%d",
-			     symbol_conf.guestmount, pid) >= (int)sizeof(path)) {
-			pr_err("Guest path too long for pid %d\n", pid);
-			machine = NULL;
-			goto out;
-		}
+		snprintf(path, sizeof(path), "%s/%d", symbol_conf.guestmount, pid);
 		if (access(path, R_OK)) {
 			static struct strlist *seen;
 
 			if (!seen)
 				seen = strlist__new(NULL, NULL);
 
-			if (!seen || !strlist__has_entry(seen, path)) {
+			if (!strlist__has_entry(seen, path)) {
 				pr_err("Can't access file %s\n", path);
-				if (seen)
-					strlist__add(seen, path);
+				strlist__add(seen, path);
 			}
 			machine = NULL;
 			goto out;
@@ -1256,35 +1250,27 @@ int machines__create_guest_kernel_maps(struct machines *machines)
 		for (i = 0; i < items; i++) {
 			if (!isdigit(namelist[i]->d_name[0])) {
 				/* Filter out . and .. */
-				free(namelist[i]);
 				continue;
 			}
-			errno = 0;
 			pid = (pid_t)strtol(namelist[i]->d_name, &endp, 10);
 			if ((*endp != '\0') ||
 			    (endp == namelist[i]->d_name) ||
 			    (errno == ERANGE)) {
 				pr_debug("invalid directory (%s). Skipping.\n",
 					 namelist[i]->d_name);
-				free(namelist[i]);
 				continue;
 			}
-			if (snprintf(path, sizeof(path), "%s/%s/proc/kallsyms",
-				     symbol_conf.guestmount,
-				     namelist[i]->d_name) >= (int)sizeof(path)) {
-				pr_debug("Guest kallsyms path too long for %s. Skipping.\n",
-					 namelist[i]->d_name);
-				free(namelist[i]);
-				continue;
-			}
-			if (access(path, R_OK)) {
+			snprintf(path, sizeof(path), "%s/%s/proc/kallsyms",
+				 symbol_conf.guestmount,
+				 namelist[i]->d_name);
+			ret = access(path, R_OK);
+			if (ret) {
 				pr_debug("Can't access file %s\n", path);
-				free(namelist[i]);
-				continue;
+				goto failure;
 			}
 			machines__create_kernel_maps(machines, pid);
-			free(namelist[i]);
 		}
+failure:
 		free(namelist);
 	}
 
@@ -1425,10 +1411,8 @@ static int maps__set_modules_path_dir(struct maps *maps, char *path, size_t path
 		return -1;
 	}
 	/* Bounds check, should never happen. */
-	if (root_len >= path_size) {
-		ret = -1;
-		goto out;
-	}
+	if (root_len >= path_size)
+		return -1;
 	path[root_len++] = '/';
 	while ((dent = io_dir__readdir(&iod)) != NULL) {
 		if (io_dir__is_dir(&iod, dent)) {
@@ -1937,8 +1921,7 @@ int machine__process_fork_event(struct machine *machine, union perf_event *event
 	 * (fork) event that would have removed the thread was lost. Assume the
 	 * latter case and continue on as best we can.
 	 */
-	if (parent != NULL &&
-	    thread__pid(parent) != (pid_t)event->fork.ppid) {
+	if (thread__pid(parent) != (pid_t)event->fork.ppid) {
 		dump_printf("removing erroneous parent thread %d/%d\n",
 			    thread__pid(parent), thread__tid(parent));
 		machine__remove_thread(machine, parent);

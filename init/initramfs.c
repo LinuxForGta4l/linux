@@ -6,7 +6,6 @@
 #include <linux/fcntl.h>
 #include <linux/file.h>
 #include <linux/fs.h>
-#include <linux/fs_struct.h>
 #include <linux/hex.h>
 #include <linux/init.h>
 #include <linux/init_syscalls.h>
@@ -619,7 +618,7 @@ void __init reserve_initrd_mem(void)
 	phys_addr_t start;
 	unsigned long size;
 
-	/* Ignore the virtual address computed during device tree parsing */
+	/* Ignore the virtul address computed during device tree parsing */
 	initrd_start = initrd_end = 0;
 
 	if (!phys_initrd_size)
@@ -717,7 +716,7 @@ static void __init populate_initrd_image(char *err)
 }
 #endif /* CONFIG_BLK_DEV_RAM */
 
-static void __init unpack_initramfs(async_cookie_t cookie)
+static void __init do_populate_rootfs(void *unused, async_cookie_t cookie)
 {
 	/* Load the built in initramfs */
 	char *err = unpack_to_rootfs(__initramfs_start, __initramfs_size);
@@ -725,7 +724,7 @@ static void __init unpack_initramfs(async_cookie_t cookie)
 		panic_show_mem("%s", err); /* Failed to decompress INTERNAL initramfs */
 
 	if (!initrd_start || IS_ENABLED(CONFIG_INITRAMFS_FORCE))
-		return;
+		goto done;
 
 	if (IS_ENABLED(CONFIG_BLK_DEV_RAM))
 		printk(KERN_INFO "Trying to unpack rootfs image as initramfs...\n");
@@ -740,14 +739,9 @@ static void __init unpack_initramfs(async_cookie_t cookie)
 		printk(KERN_EMERG "Initramfs unpacking failed: %s\n", err);
 #endif
 	}
-}
 
-static void __init do_populate_rootfs(void *unused, async_cookie_t cookie)
-{
-	scoped_with_init_fs() {
-		unpack_initramfs(cookie);
-		security_initramfs_populated();
-	}
+done:
+	security_initramfs_populated();
 
 	/*
 	 * If the initrd region is overlapped with crashkernel reserved region,

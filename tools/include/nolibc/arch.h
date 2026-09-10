@@ -32,8 +32,6 @@
 #include "arch-openrisc.h"
 #elif defined(__hppa__)
 #include "arch-parisc.h"
-#elif defined(__alpha__)
-#include "arch-alpha.h"
 #else
 #error Unsupported Architecture
 #endif

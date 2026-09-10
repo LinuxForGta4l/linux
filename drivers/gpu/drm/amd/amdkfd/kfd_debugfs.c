@@ -33,7 +33,6 @@ static struct list_head procs;
 struct debugfs_proc_entry {
 	struct list_head list;
 	struct dentry *proc_dentry;
-	struct kfd_process *process;
 	pid_t pid;
 };
 
@@ -141,93 +140,34 @@ static const struct file_operations kfd_debugfs_pasid_fops = {
 	.read = kfd_debugfs_pasid_read,
 };
 
-/* This helper locates the debugfs entry of a kfd process */
-static struct debugfs_proc_entry *kfd_debugfs_find_process_entry(struct kfd_process *p)
+void kfd_debugfs_add_process(struct kfd_process *p)
 {
-	struct debugfs_proc_entry *entry;
-
-	list_for_each_entry(entry, &procs, list) {
-		if (entry->process == p)
-			return entry;
-	}
-
-	return NULL;
-}
-
-/* This helper creates pasid file of a kfd process under debugfs */
-static void kfd_debugfs_create_pasid_files(struct kfd_process *p,
-					   struct dentry *dir)
-{
-	char name[MAX_DEBUGFS_FILENAME_LEN];
-	struct kfd_process_device *pdd;
 	int i;
-
-	/* create pasid file for each GPU */
-	for (i = 0; i < p->n_pdds; i++) {
-		pdd = p->pdds[i];
-		snprintf(name, MAX_DEBUGFS_FILENAME_LEN, "pasid_%u", pdd->dev->id);
-		debugfs_create_file((const char *)name, S_IFREG | 0444,
-				    dir, pdd, &kfd_debugfs_pasid_fops);
-	}
-}
-
-int kfd_debugfs_add_process(struct kfd_process *p)
-{
-	struct debugfs_proc_entry *primary_entry;
 	char name[MAX_DEBUGFS_FILENAME_LEN];
-	struct kfd_process *primary_process;
 	struct debugfs_proc_entry *entry;
-	int ret;
 
 	entry = kzalloc_obj(*entry);
 	if (!entry)
-		return -ENOMEM;
-
-	entry->process = p;
-	entry->pid = p->lead_thread->pid;
-
-	if (p->context_id == KFD_CONTEXT_ID_PRIMARY) {
-		snprintf(name, MAX_DEBUGFS_FILENAME_LEN, "%d",
-			 (int)entry->pid);
-		entry->proc_dentry = debugfs_create_dir(name, debugfs_proc);
-	} else {
-		primary_process = kfd_lookup_process_by_mm(p->lead_thread->mm);
-		if (!primary_process) {
-			ret = -ESRCH;
-			goto err_free_entry;
-		}
-
-		primary_entry = kfd_debugfs_find_process_entry(primary_process);
-		kfd_unref_process(primary_process);
-		if (!primary_entry) {
-			pr_warn("Failed to find the primary debugfs entry for pid %d\n",
-				entry->pid);
-			ret = -ENOENT;
-			goto err_free_entry;
-		}
-
-		snprintf(name, MAX_DEBUGFS_FILENAME_LEN, "context_%u",
-			 p->context_id);
-		entry->proc_dentry = debugfs_create_dir(name,
-							primary_entry->proc_dentry);
-	}
+		return;
 
 	list_add(&entry->list, &procs);
-	kfd_debugfs_create_pasid_files(p, entry->proc_dentry);
+	entry->pid = p->lead_thread->pid;
+	snprintf(name, MAX_DEBUGFS_FILENAME_LEN, "%d",
+		 (int)entry->pid);
+	entry->proc_dentry = debugfs_create_dir(name, debugfs_proc);
 
-	return 0;
+	/* Create debugfs files for each GPU:
+	 * - proc/<pid>/pasid_<gpuid>
+	 */
+	for (i = 0; i < p->n_pdds; i++) {
+		struct kfd_process_device *pdd = p->pdds[i];
 
-err_free_entry:
-	kfree(entry);
-	return ret;
-}
-
-/* This helper removes a debugfs entry and its sub-entries */
-static void kfd_debugfs_remove_entry(struct debugfs_proc_entry *entry)
-{
-	debugfs_remove(entry->proc_dentry);
-	list_del(&entry->list);
-	kfree(entry);
+		snprintf(name, MAX_DEBUGFS_FILENAME_LEN, "pasid_%u",
+			 pdd->dev->id);
+		debugfs_create_file((const char *)name, S_IFREG | 0444,
+				    entry->proc_dentry, pdd,
+				    &kfd_debugfs_pasid_fops);
+	}
 }
 
 void kfd_debugfs_remove_process(struct kfd_process *p)
@@ -235,22 +175,13 @@ void kfd_debugfs_remove_process(struct kfd_process *p)
 	struct debugfs_proc_entry *entry, *next;
 
 	mutex_lock(&kfd_processes_mutex);
-	if (p->context_id == KFD_CONTEXT_ID_PRIMARY) {
-		/* remove entries of secondary contexts */
-		list_for_each_entry_safe(entry, next, &procs, list) {
-			if (entry->pid != p->lead_thread->pid || entry->process == p)
-				continue;
-
-			kfd_debugfs_remove_entry(entry);
-		}
-	}
-
 	list_for_each_entry_safe(entry, next, &procs, list) {
-		if (entry->process != p)
+		if (entry->pid != p->lead_thread->pid)
 			continue;
 
-		kfd_debugfs_remove_entry(entry);
+		debugfs_remove_recursive(entry->proc_dentry);
+		list_del(&entry->list);
+		kfree(entry);
 	}
-
 	mutex_unlock(&kfd_processes_mutex);
 }

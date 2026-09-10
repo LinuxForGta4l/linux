@@ -90,9 +90,6 @@ Reference counting
 .. kernel-doc:: lib/refcount.c
    :export:
 
-.. kernel-doc:: include/linux/percpu-refcount.h
-.. kernel-doc:: lib/percpu-refcount.c
-
 Atomics
 -------
 

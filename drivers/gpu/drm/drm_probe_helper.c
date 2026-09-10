@@ -760,32 +760,27 @@ static void output_poll_execute(struct work_struct *work)
 	struct drm_connector *connector;
 	struct drm_connector_list_iter conn_iter;
 	enum drm_connector_status old_status;
-	bool repoll = false, changed = false;
+	bool repoll = false, changed;
 	u64 old_epoch_counter;
 
 	if (!dev->mode_config.poll_enabled)
 		return;
+
+	/* Pick up any changes detected by the probe functions. */
+	changed = dev->mode_config.delayed_event;
+	dev->mode_config.delayed_event = false;
 
 	if (!drm_kms_helper_poll) {
 		if (dev->mode_config.poll_running) {
 			drm_kms_helper_disable_hpd(dev);
 			dev->mode_config.poll_running = false;
 		}
-
-		scoped_guard(mutex, &dev->mode_config.mutex) {
-			changed = dev->mode_config.delayed_event;
-			dev->mode_config.delayed_event = false;
-		}
-
-		if (changed)
-			drm_kms_helper_hotplug_event(dev);
-
-		return;
+		goto out;
 	}
 
 	if (!mutex_trylock(&dev->mode_config.mutex)) {
-		schedule_delayed_work(delayed_work, DRM_OUTPUT_POLL_PERIOD);
-		return;
+		repoll = true;
+		goto out;
 	}
 
 	drm_connector_list_iter_begin(dev, &conn_iter);
@@ -841,23 +836,16 @@ static void output_poll_execute(struct work_struct *work)
 				    connector->base.id, connector->name,
 				    old_epoch_counter, connector->epoch_counter);
 
-			drm_sysfs_connector_hotplug_event(connector);
 			changed = true;
 		}
 	}
 	drm_connector_list_iter_end(&conn_iter);
 
-	/* Pick up any changes detected by the probe functions. */
-	if (dev->mode_config.delayed_event) {
-		dev->mode_config.delayed_event = false;
-		changed = true;
-		drm_sysfs_hotplug_event(dev);
-	}
-
 	mutex_unlock(&dev->mode_config.mutex);
 
+out:
 	if (changed)
-		drm_client_dev_hotplug(dev);
+		drm_kms_helper_hotplug_event(dev);
 
 	if (repoll)
 		schedule_delayed_work(delayed_work, DRM_OUTPUT_POLL_PERIOD);
@@ -1093,9 +1081,9 @@ EXPORT_SYMBOL(drm_connector_helper_hpd_irq_event);
  */
 bool drm_helper_hpd_irq_event(struct drm_device *dev)
 {
+	struct drm_connector *connector, *first_changed_connector = NULL;
 	struct drm_connector_list_iter conn_iter;
-	struct drm_connector *connector;
-	bool changed = false;
+	int changed = 0;
 
 	if (!dev->mode_config.poll_enabled)
 		return false;
@@ -1108,15 +1096,24 @@ bool drm_helper_hpd_irq_event(struct drm_device *dev)
 			continue;
 
 		if (check_connector_changed(connector)) {
-			changed = true;
-			drm_sysfs_connector_hotplug_event(connector);
+			if (!first_changed_connector) {
+				drm_connector_get(connector);
+				first_changed_connector = connector;
+			}
+
+			changed++;
 		}
 	}
 	drm_connector_list_iter_end(&conn_iter);
 	mutex_unlock(&dev->mode_config.mutex);
 
-	if (changed)
-		drm_client_dev_hotplug(dev);
+	if (changed == 1)
+		drm_kms_helper_connector_hotplug_event(first_changed_connector);
+	else if (changed > 0)
+		drm_kms_helper_hotplug_event(dev);
+
+	if (first_changed_connector)
+		drm_connector_put(first_changed_connector);
 
 	return changed;
 }

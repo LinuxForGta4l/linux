@@ -39,8 +39,7 @@ void tso_build_hdr(const struct sk_buff *skb, char *hdr, struct tso_t *tso,
 	} else {
 		struct udphdr *uh = (struct udphdr *)hdr;
 
-		/* size is after segmentation. */
-		udp_set_len_short(uh, sizeof(*uh) + size);
+		uh->len = htons(sizeof(*uh) + size);
 	}
 }
 EXPORT_SYMBOL(tso_build_hdr);

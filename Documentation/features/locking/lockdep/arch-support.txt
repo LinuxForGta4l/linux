@@ -6,7 +6,7 @@
     -----------------------
     |         arch |status|
     -----------------------
-    |       alpha: |  ok  |
+    |       alpha: | TODO |
     |         arc: |  ok  |
     |         arm: |  ok  |
     |       arm64: |  ok  |

@@ -31,6 +31,7 @@
 #include "dm_helpers.h"
 #include <drm/display/drm_hdcp_helper.h>
 #include "hdcp_psp.h"
+#include "amdgpu_dm_kunit_helpers.h"
 
 /*
  * If the SRM version being loaded is less than or equal to the
@@ -38,7 +39,8 @@
  */
 #define PSP_SRM_VERSION_MAX 0xFFFF
 
-STATIC_IFN_KUNIT bool lp_write_i2c(void *handle, uint32_t address, const uint8_t *data, uint32_t size)
+static bool
+lp_write_i2c(void *handle, uint32_t address, const uint8_t *data, uint32_t size)
 {
 	struct dc_link *link = handle;
 	struct i2c_payload i2c_payloads[] = {{true, address, size, (void *)data} };
@@ -47,9 +49,9 @@ STATIC_IFN_KUNIT bool lp_write_i2c(void *handle, uint32_t address, const uint8_t
 
 	return dm_helpers_submit_i2c(link->ctx, link, &cmd);
 }
-EXPORT_IF_KUNIT(lp_write_i2c);
 
-STATIC_IFN_KUNIT bool lp_read_i2c(void *handle, uint32_t address, uint8_t offset, uint8_t *data, uint32_t size)
+static bool
+lp_read_i2c(void *handle, uint32_t address, uint8_t offset, uint8_t *data, uint32_t size)
 {
 	struct dc_link *link = handle;
 
@@ -60,56 +62,52 @@ STATIC_IFN_KUNIT bool lp_read_i2c(void *handle, uint32_t address, uint8_t offset
 
 	return dm_helpers_submit_i2c(link->ctx, link, &cmd);
 }
-EXPORT_IF_KUNIT(lp_read_i2c);
 
-STATIC_IFN_KUNIT bool lp_write_dpcd(void *handle, uint32_t address, const uint8_t *data, uint32_t size)
+static bool
+lp_write_dpcd(void *handle, uint32_t address, const uint8_t *data, uint32_t size)
 {
 	struct dc_link *link = handle;
 
 	return dm_helpers_dp_write_dpcd(link->ctx, link, address, data, size);
 }
-EXPORT_IF_KUNIT(lp_write_dpcd);
 
-STATIC_IFN_KUNIT bool lp_read_dpcd(void *handle, uint32_t address, uint8_t *data, uint32_t size)
+static bool
+lp_read_dpcd(void *handle, uint32_t address, uint8_t *data, uint32_t size)
 {
 	struct dc_link *link = handle;
 
 	return dm_helpers_dp_read_dpcd(link->ctx, link, address, data, size);
 }
-EXPORT_IF_KUNIT(lp_read_dpcd);
 
-STATIC_IFN_KUNIT bool lp_atomic_write_poll_read_i2c(
-						void *handle,
-						const struct mod_hdcp_atomic_op_i2c *write,
-						const struct mod_hdcp_atomic_op_i2c *poll,
-						struct mod_hdcp_atomic_op_i2c *read,
-						uint32_t poll_timeout_us,
-						uint8_t poll_mask_msb
+static bool lp_atomic_write_poll_read_i2c(
+		void *handle,
+		const struct mod_hdcp_atomic_op_i2c *write,
+		const struct mod_hdcp_atomic_op_i2c *poll,
+		struct mod_hdcp_atomic_op_i2c *read,
+		uint32_t poll_timeout_us,
+		uint8_t poll_mask_msb
 )
 {
 	struct dc_link *link = handle;
 
 	return dm_atomic_write_poll_read_i2c(link, write, poll, read, poll_timeout_us, poll_mask_msb);
 }
-EXPORT_IF_KUNIT(lp_atomic_write_poll_read_i2c);
 
-STATIC_IFN_KUNIT bool lp_atomic_write_poll_read_aux(
-						void *handle,
-						const struct mod_hdcp_atomic_op_aux *write,
-						const struct mod_hdcp_atomic_op_aux *poll,
-						struct mod_hdcp_atomic_op_aux *read,
-						uint32_t poll_timeout_us,
-						uint8_t poll_mask_msb
+static bool lp_atomic_write_poll_read_aux(
+		void *handle,
+		const struct mod_hdcp_atomic_op_aux *write,
+		const struct mod_hdcp_atomic_op_aux *poll,
+		struct mod_hdcp_atomic_op_aux *read,
+		uint32_t poll_timeout_us,
+		uint8_t poll_mask_msb
 )
 {
 	struct dc_link *link = handle;
 
 	return dm_atomic_write_poll_read_aux(link, write, poll, read, poll_timeout_us, poll_mask_msb);
 }
-EXPORT_IF_KUNIT(lp_atomic_write_poll_read_aux);
 
-STATIC_IFN_KUNIT
-uint8_t *psp_get_srm(struct psp_context *psp, uint32_t *srm_version, uint32_t *srm_size)
+static uint8_t *psp_get_srm(struct psp_context *psp, uint32_t *srm_version, uint32_t *srm_size)
 {
 	struct ta_hdcp_shared_memory *hdcp_cmd;
 
@@ -132,10 +130,8 @@ uint8_t *psp_get_srm(struct psp_context *psp, uint32_t *srm_version, uint32_t *s
 
 	return hdcp_cmd->out_msg.hdcp_get_srm.srm_buf;
 }
-EXPORT_IF_KUNIT(psp_get_srm);
 
-STATIC_IFN_KUNIT
-int psp_set_srm(struct psp_context *psp,
+static int psp_set_srm(struct psp_context *psp,
 		       u8 *srm, uint32_t srm_size, uint32_t *srm_version)
 {
 	struct ta_hdcp_shared_memory *hdcp_cmd;
@@ -162,7 +158,6 @@ int psp_set_srm(struct psp_context *psp,
 	*srm_version = hdcp_cmd->out_msg.hdcp_set_srm.srm_version;
 	return 0;
 }
-EXPORT_IF_KUNIT(psp_set_srm);
 
 STATIC_IFN_KUNIT
 void process_output(struct hdcp_workqueue *hdcp_work)
@@ -187,72 +182,7 @@ void process_output(struct hdcp_workqueue *hdcp_work)
 }
 EXPORT_IF_KUNIT(process_output);
 
-STATIC_IFN_KUNIT
-bool hdcp_get_content_protection_from_status(
-	unsigned int hdcp_content_type,
-	enum mod_hdcp_encryption_status encryption_status,
-	unsigned int *content_protection)
-{
-	if (encryption_status == MOD_HDCP_ENCRYPTION_STATUS_HDCP_OFF) {
-		*content_protection = DRM_MODE_CONTENT_PROTECTION_DESIRED;
-		return true;
-	}
-
-	if (hdcp_content_type == DRM_MODE_HDCP_CONTENT_TYPE0 &&
-	    encryption_status <= MOD_HDCP_ENCRYPTION_STATUS_HDCP2_TYPE0_ON) {
-		*content_protection = DRM_MODE_CONTENT_PROTECTION_ENABLED;
-		return true;
-	}
-
-	if (hdcp_content_type == DRM_MODE_HDCP_CONTENT_TYPE1 &&
-	    encryption_status == MOD_HDCP_ENCRYPTION_STATUS_HDCP2_TYPE1_ON) {
-		*content_protection = DRM_MODE_CONTENT_PROTECTION_ENABLED;
-		return true;
-	}
-
-	return false;
-}
-EXPORT_IF_KUNIT(hdcp_get_content_protection_from_status);
-
-STATIC_IFN_KUNIT
-void hdcp_get_link_display_adjustments(
-	bool enable_encryption,
-	u8 content_type,
-	bool fused_io_supported,
-	bool hdcp_lc_force_fw_enable,
-	bool hdcp_lc_enable_sw_fallback,
-	struct mod_hdcp_link_adjustment *link_adjust,
-	struct mod_hdcp_display_adjustment *display_adjust)
-{
-	memset(link_adjust, 0, sizeof(*link_adjust));
-	memset(display_adjust, 0, sizeof(*display_adjust));
-
-	if (!enable_encryption) {
-		display_adjust->disable =
-			MOD_HDCP_DISPLAY_DISABLE_AUTHENTICATION;
-		return;
-	}
-
-	display_adjust->disable = MOD_HDCP_DISPLAY_NOT_DISABLE;
-	link_adjust->auth_delay = 2;
-	link_adjust->retry_limit = MAX_NUM_OF_ATTEMPTS;
-
-	if (content_type == DRM_MODE_HDCP_CONTENT_TYPE0) {
-		link_adjust->hdcp2.force_type = MOD_HDCP_FORCE_TYPE_0;
-	} else if (content_type == DRM_MODE_HDCP_CONTENT_TYPE1) {
-		link_adjust->hdcp1.disable = 1;
-		link_adjust->hdcp2.force_type = MOD_HDCP_FORCE_TYPE_1;
-	}
-
-	link_adjust->hdcp2.use_fw_locality_check =
-		fused_io_supported || hdcp_lc_force_fw_enable;
-	link_adjust->hdcp2.use_sw_locality_fallback =
-		hdcp_lc_enable_sw_fallback;
-}
-EXPORT_IF_KUNIT(hdcp_get_link_display_adjustments);
-
-STATIC_IFN_KUNIT
-void link_lock(struct hdcp_workqueue *work, bool lock)
+static void link_lock(struct hdcp_workqueue *work, bool lock)
 {
 	int i = 0;
 
@@ -263,31 +193,6 @@ void link_lock(struct hdcp_workqueue *work, bool lock)
 			mutex_unlock(&work[i].mutex);
 	}
 }
-EXPORT_IF_KUNIT(link_lock);
-
-STATIC_IFN_KUNIT
-void hdcp_update_display_encryption_control(struct hdcp_workqueue *hdcp_work,
-					    struct hdcp_workqueue *hdcp_w,
-					    unsigned int conn_index,
-					    bool enable_encryption)
-{
-	if (enable_encryption) {
-		/* Explicitly set the saved SRM as sysfs call will be after we already enabled hdcp
-		 * (s3 resume case)
-		 */
-		if (hdcp_work->srm_size > 0)
-			psp_set_srm(hdcp_work->hdcp.config.psp.handle, hdcp_work->srm,
-				    hdcp_work->srm_size,
-				    &hdcp_work->srm_version);
-
-		schedule_delayed_work(&hdcp_w->property_validate_dwork,
-				      msecs_to_jiffies(DRM_HDCP_CHECK_PERIOD_MS));
-	} else {
-		hdcp_w->encryption_status[conn_index] = MOD_HDCP_ENCRYPTION_STATUS_HDCP_OFF;
-		cancel_delayed_work(&hdcp_w->property_validate_dwork);
-	}
-}
-EXPORT_IF_KUNIT(hdcp_update_display_encryption_control);
 
 void hdcp_update_display(struct hdcp_workqueue *hdcp_work,
 			 unsigned int link_index,
@@ -307,22 +212,47 @@ void hdcp_update_display(struct hdcp_workqueue *hdcp_work,
 		drm_connector_put(&hdcp_w->aconnector[conn_index]->base);
 	hdcp_w->aconnector[conn_index] = aconnector;
 
-	hdcp_get_link_display_adjustments(enable_encryption, content_type,
-			dc->caps.fused_io_supported,
-			dc->debug.hdcp_lc_force_fw_enable,
-			dc->debug.hdcp_lc_enable_sw_fallback,
-			&link_adjust, &display_adjust);
-	hdcp_update_display_encryption_control(hdcp_work, hdcp_w, conn_index,
-					      enable_encryption);
+	memset(&link_adjust, 0, sizeof(link_adjust));
+	memset(&display_adjust, 0, sizeof(display_adjust));
+
+	if (enable_encryption) {
+		/* Explicitly set the saved SRM as sysfs call will be after we already enabled hdcp
+		 * (s3 resume case)
+		 */
+		if (hdcp_work->srm_size > 0)
+			psp_set_srm(hdcp_work->hdcp.config.psp.handle, hdcp_work->srm,
+				    hdcp_work->srm_size,
+				    &hdcp_work->srm_version);
+
+		display_adjust.disable = MOD_HDCP_DISPLAY_NOT_DISABLE;
+
+		link_adjust.auth_delay = 2;
+		link_adjust.retry_limit = MAX_NUM_OF_ATTEMPTS;
+
+		if (content_type == DRM_MODE_HDCP_CONTENT_TYPE0) {
+			link_adjust.hdcp2.force_type = MOD_HDCP_FORCE_TYPE_0;
+		} else if (content_type == DRM_MODE_HDCP_CONTENT_TYPE1) {
+			link_adjust.hdcp1.disable = 1;
+			link_adjust.hdcp2.force_type = MOD_HDCP_FORCE_TYPE_1;
+		}
+		link_adjust.hdcp2.use_fw_locality_check =
+				(dc->caps.fused_io_supported || dc->debug.hdcp_lc_force_fw_enable);
+		link_adjust.hdcp2.use_sw_locality_fallback = dc->debug.hdcp_lc_enable_sw_fallback;
+
+		schedule_delayed_work(&hdcp_w->property_validate_dwork,
+				      msecs_to_jiffies(DRM_HDCP_CHECK_PERIOD_MS));
+	} else {
+		display_adjust.disable = MOD_HDCP_DISPLAY_DISABLE_AUTHENTICATION;
+		hdcp_w->encryption_status[conn_index] = MOD_HDCP_ENCRYPTION_STATUS_HDCP_OFF;
+		cancel_delayed_work(&hdcp_w->property_validate_dwork);
+	}
 
 	mod_hdcp_update_display(&hdcp_w->hdcp, conn_index, &link_adjust, &display_adjust, &hdcp_w->output);
 
 	process_output(hdcp_w);
 }
-EXPORT_IF_KUNIT(hdcp_update_display);
 
-STATIC_IFN_KUNIT
-void hdcp_remove_display(struct hdcp_workqueue *hdcp_work,
+static void hdcp_remove_display(struct hdcp_workqueue *hdcp_work,
 				unsigned int link_index,
 			 struct amdgpu_dm_connector *aconnector)
 {
@@ -352,7 +282,6 @@ void hdcp_remove_display(struct hdcp_workqueue *hdcp_work,
 	}
 	process_output(hdcp_w);
 }
-EXPORT_IF_KUNIT(hdcp_remove_display);
 
 void hdcp_reset_display(struct hdcp_workqueue *hdcp_work, unsigned int link_index)
 {
@@ -365,7 +294,7 @@ void hdcp_reset_display(struct hdcp_workqueue *hdcp_work, unsigned int link_inde
 
 	cancel_delayed_work(&hdcp_w->property_validate_dwork);
 
-	for (conn_index = 0; conn_index < AMDGPU_DM_MAX_DISPLAY_COUNT; conn_index++) {
+	for (conn_index = 0; conn_index < AMDGPU_DM_MAX_DISPLAY_INDEX; conn_index++) {
 		hdcp_w->encryption_status[conn_index] =
 			MOD_HDCP_ENCRYPTION_STATUS_HDCP_OFF;
 		if (hdcp_w->aconnector[conn_index]) {
@@ -376,7 +305,6 @@ void hdcp_reset_display(struct hdcp_workqueue *hdcp_work, unsigned int link_inde
 
 	process_output(hdcp_w);
 }
-EXPORT_IF_KUNIT(hdcp_reset_display);
 
 void hdcp_handle_cpirq(struct hdcp_workqueue *hdcp_work, unsigned int link_index)
 {
@@ -384,10 +312,8 @@ void hdcp_handle_cpirq(struct hdcp_workqueue *hdcp_work, unsigned int link_index
 
 	schedule_work(&hdcp_w->cpirq_work);
 }
-EXPORT_IF_KUNIT(hdcp_handle_cpirq);
 
-STATIC_IFN_KUNIT
-void event_callback(struct work_struct *work)
+static void event_callback(struct work_struct *work)
 {
 	struct hdcp_workqueue *hdcp_work;
 
@@ -403,22 +329,19 @@ void event_callback(struct work_struct *work)
 
 	process_output(hdcp_work);
 }
-EXPORT_IF_KUNIT(event_callback);
 
-STATIC_IFN_KUNIT
-void event_property_update(struct work_struct *work)
+static void event_property_update(struct work_struct *work)
 {
 	struct hdcp_workqueue *hdcp_work = container_of(work, struct hdcp_workqueue,
 							property_update_work);
 	struct amdgpu_dm_connector *aconnector = NULL;
 	struct drm_device *dev;
-	unsigned int content_protection;
 	long ret;
 	unsigned int conn_index;
 	struct drm_connector *connector;
 	struct drm_connector_state *conn_state;
 
-	for (conn_index = 0; conn_index < AMDGPU_DM_MAX_DISPLAY_COUNT; conn_index++) {
+	for (conn_index = 0; conn_index < AMDGPU_DM_MAX_DISPLAY_INDEX; conn_index++) {
 		aconnector = hdcp_work->aconnector[conn_index];
 
 		if (!aconnector)
@@ -452,23 +375,32 @@ void event_property_update(struct work_struct *work)
 					MOD_HDCP_ENCRYPTION_STATUS_HDCP_OFF;
 			}
 		}
-		if (hdcp_get_content_protection_from_status(conn_state->hdcp_content_type,
-							    hdcp_work->encryption_status[conn_index],
-							    &content_protection)) {
-			if (content_protection == DRM_MODE_CONTENT_PROTECTION_ENABLED)
+		if (hdcp_work->encryption_status[conn_index] !=
+			MOD_HDCP_ENCRYPTION_STATUS_HDCP_OFF) {
+			if (conn_state->hdcp_content_type ==
+				DRM_MODE_HDCP_CONTENT_TYPE0 &&
+				hdcp_work->encryption_status[conn_index] <=
+				MOD_HDCP_ENCRYPTION_STATUS_HDCP2_TYPE0_ON) {
 				DRM_DEBUG_DRIVER("[HDCP_DM] DRM_MODE_CONTENT_PROTECTION_ENABLED\n");
-			else
-				DRM_DEBUG_DRIVER("[HDCP_DM] DRM_MODE_CONTENT_PROTECTION_DESIRED\n");
-
-			drm_hdcp_update_content_protection(connector, content_protection);
+				drm_hdcp_update_content_protection(connector,
+								   DRM_MODE_CONTENT_PROTECTION_ENABLED);
+			} else if (conn_state->hdcp_content_type ==
+					DRM_MODE_HDCP_CONTENT_TYPE1 &&
+					hdcp_work->encryption_status[conn_index] ==
+					MOD_HDCP_ENCRYPTION_STATUS_HDCP2_TYPE1_ON) {
+				drm_hdcp_update_content_protection(connector,
+								   DRM_MODE_CONTENT_PROTECTION_ENABLED);
+			}
+		} else {
+			DRM_DEBUG_DRIVER("[HDCP_DM] DRM_MODE_CONTENT_PROTECTION_DESIRED\n");
+			drm_hdcp_update_content_protection(connector,
+							   DRM_MODE_CONTENT_PROTECTION_DESIRED);
 		}
 		drm_modeset_unlock(&dev->mode_config.connection_mutex);
 	}
 }
-EXPORT_IF_KUNIT(event_property_update);
 
-STATIC_IFN_KUNIT
-void event_property_validate(struct work_struct *work)
+static void event_property_validate(struct work_struct *work)
 {
 	struct hdcp_workqueue *hdcp_work =
 		container_of(to_delayed_work(work), struct hdcp_workqueue, property_validate_dwork);
@@ -478,7 +410,7 @@ void event_property_validate(struct work_struct *work)
 
 	guard(mutex)(&hdcp_work->mutex);
 
-	for (conn_index = 0; conn_index < AMDGPU_DM_MAX_DISPLAY_COUNT;
+	for (conn_index = 0; conn_index < AMDGPU_DM_MAX_DISPLAY_INDEX;
 	     conn_index++) {
 		aconnector = hdcp_work->aconnector[conn_index];
 
@@ -517,10 +449,8 @@ void event_property_validate(struct work_struct *work)
 		}
 	}
 }
-EXPORT_IF_KUNIT(event_property_validate);
 
-STATIC_IFN_KUNIT
-void event_watchdog_timer(struct work_struct *work)
+static void event_watchdog_timer(struct work_struct *work)
 {
 	struct hdcp_workqueue *hdcp_work;
 
@@ -538,10 +468,8 @@ void event_watchdog_timer(struct work_struct *work)
 
 	process_output(hdcp_work);
 }
-EXPORT_IF_KUNIT(event_watchdog_timer);
 
-STATIC_IFN_KUNIT
-void event_cpirq(struct work_struct *work)
+static void event_cpirq(struct work_struct *work)
 {
 	struct hdcp_workqueue *hdcp_work;
 
@@ -553,7 +481,6 @@ void event_cpirq(struct work_struct *work)
 
 	process_output(hdcp_work);
 }
-EXPORT_IF_KUNIT(event_cpirq);
 
 void hdcp_destroy(struct kobject *kobj, struct hdcp_workqueue *hdcp_work)
 {
@@ -570,10 +497,8 @@ void hdcp_destroy(struct kobject *kobj, struct hdcp_workqueue *hdcp_work)
 	kfree(hdcp_work->srm_temp);
 	kfree(hdcp_work);
 }
-EXPORT_IF_KUNIT(hdcp_destroy);
 
-STATIC_IFN_KUNIT
-bool enable_assr(void *handle, struct dc_link *link)
+static bool enable_assr(void *handle, struct dc_link *link)
 {
 	struct hdcp_workqueue *hdcp_work = handle;
 	struct mod_hdcp hdcp = hdcp_work->hdcp;
@@ -606,33 +531,19 @@ bool enable_assr(void *handle, struct dc_link *link)
 
 	return true;
 }
-EXPORT_IF_KUNIT(enable_assr);
 
-STATIC_IFN_KUNIT
-void update_config(void *handle, struct cp_psp_stream_config *config)
+static void update_config(void *handle, struct cp_psp_stream_config *config)
 {
 	struct hdcp_workqueue *hdcp_work = handle;
-	struct amdgpu_dm_connector *aconnector;
-	const struct dc *dc;
-	int link_index;
-	unsigned int conn_index;
-	struct mod_hdcp_display *display;
-	struct mod_hdcp_link *link;
-	struct hdcp_workqueue *hdcp_w;
+	struct amdgpu_dm_connector *aconnector = config->dm_stream_ctx;
+	int link_index = aconnector->dc_link->link_index;
+	unsigned int conn_index = aconnector->base.index;
+	struct mod_hdcp_display *display = &hdcp_work[link_index].display;
+	struct mod_hdcp_link *link = &hdcp_work[link_index].link;
+	struct hdcp_workqueue *hdcp_w = &hdcp_work[link_index];
 	struct dc_sink *sink = NULL;
 	bool link_is_hdcp14 = false;
-
-	aconnector = config->dm_stream_ctx;
-	if (!aconnector || !aconnector->dc_link)
-		return;
-
-	link_index = aconnector->dc_link->link_index;
-	display = &hdcp_work[link_index].display;
-	link = &hdcp_work[link_index].link;
-	hdcp_w = &hdcp_work[link_index];
-
-	conn_index = aconnector->base.index;
-	dc = aconnector->dc_link->dc;
+	const struct dc *dc = aconnector->dc_link->dc;
 
 	if (config->dpms_off) {
 		hdcp_remove_display(hdcp_work, link_index, aconnector);
@@ -670,7 +581,7 @@ void update_config(void *handle, struct cp_psp_stream_config *config)
 	link->dp.mst_enabled = config->mst_enabled;
 	link->dp.dp2_enabled = config->dp2_enabled;
 	link->dp.usb4_enabled = config->usb4_enabled;
-	if (sink && sink->sink_signal == SIGNAL_TYPE_HDMI_FRL)
+	if (aconnector->dc_sink->sink_signal == SIGNAL_TYPE_HDMI_FRL)
 		link->hdmi.frl_enabled = config->frl_enabled;
 	display->adjust.disable = MOD_HDCP_DISPLAY_DISABLE_AUTHENTICATION;
 	link->adjust.auth_delay = 2;
@@ -695,7 +606,6 @@ void update_config(void *handle, struct cp_psp_stream_config *config)
 	hdcp_w->aconnector[conn_index] = aconnector;
 	process_output(hdcp_w);
 }
-EXPORT_IF_KUNIT(update_config);
 
 /**
  * DOC: Add sysfs interface for set/get srm
@@ -745,7 +655,7 @@ EXPORT_IF_KUNIT(update_config);
  *	-if we try to "1. SET" a newer version and PSP rejects it. That means the format is
  *	incorrect/corrupted and we should correct our SRM by getting it from PSP
  */
-STATIC_IFN_KUNIT ssize_t srm_data_write(struct file *filp, struct kobject *kobj,
+static ssize_t srm_data_write(struct file *filp, struct kobject *kobj,
 			      const struct bin_attribute *bin_attr, char *buffer,
 			      loff_t pos, size_t count)
 {
@@ -768,9 +678,8 @@ STATIC_IFN_KUNIT ssize_t srm_data_write(struct file *filp, struct kobject *kobj,
 
 	return count;
 }
-EXPORT_IF_KUNIT(srm_data_write);
 
-STATIC_IFN_KUNIT ssize_t srm_data_read(struct file *filp, struct kobject *kobj,
+static ssize_t srm_data_read(struct file *filp, struct kobject *kobj,
 			     const struct bin_attribute *bin_attr, char *buffer,
 			     loff_t pos, size_t count)
 {
@@ -806,7 +715,6 @@ ret:
 	link_lock(work, false);
 	return ret;
 }
-EXPORT_IF_KUNIT(srm_data_read);
 
 /* From the hdcp spec (5.Renewability) SRM needs to be stored in a non-volatile memory.
  *
@@ -897,10 +805,10 @@ struct hdcp_workqueue *hdcp_create_workqueue(struct amdgpu_device *adev,
 
 		memset(hdcp_work[i].aconnector, 0,
 		       sizeof(struct amdgpu_dm_connector *) *
-			       AMDGPU_DM_MAX_DISPLAY_COUNT);
+			       AMDGPU_DM_MAX_DISPLAY_INDEX);
 		memset(hdcp_work[i].encryption_status, 0,
 		       sizeof(enum mod_hdcp_encryption_status) *
-			       AMDGPU_DM_MAX_DISPLAY_COUNT);
+			       AMDGPU_DM_MAX_DISPLAY_INDEX);
 	}
 
 	cp_psp->funcs.update_stream_config = update_config;
@@ -923,5 +831,4 @@ fail_alloc_context:
 
 	return NULL;
 }
-EXPORT_IF_KUNIT(hdcp_create_workqueue);
 

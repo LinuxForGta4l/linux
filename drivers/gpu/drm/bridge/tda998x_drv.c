@@ -1410,8 +1410,7 @@ static enum drm_mode_status tda998x_bridge_mode_valid(struct drm_bridge *bridge,
 	return MODE_OK;
 }
 
-static void tda998x_bridge_enable(struct drm_bridge *bridge,
-				  struct drm_atomic_commit *commit)
+static void tda998x_bridge_enable(struct drm_bridge *bridge)
 {
 	struct tda998x_priv *priv = bridge_to_tda998x_priv(bridge);
 
@@ -1429,8 +1428,7 @@ static void tda998x_bridge_enable(struct drm_bridge *bridge,
 	}
 }
 
-static void tda998x_bridge_disable(struct drm_bridge *bridge,
-				   struct drm_atomic_commit *commit)
+static void tda998x_bridge_disable(struct drm_bridge *bridge)
 {
 	struct tda998x_priv *priv = bridge_to_tda998x_priv(bridge);
 
@@ -1747,15 +1745,12 @@ static void tda998x_bridge_hpd_disable(struct drm_bridge *bridge)
 }
 
 static const struct drm_bridge_funcs tda998x_bridge_funcs = {
-	.atomic_create_state = drm_atomic_helper_bridge_create_state,
-	.atomic_destroy_state = drm_atomic_helper_bridge_destroy_state,
-	.atomic_duplicate_state = drm_atomic_helper_bridge_duplicate_state,
 	.attach = tda998x_bridge_attach,
 	.detach = tda998x_bridge_detach,
 	.mode_valid = tda998x_bridge_mode_valid,
-	.atomic_disable = tda998x_bridge_disable,
+	.disable = tda998x_bridge_disable,
 	.mode_set = tda998x_bridge_mode_set,
-	.atomic_enable = tda998x_bridge_enable,
+	.enable = tda998x_bridge_enable,
 	.edid_read = tda998x_bridge_edid_read,
 	.detect = tda998x_bridge_detect,
 	.hpd_enable = tda998x_bridge_hpd_enable,
@@ -2064,7 +2059,7 @@ MODULE_DEVICE_TABLE(of, tda998x_dt_ids);
 #endif
 
 static const struct i2c_device_id tda998x_ids[] = {
-	{ .name = "tda998x" },
+	{ "tda998x" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tda998x_ids);

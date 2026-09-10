@@ -193,7 +193,7 @@ static void bo_meminfo(struct xe_bo *bo,
 		if (!dma_resv_test_signaled(bo->ttm.base.resv,
 					    DMA_RESV_USAGE_BOOKKEEP))
 			stats[mem_type].active += sz;
-		else if (mem_type == XE_PL_SYSTEM || xe_bo_madv_is_dontneed(bo))
+		else if (mem_type == XE_PL_SYSTEM)
 			stats[mem_type].purgeable += sz;
 	}
 }
@@ -273,7 +273,8 @@ static void show_meminfo(struct drm_printer *p, struct drm_file *file)
 					       &stats[mem_type],
 					       DRM_GEM_OBJECT_ACTIVE |
 					       DRM_GEM_OBJECT_RESIDENT |
-					       DRM_GEM_OBJECT_PURGEABLE,
+					       (mem_type != XE_PL_SYSTEM ? 0 :
+					       DRM_GEM_OBJECT_PURGEABLE),
 					       xe_mem_type_to_name[mem_type]);
 		}
 	}

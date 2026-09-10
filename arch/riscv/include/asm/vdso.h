@@ -19,14 +19,10 @@
 
 #ifdef CONFIG_MMU
 #include <generated/vdso-offsets.h>
-#else
-extern size_t __vdso_alternatives_start_offset, __vdso_alternatives_end_offset;
 #endif
 
 #ifdef CONFIG_RISCV_USER_CFI
 #include <generated/vdso-cfi-offsets.h>
-#else
-extern size_t __vdso_alternatives_start_cfi_offset, __vdso_alternatives_end_cfi_offset;
 #endif
 
 #ifdef CONFIG_RISCV_USER_CFI
@@ -45,8 +41,6 @@ extern size_t __vdso_alternatives_start_cfi_offset, __vdso_alternatives_end_cfi_
 #define COMPAT_VDSO_SYMBOL(base, name)						\
 	(void __user *)((unsigned long)(base) + compat__vdso_##name##_offset)
 
-#else
-extern size_t compat__vdso_alternatives_start_offset, compat__vdso_alternatives_end_offset;
 #endif /* CONFIG_COMPAT */
 
 extern char vdso_start[], vdso_end[];

@@ -49,11 +49,8 @@ static int rt6245_enable(struct regulator_dev *rdev)
 
 	regcache_cache_only(regmap, false);
 	ret = regcache_sync(regmap);
-	if (ret) {
-		regcache_cache_only(regmap, true);
-		gpiod_direction_output(priv->enable_gpio, 0);
+	if (ret)
 		return ret;
-	}
 
 	priv->enable_state = true;
 	return 0;

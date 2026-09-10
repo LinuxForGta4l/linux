@@ -302,8 +302,7 @@ static inline struct fib_table *fib_get_table(struct net *net, u32 id)
 		&net->ipv4.fib_table_hash[TABLE_LOCAL_INDEX] :
 		&net->ipv4.fib_table_hash[TABLE_MAIN_INDEX];
 
-	/* Only fib4_rules_init() adds fib_table. */
-	tb_hlist = rcu_dereference_protected(hlist_first_rcu(ptr), true);
+	tb_hlist = rcu_dereference_rtnl(hlist_first_rcu(ptr));
 
 	return hlist_entry(tb_hlist, struct fib_table, tb_hlist);
 }

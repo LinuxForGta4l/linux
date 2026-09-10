@@ -479,10 +479,7 @@ for details.
 
 To maximize the number of tests passing, the .config of the kernel
 under test should match the config file fragment in
-tools/testing/selftests/bpf as closely as possible. If not possible,
-however, you can set ``BPF_STRICT_BUILD=0`` when invoking ``make``
-to tolerate individual compilation failures and continue building
-the remaining tests rather than treating each failure as fatal.
+tools/testing/selftests/bpf as closely as possible.
 
 Finally to ensure support for latest BPF Type Format features -
 discussed in Documentation/bpf/btf.rst - pahole version 1.16

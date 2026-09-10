@@ -2219,7 +2219,7 @@ int b53_fdb_dump(struct dsa_switch *ds, int port,
 
 	mutex_unlock(&priv->arl_mutex);
 
-	return ret;
+	return 0;
 }
 EXPORT_SYMBOL(b53_fdb_dump);
 

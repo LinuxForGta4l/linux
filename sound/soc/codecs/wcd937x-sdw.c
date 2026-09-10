@@ -1084,16 +1084,10 @@ static int wcd937x_sdw_runtime_suspend(struct device *dev)
 static int wcd937x_sdw_runtime_resume(struct device *dev)
 {
 	struct wcd937x_sdw_priv *wcd = dev_get_drvdata(dev);
-	int ret;
 
 	if (wcd->regmap) {
 		regcache_cache_only(wcd->regmap, false);
-		ret = regcache_sync(wcd->regmap);
-		if (ret) {
-			regcache_cache_only(wcd->regmap, true);
-			regcache_mark_dirty(wcd->regmap);
-			return ret;
-		}
+		regcache_sync(wcd->regmap);
 	}
 
 	return 0;

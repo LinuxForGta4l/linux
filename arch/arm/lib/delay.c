@@ -12,6 +12,7 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/timex.h>
 
 /*
  * Default to the loop-based delay implementation.
@@ -26,14 +27,15 @@ static const struct delay_timer *delay_timer;
 static bool delay_calibrated;
 static u64 delay_res;
 
-bool delay_read_timer(unsigned long *timer_val)
+int read_current_timer(unsigned long *timer_val)
 {
 	if (!delay_timer)
-		return false;
+		return -ENXIO;
+
 	*timer_val = delay_timer->read_current_timer();
-	return true;
+	return 0;
 }
-EXPORT_SYMBOL_GPL(delay_read_timer);
+EXPORT_SYMBOL_GPL(read_current_timer);
 
 static inline u64 cyc_to_ns(u64 cyc, u32 mult, u32 shift)
 {

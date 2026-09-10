@@ -60,23 +60,32 @@ static int hid_gaff_play(struct input_dev *dev, void *data,
 	return 0;
 }
 
-static int gaff_input_configured(struct hid_device *hid, struct hid_input *hidinput)
+static int gaff_init(struct hid_device *hid)
 {
 	struct gaff_device *gaff;
 	struct hid_report *report;
+	struct hid_input *hidinput;
 	struct list_head *report_list =
 			&hid->report_enum[HID_OUTPUT_REPORT].report_list;
-	struct input_dev *dev = hidinput->input;
+	struct list_head *report_ptr = report_list;
+	struct input_dev *dev;
 	int error;
 
-	if (!list_is_first(&hidinput->list, &hid->inputs))
-		return 0;
+	if (list_empty(&hid->inputs)) {
+		hid_err(hid, "no inputs found\n");
+		return -ENODEV;
+	}
+	hidinput = list_entry(hid->inputs.next, struct hid_input, list);
+	dev = hidinput->input;
 
-	report = list_first_entry_or_null(report_list, struct hid_report, list);
-	if (!report) {
+	if (list_empty(report_list)) {
 		hid_err(hid, "no output reports found\n");
 		return -ENODEV;
 	}
+
+	report_ptr = report_ptr->next;
+
+	report = list_entry(report_ptr, struct hid_report, list);
 	if (report->maxfield < 1) {
 		hid_err(hid, "no fields in the report\n");
 		return -ENODEV;
@@ -91,7 +100,6 @@ static int gaff_input_configured(struct hid_device *hid, struct hid_input *hidin
 	if (!gaff)
 		return -ENOMEM;
 
-	gaff->report = report;
 	set_bit(FF_RUMBLE, dev->ffbit);
 
 	error = input_ff_create_memless(dev, gaff, hid_gaff_play);
@@ -100,6 +108,7 @@ static int gaff_input_configured(struct hid_device *hid, struct hid_input *hidin
 		return error;
 	}
 
+	gaff->report = report;
 	gaff->report->field[0]->value[0] = 0x51;
 	gaff->report->field[0]->value[1] = 0x00;
 	gaff->report->field[0]->value[2] = 0x00;
@@ -116,12 +125,36 @@ static int gaff_input_configured(struct hid_device *hid, struct hid_input *hidin
 	return 0;
 }
 #else
-static inline int gaff_input_configured(struct hid_device *hdev,
-					struct hid_input *hidinput)
+static inline int gaff_init(struct hid_device *hdev)
 {
 	return 0;
 }
 #endif
+
+static int ga_probe(struct hid_device *hdev, const struct hid_device_id *id)
+{
+	int ret;
+
+	dev_dbg(&hdev->dev, "Greenasia HID hardware probe...");
+
+	ret = hid_parse(hdev);
+	if (ret) {
+		hid_err(hdev, "parse failed\n");
+		goto err;
+	}
+
+	ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT & ~HID_CONNECT_FF);
+	if (ret) {
+		hid_err(hdev, "hw start failed\n");
+		goto err;
+	}
+
+	gaff_init(hdev);
+
+	return 0;
+err:
+	return ret;
+}
 
 static const struct hid_device_id ga_devices[] = {
 	{ HID_USB_DEVICE(USB_VENDOR_ID_GREENASIA, 0x0012),  },
@@ -132,7 +165,7 @@ MODULE_DEVICE_TABLE(hid, ga_devices);
 static struct hid_driver ga_driver = {
 	.name = "greenasia",
 	.id_table = ga_devices,
-	.input_configured = gaff_input_configured,
+	.probe = ga_probe,
 };
 module_hid_driver(ga_driver);
 

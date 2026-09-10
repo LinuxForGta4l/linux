@@ -119,7 +119,7 @@ EAS覆盖了CFS的任务唤醒平衡代码。在唤醒平衡时，它使用平�
 
 如果唤醒的任务被迁移，find_energy_efficient_cpu()使用compute_energy()来估算
 系统将消耗多少能量。compute_energy()检查各CPU当前的利用率情况，并尝试调整来
-“模拟”任务迁移。EM框架提供了API em_cpu_energy()计算每个性能域在给定的利用率条件
+“模拟”任务迁移。EM框架提供了API em_pd_energy()计算每个性能域在给定的利用率条件
 下的预期能量消耗。
 
 下面详细介绍一个优化能量消耗的任务放置决策的例子。

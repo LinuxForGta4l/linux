@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
 /* Copyright (c) 2022, NVIDIA CORPORATION & AFFILIATES. */
 
-#include <linux/slab.h>
 #include <rdma/ib_umem_odp.h>
 #include <rdma/iter.h>
 #include "mlx5_ib.h"
@@ -518,20 +517,22 @@ static void *mlx5r_umr_alloc_xlt(size_t *nents, size_t ent_size, gfp_t gfp_mask)
 	size = min_t(size_t, ent_size * ALIGN(*nents, xlt_chunk_align),
 		     MLX5_MAX_UMR_CHUNK);
 	*nents = size / ent_size;
-	res = kmalloc(PAGE_ALIGN(size), gfp_mask | __GFP_NOWARN);
+	res = (void *)__get_free_pages(gfp_mask | __GFP_NOWARN,
+				       get_order(size));
 	if (res)
 		return res;
 
 	if (size > MLX5_SPARE_UMR_CHUNK) {
 		size = MLX5_SPARE_UMR_CHUNK;
 		*nents = size / ent_size;
-		res = kmalloc(size, gfp_mask | __GFP_NOWARN);
+		res = (void *)__get_free_pages(gfp_mask | __GFP_NOWARN,
+					       get_order(size));
 		if (res)
 			return res;
 	}
 
 	*nents = PAGE_SIZE / ent_size;
-	res = kmalloc(PAGE_SIZE, gfp_mask);
+	res = (void *)__get_free_page(gfp_mask);
 	if (res)
 		return res;
 
@@ -547,7 +548,7 @@ static void mlx5r_umr_free_xlt(void *xlt, size_t length)
 		return;
 	}
 
-	kfree(xlt);
+	free_pages((unsigned long)xlt, get_order(length));
 }
 
 static void mlx5r_umr_unmap_free_xlt(struct mlx5_ib_dev *dev, void *xlt,
@@ -977,7 +978,7 @@ static inline int _mlx5r_dmabuf_umr_update_pas(struct mlx5_ib_mr *mr,
 						     start_block, nblocks);
 }
 
-/*
+/**
  * This function makes an mkey non-present by zapping the translation entries of
  * the mkey by zapping (zeroing out) the first N entries, where N is determined
  * by the largest page size supported by the device and the MR length.

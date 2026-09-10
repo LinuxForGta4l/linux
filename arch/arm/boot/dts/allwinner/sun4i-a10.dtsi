@@ -185,7 +185,7 @@
 
 	pmu {
 		compatible = "arm,cortex-a8-pmu";
-		interrupts = <66>;
+		interrupts = <3>;
 	};
 
 	reserved-memory {

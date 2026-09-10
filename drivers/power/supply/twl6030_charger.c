@@ -542,7 +542,9 @@ static int twl6030_charger_probe(struct platform_device *pdev)
 					IRQF_ONESHOT, pdev->name,
 					charger);
 	if (ret < 0)
-		return ret;
+		return dev_err_probe(&pdev->dev, ret,
+				     "could not request irq %d\n",
+				     charger->irq_chg);
 
 	/* turing to charging to configure things */
 	twl6030_charger_write(CONTROLLER_CTRL1, 0);

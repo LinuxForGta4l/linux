@@ -1613,9 +1613,9 @@ TRACE_EVENT(btrfs_sync_log_enter,
 		__entry->log_transid_committed	=
 			data_race(root->log_transid_committed);
 		__entry->log_committing		=
-			data_race(root->log_commit[ctx->log_transid % 2]);
+			atomic_read(&root->log_commit[ctx->log_transid % 2]);
 		__entry->log_committing_prev	=
-			data_race(root->log_commit[(ctx->log_transid + 1) % 2]);
+			atomic_read(&root->log_commit[(ctx->log_transid + 1) % 2]);
 		__entry->log_writers		= atomic_read(&root->log_writers);
 	),
 

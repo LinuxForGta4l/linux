@@ -63,7 +63,8 @@ pgd_alloc(struct mm_struct *mm)
 static inline unsigned long
 load_PCB(struct pcb_struct *pcb)
 {
-	pcb->ksp = (unsigned long)current_stack_pointer;
+	register unsigned long sp __asm__("$30");
+	pcb->ksp = sp;
 	return __reload_thread(pcb);
 }
 

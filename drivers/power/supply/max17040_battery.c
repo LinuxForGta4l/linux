@@ -192,11 +192,8 @@ static int max17040_raw_vcell_to_uvolts(struct max17040_chip *chip, u16 vcell)
 static int max17040_get_vcell(struct max17040_chip *chip)
 {
 	u32 vcell;
-	int ret;
 
-	ret = regmap_read(chip->regmap, MAX17040_VCELL, &vcell);
-	if (ret)
-		return ret;
+	regmap_read(chip->regmap, MAX17040_VCELL, &vcell);
 
 	return max17040_raw_vcell_to_uvolts(chip, vcell);
 }
@@ -204,11 +201,8 @@ static int max17040_get_vcell(struct max17040_chip *chip)
 static int max17040_get_soc(struct max17040_chip *chip)
 {
 	u32 soc;
-	int ret;
 
-	ret = regmap_read(chip->regmap, MAX17040_SOC, &soc);
-	if (ret)
-		return ret;
+	regmap_read(chip->regmap, MAX17040_SOC, &soc);
 
 	return soc >> (chip->quirk_double_soc ? 9 : 8);
 }
@@ -267,11 +261,7 @@ static int max17040_get_of_data(struct max17040_chip *chip)
 
 static void max17040_check_changes(struct max17040_chip *chip)
 {
-	int soc;
-
-	soc = max17040_get_soc(chip);
-	if (soc >= 0)
-		chip->soc = soc;
+	chip->soc = max17040_get_soc(chip);
 }
 
 static void max17040_queue_work(struct max17040_chip *chip)
@@ -406,16 +396,10 @@ static int max17040_get_property(struct power_supply *psy,
 		val->intval = max17040_get_online(chip);
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
-		ret = max17040_get_vcell(chip);
-		if (ret < 0)
-			return ret;
-		val->intval = ret;
+		val->intval = max17040_get_vcell(chip);
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
-		ret = max17040_get_soc(chip);
-		if (ret < 0)
-			return ret;
-		val->intval = ret;
+		val->intval = max17040_get_soc(chip);
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY_ALERT_MIN:
 		val->intval = chip->low_soc_alert;
@@ -474,11 +458,15 @@ static const struct power_supply_desc max17040_battery_desc = {
 static int max17040_probe(struct i2c_client *client)
 {
 	const struct i2c_device_id *id = i2c_client_get_device_id(client);
+	struct i2c_adapter *adapter = client->adapter;
 	struct power_supply_config psy_cfg = {};
 	struct max17040_chip *chip;
 	enum chip_id chip_id;
 	bool enable_irq = false;
 	int ret;
+
+	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE))
+		return -EIO;
 
 	chip = devm_kzalloc(&client->dev, sizeof(*chip), GFP_KERNEL);
 	if (!chip)
@@ -580,7 +568,7 @@ static int max17040_suspend(struct device *dev)
 		// disable soc alert to prevent wakeup
 		max17040_set_soc_alert(chip, 0);
 	else
-		cancel_delayed_work_sync(&chip->work);
+		cancel_delayed_work(&chip->work);
 
 	if (client->irq && device_may_wakeup(dev))
 		enable_irq_wake(client->irq);

@@ -11,7 +11,6 @@
 #include <linux/jiffies.h>
 #include <linux/sched.h>
 #include <linux/pci-p2pdma.h>
-#include <linux/pagemap.h>
 #include <linux/pm_runtime.h>
 #include <linux/memory-failure.h>
 
@@ -386,7 +385,7 @@ static unsigned long addr_to_pgoff(struct vm_area_struct *vma,
 	u64 pgoff = vma->vm_pgoff &
 		((1U << (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT)) - 1);
 
-	return linear_page_delta(vma, addr) + pgoff;
+	return ((addr - vma->vm_start) >> PAGE_SHIFT) + pgoff;
 }
 
 static vm_fault_t nvgrace_gpu_vfio_pci_huge_fault(struct vm_fault *vmf,

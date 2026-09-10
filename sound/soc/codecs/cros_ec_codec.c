@@ -12,7 +12,6 @@
 #include <linux/acpi.h>
 #include <linux/delay.h>
 #include <linux/device.h>
-#include <linux/cleanup.h>
 #include <linux/io.h>
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
@@ -320,18 +319,10 @@ static int i2s_rx_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 				    (uint8_t *)&p, sizeof(p), NULL, 0);
 }
 
-static const u64 i2s_rx_selectable_formats =
-	SND_SOC_POSSIBLE_DAIFMT_I2S	|
-	SND_SOC_POSSIBLE_DAIFMT_RIGHT_J	|
-	SND_SOC_POSSIBLE_DAIFMT_LEFT_J	|
-	SND_SOC_POSSIBLE_DAIFMT_NB_NF;
-
 static const struct snd_soc_dai_ops i2s_rx_dai_ops = {
 	.hw_params = i2s_rx_hw_params,
 	.set_fmt = i2s_rx_set_fmt,
 	.set_bclk_ratio = i2s_rx_set_bclk_ratio,
-	.auto_selectable_formats = &i2s_rx_selectable_formats,
-	.num_auto_selectable_formats = 1,
 };
 
 static int i2s_rx_event(struct snd_soc_dapm_widget *w,
@@ -617,10 +608,10 @@ static void wov_copy_work(struct work_struct *w)
 		container_of(w, struct cros_ec_codec_priv, wov_copy_work.work);
 	int ret;
 
-	guard(mutex)(&priv->wov_dma_lock);
+	mutex_lock(&priv->wov_dma_lock);
 	if (!priv->wov_substream) {
 		dev_warn(priv->dev, "no pcm substream\n");
-		return;
+		goto leave;
 	}
 
 	if (ec_codec_capable(priv, EC_CODEC_CAP_WOV_AUDIO_SHM))
@@ -633,6 +624,8 @@ static void wov_copy_work(struct work_struct *w)
 				      msecs_to_jiffies(10));
 	else if (ret)
 		dev_err(priv->dev, "failed to read audio data\n");
+leave:
+	mutex_unlock(&priv->wov_dma_lock);
 }
 
 static int wov_enable_get(struct snd_kcontrol *kcontrol,
@@ -902,11 +895,12 @@ static int wov_pcm_hw_params(struct snd_soc_component *component,
 	struct cros_ec_codec_priv *priv =
 		snd_soc_component_get_drvdata(component);
 
-	guard(mutex)(&priv->wov_dma_lock);
+	mutex_lock(&priv->wov_dma_lock);
 	priv->wov_substream = substream;
 	priv->wov_rp = priv->wov_wp = 0;
 	priv->wov_dma_offset = 0;
 	priv->wov_burst_read = true;
+	mutex_unlock(&priv->wov_dma_lock);
 
 	return 0;
 }
@@ -917,10 +911,10 @@ static int wov_pcm_hw_free(struct snd_soc_component *component,
 	struct cros_ec_codec_priv *priv =
 		snd_soc_component_get_drvdata(component);
 
-	scoped_guard(mutex, &priv->wov_dma_lock) {
-		wov_queue_dequeue(priv, wov_queue_size(priv));
-		priv->wov_substream = NULL;
-	}
+	mutex_lock(&priv->wov_dma_lock);
+	wov_queue_dequeue(priv, wov_queue_size(priv));
+	priv->wov_substream = NULL;
+	mutex_unlock(&priv->wov_dma_lock);
 
 	cancel_delayed_work_sync(&priv->wov_copy_work);
 

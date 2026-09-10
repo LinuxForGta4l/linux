@@ -46,7 +46,6 @@ static const struct v4l2_mbus_framefmt cvs_csi_format_mbus_default = {
 /**
  * csi_set_link_cfg - Program default CSI-2 link parameters
  * @ctx: CVS device context
- * @link_freq: Link frequency (Hz)
  *
  * Populates a HOST_SET_MIPI_CONFIG command using current lane count and
  * link frequency, then submits it to the device.
@@ -54,12 +53,12 @@ static const struct v4l2_mbus_framefmt cvs_csi_format_mbus_default = {
  *
  * Return: 0 on success or negative errno.
  */
-static int csi_set_link_cfg(struct icvs *ctx, u64 link_freq)
+static int csi_set_link_cfg(struct icvs *ctx)
 {
 	struct icvs_cmd cmd = {
 		.cmd_id = cpu_to_be16(ICVS_HOST_SET_MIPI_CONFIG),
 		.param.conf.nr_of_lanes = ctx->nr_of_lanes,
-		.param.conf.link_freq = link_freq,
+		.param.conf.link_freq = ctx->link_freq,
 	};
 	size_t cmd_size = sizeof(cmd.cmd_id) + sizeof(cmd.param.conf);
 
@@ -92,7 +91,7 @@ static int cvs_csi_enable_streams(struct v4l2_subdev *sd,
 	struct v4l2_subdev *remote_sd =
 			    media_entity_to_v4l2_subdev(ctx->remote->entity);
 	struct device *dev = cvs_dev(ctx);
-	s64 link_freq;
+	s64 freq;
 	int ret;
 
 	/* cvs_set_link_owner(ICVS_CSI_LINK_HOST) */
@@ -100,14 +99,15 @@ static int cvs_csi_enable_streams(struct v4l2_subdev *sd,
 	if (ret < 0)
 		return ret;
 
-	link_freq = v4l2_get_link_freq(ctx->remote, 0, 0);
-	if (link_freq < 0) {
-		ret = link_freq;
+	freq = v4l2_get_link_freq(ctx->remote, 0, 0);
+	if (freq < 0) {
+		ret = freq;
 		goto err_rpm_put;
 	}
+	ctx->link_freq = freq;
 
 	if (ctx->i2c_client) {
-		ret = csi_set_link_cfg(ctx, link_freq);
+		ret = csi_set_link_cfg(ctx);
 		if (ret < 0)
 			goto err_rpm_put_sync;
 	}
@@ -345,6 +345,7 @@ static int cvs_csi_get_mbus_config(struct v4l2_subdev *sd, unsigned int pad,
 	if (freq < 0)
 		return -EINVAL;
 
+	ctx->link_freq = freq;
 	cfg->link_freq = freq;
 
 	return 0;

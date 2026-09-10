@@ -1433,7 +1433,7 @@ static int nilfs_segctor_extend_segments(struct nilfs_sc_info *sci,
  failed:
 	list_for_each_entry(segbuf, &list, sb_list) {
 		ret = nilfs_sufile_free(sufile, segbuf->sb_nextnum);
-		nilfs_sufile_warn_on_error(sufile, ret);
+		WARN_ON(ret); /* never fails */
 	}
 	nilfs_destroy_logs(&list);
 	return err;
@@ -1449,7 +1449,7 @@ static void nilfs_free_incomplete_logs(struct list_head *logs,
 	segbuf = NILFS_FIRST_SEGBUF(logs);
 	if (nilfs->ns_nextnum != segbuf->sb_nextnum) {
 		ret = nilfs_sufile_free(sufile, segbuf->sb_nextnum);
-		nilfs_sufile_warn_on_error(sufile, ret);
+		WARN_ON(ret); /* never fails */
 	}
 	if (atomic_read(&segbuf->sb_err)) {
 		/* Case 1: The first segment failed */
@@ -1468,7 +1468,7 @@ static void nilfs_free_incomplete_logs(struct list_head *logs,
 	list_for_each_entry_continue(segbuf, logs, sb_list) {
 		if (prev->sb_nextnum != segbuf->sb_nextnum) {
 			ret = nilfs_sufile_free(sufile, segbuf->sb_nextnum);
-			nilfs_sufile_warn_on_error(sufile, ret);
+			WARN_ON(ret); /* never fails */
 		}
 		if (atomic_read(&segbuf->sb_err) &&
 		    segbuf->sb_segnum != nilfs->ns_nextnum)
@@ -1491,7 +1491,7 @@ static void nilfs_segctor_update_segusage(struct nilfs_sc_info *sci,
 		ret = nilfs_sufile_set_segment_usage(sufile, segbuf->sb_segnum,
 						     live_blocks,
 						     sci->sc_seg_ctime);
-		nilfs_sufile_warn_on_error(sufile, ret);
+		WARN_ON(ret); /* always succeed because the segusage is dirty */
 	}
 }
 
@@ -1504,32 +1504,28 @@ static void nilfs_cancel_segusage(struct list_head *logs, struct inode *sufile)
 	ret = nilfs_sufile_set_segment_usage(sufile, segbuf->sb_segnum,
 					     segbuf->sb_pseg_start -
 					     segbuf->sb_fseg_start, 0);
-	nilfs_sufile_warn_on_error(sufile, ret);
+	WARN_ON(ret); /* always succeed because the segusage is dirty */
 
 	list_for_each_entry_continue(segbuf, logs, sb_list) {
 		ret = nilfs_sufile_set_segment_usage(sufile, segbuf->sb_segnum,
 						     0, 0);
-		nilfs_sufile_warn_on_error(sufile, ret);
+		WARN_ON(ret); /* always succeed */
 	}
 }
 
-static int nilfs_segctor_truncate_segments(struct nilfs_sc_info *sci,
-					struct nilfs_segment_buffer *last,
-					struct inode *sufile)
+static void nilfs_segctor_truncate_segments(struct nilfs_sc_info *sci,
+					    struct nilfs_segment_buffer *last,
+					    struct inode *sufile)
 {
 	struct nilfs_segment_buffer *segbuf = last;
-	int ret, err = 0;
+	int ret;
 
 	list_for_each_entry_continue(segbuf, &sci->sc_segbufs, sb_list) {
 		sci->sc_segbuf_nblocks -= segbuf->sb_rest_blocks;
-
-		ret = nilfs_sufile_warn_on_error(
-			sufile, nilfs_sufile_free(sufile, segbuf->sb_nextnum));
-		if (unlikely(ret) && err != -EROFS)
-			err = ret;
+		ret = nilfs_sufile_free(sufile, segbuf->sb_nextnum);
+		WARN_ON(ret);
 	}
 	nilfs_truncate_logs(&sci->sc_segbufs, last);
-	return err;
 }
 
 
@@ -1568,7 +1564,7 @@ static int nilfs_segctor_collect(struct nilfs_sc_info *sci,
 							sci->sc_freesegs,
 							sci->sc_nfreesegs,
 							NULL);
-			nilfs_sufile_warn_on_error(nilfs->ns_sufile, err);
+			WARN_ON(err); /* do not happen */
 			sci->sc_stage.flags &= ~NILFS_CF_SUFREED;
 		}
 
@@ -1580,8 +1576,8 @@ static int nilfs_segctor_collect(struct nilfs_sc_info *sci,
 		sci->sc_stage = prev_stage;
 	}
 	nilfs_segctor_zeropad_segsum(sci);
-	err = nilfs_segctor_truncate_segments(sci, sci->sc_curseg,
-					nilfs->ns_sufile);
+	nilfs_segctor_truncate_segments(sci, sci->sc_curseg, nilfs->ns_sufile);
+	return 0;
 
  failed:
 	return err;
@@ -1610,7 +1606,7 @@ nilfs_segctor_update_payload_blocknr(struct nilfs_sc_info *sci,
 	struct nilfs_finfo *finfo = NULL;
 	union nilfs_binfo binfo;
 	struct buffer_head *bh, *bh_org;
-	u64 ino = 0;
+	ino_t ino = 0;
 	int err = 0;
 
 	if (!nfinfo)
@@ -1882,7 +1878,7 @@ static void nilfs_segctor_abort_construction(struct nilfs_sc_info *sci,
 						sci->sc_freesegs,
 						sci->sc_nfreesegs,
 						NULL);
-		nilfs_sufile_warn_on_error(nilfs->ns_sufile, ret);
+		WARN_ON(ret); /* do not happen */
 	}
 
 	nilfs_destroy_logs(&logs);
@@ -2565,10 +2561,6 @@ int nilfs_clean_segments(struct super_block *sb, struct nilfs_argv *argv,
 			break;
 
 		nilfs_warn(sb, "error %d cleaning segments", err);
-
-		if (unlikely(err == -EROFS))
-			goto out_unlock;
-
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(sci->sc_interval);
 	}

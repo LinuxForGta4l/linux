@@ -76,12 +76,10 @@ static int __init apmt_add_platform_device(struct acpi_apmt_node *node,
 					   struct fwnode_handle *fwnode)
 {
 	struct platform_device *pdev;
-	int ret, count, uid = node->id & INT_MAX;
+	int ret, count;
 	struct resource res[DEV_MAX_RESOURCE_COUNT];
 
-	if (uid != node->id)
-		pr_warn("Unexpectedly large UID 0x%x, truncated to 0x%x\n", node->id, uid);
-	pdev = platform_device_alloc(DEV_NAME, uid);
+	pdev = platform_device_alloc(DEV_NAME, PLATFORM_DEVID_AUTO);
 	if (!pdev)
 		return -ENOMEM;
 
@@ -101,7 +99,7 @@ static int __init apmt_add_platform_device(struct acpi_apmt_node *node,
 	if (ret)
 		goto dev_put;
 
-	platform_device_set_fwnode(pdev, fwnode);
+	pdev->dev.fwnode = fwnode;
 
 	ret = platform_device_add(pdev);
 

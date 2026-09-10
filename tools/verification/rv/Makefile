@@ -78,7 +78,4 @@ clean: doc_clean fixdep-clean
 	$(Q)rm -f rv rv-static fixdep FEATURE-DUMP rv-*
 	$(Q)rm -rf feature
 
-check: $(RV)
-	RV=$(RV) prove -o --directives -f tests/
-
-.PHONY: FORCE clean check
+.PHONY: FORCE clean

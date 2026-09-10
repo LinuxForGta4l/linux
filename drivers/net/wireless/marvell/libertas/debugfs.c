@@ -35,7 +35,8 @@ static ssize_t lbs_dev_info(struct file *file, char __user *userbuf,
 {
 	struct lbs_private *priv = file->private_data;
 	size_t pos = 0;
-	char *buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
+	unsigned long addr = get_zeroed_page(GFP_KERNEL);
+	char *buf = (char *)addr;
 	ssize_t res;
 	if (!buf)
 		return -ENOMEM;
@@ -47,7 +48,7 @@ static ssize_t lbs_dev_info(struct file *file, char __user *userbuf,
 
 	res = simple_read_from_buffer(userbuf, count, ppos, buf, pos);
 
-	kfree(buf);
+	free_page(addr);
 	return res;
 }
 
@@ -95,7 +96,8 @@ static ssize_t lbs_sleepparams_read(struct file *file, char __user *userbuf,
 	ssize_t ret;
 	size_t pos = 0;
 	struct sleep_params sp;
-	char *buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
+	unsigned long addr = get_zeroed_page(GFP_KERNEL);
+	char *buf = (char *)addr;
 	if (!buf)
 		return -ENOMEM;
 
@@ -111,7 +113,7 @@ static ssize_t lbs_sleepparams_read(struct file *file, char __user *userbuf,
 	ret = simple_read_from_buffer(userbuf, count, ppos, buf, pos);
 
 out_unlock:
-	kfree(buf);
+	free_page(addr);
 	return ret;
 }
 
@@ -163,7 +165,8 @@ static ssize_t lbs_host_sleep_read(struct file *file, char __user *userbuf,
 	struct lbs_private *priv = file->private_data;
 	ssize_t ret;
 	size_t pos = 0;
-	char *buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
+	unsigned long addr = get_zeroed_page(GFP_KERNEL);
+	char *buf = (char *)addr;
 	if (!buf)
 		return -ENOMEM;
 
@@ -171,7 +174,7 @@ static ssize_t lbs_host_sleep_read(struct file *file, char __user *userbuf,
 
 	ret = simple_read_from_buffer(userbuf, count, ppos, buf, pos);
 
-	kfree(buf);
+	free_page(addr);
 	return ret;
 }
 
@@ -225,7 +228,7 @@ static ssize_t lbs_threshold_read(uint16_t tlv_type, uint16_t event_mask,
 	u8 freq;
 	int events = 0;
 
-	buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
+	buf = (char *)get_zeroed_page(GFP_KERNEL);
 	if (!buf)
 		return -ENOMEM;
 
@@ -258,7 +261,7 @@ static ssize_t lbs_threshold_read(uint16_t tlv_type, uint16_t event_mask,
 	kfree(subscribed);
 
  out_page:
-	kfree(buf);
+	free_page((unsigned long)buf);
 	return ret;
 }
 
@@ -433,7 +436,8 @@ static ssize_t lbs_rdmac_read(struct file *file, char __user *userbuf,
 	struct lbs_private *priv = file->private_data;
 	ssize_t pos = 0;
 	int ret;
-	char *buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
+	unsigned long addr = get_zeroed_page(GFP_KERNEL);
+	char *buf = (char *)addr;
 	u32 val = 0;
 
 	if (!buf)
@@ -446,7 +450,7 @@ static ssize_t lbs_rdmac_read(struct file *file, char __user *userbuf,
 				priv->mac_offset, val);
 		ret = simple_read_from_buffer(userbuf, count, ppos, buf, pos);
 	}
-	kfree(buf);
+	free_page(addr);
 	return ret;
 }
 
@@ -502,7 +506,8 @@ static ssize_t lbs_rdbbp_read(struct file *file, char __user *userbuf,
 	struct lbs_private *priv = file->private_data;
 	ssize_t pos = 0;
 	int ret;
-	char *buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
+	unsigned long addr = get_zeroed_page(GFP_KERNEL);
+	char *buf = (char *)addr;
 	u32 val;
 
 	if (!buf)
@@ -515,7 +520,7 @@ static ssize_t lbs_rdbbp_read(struct file *file, char __user *userbuf,
 				priv->bbp_offset, val);
 		ret = simple_read_from_buffer(userbuf, count, ppos, buf, pos);
 	}
-	kfree(buf);
+	free_page(addr);
 
 	return ret;
 }
@@ -573,7 +578,8 @@ static ssize_t lbs_rdrf_read(struct file *file, char __user *userbuf,
 	struct lbs_private *priv = file->private_data;
 	ssize_t pos = 0;
 	int ret;
-	char *buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
+	unsigned long addr = get_zeroed_page(GFP_KERNEL);
+	char *buf = (char *)addr;
 	u32 val;
 
 	if (!buf)
@@ -586,7 +592,7 @@ static ssize_t lbs_rdrf_read(struct file *file, char __user *userbuf,
 				priv->rf_offset, val);
 		ret = simple_read_from_buffer(userbuf, count, ppos, buf, pos);
 	}
-	kfree(buf);
+	free_page(addr);
 
 	return ret;
 }
@@ -806,7 +812,8 @@ static ssize_t lbs_debugfs_read(struct file *file, char __user *userbuf,
 	char *p;
 	int i;
 	struct debug_data *d;
-	char *buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
+	unsigned long addr = get_zeroed_page(GFP_KERNEL);
+	char *buf = (char *)addr;
 	if (!buf)
 		return -ENOMEM;
 
@@ -829,7 +836,7 @@ static ssize_t lbs_debugfs_read(struct file *file, char __user *userbuf,
 
 	res = simple_read_from_buffer(userbuf, count, ppos, p, pos);
 
-	kfree(buf);
+	free_page(addr);
 	return res;
 }
 

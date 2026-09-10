@@ -173,9 +173,7 @@ struct liveupdate_flb_ops {
  * @lock:      A mutex that protects all fields within this structure, providing
  *             the synchronization service for the FLB's ops.
  * @finished:  True once the FLB's finish() callback has run.
- * @retrieve_status: Status code indicating whether retrieve() has been
- *                   attempted. 0 means not attempted, 1 means successful,
- *                   and negative value means it failed with that error code.
+ * @retrieved: True once the FLB's retrieve() callback has run.
  */
 struct luo_flb_private_state {
 	refcount_t count;
@@ -183,7 +181,7 @@ struct luo_flb_private_state {
 	void *obj;
 	struct mutex lock;
 	bool finished;
-	int retrieve_status;
+	bool retrieved;
 };
 
 /*
@@ -245,7 +243,6 @@ int liveupdate_flb_get_incoming(struct liveupdate_flb *flb, void **objp);
 void liveupdate_flb_put_incoming(struct liveupdate_flb *flb);
 
 int liveupdate_flb_get_outgoing(struct liveupdate_flb *flb, void **objp);
-void liveupdate_flb_put_outgoing(struct liveupdate_flb *flb);
 
 #else /* CONFIG_LIVEUPDATE */
 
@@ -293,10 +290,6 @@ static inline int liveupdate_flb_get_outgoing(struct liveupdate_flb *flb,
 					      void **objp)
 {
 	return -EOPNOTSUPP;
-}
-
-static inline void liveupdate_flb_put_outgoing(struct liveupdate_flb *flb)
-{
 }
 
 #endif /* CONFIG_LIVEUPDATE */

@@ -3,7 +3,6 @@
 #define _I8042_ACPIPNPIO_H
 
 #include <linux/acpi.h>
-#include <linux/seq_buf.h>
 
 #ifdef CONFIG_X86
 #include <asm/x86_init.h>
@@ -1480,21 +1479,17 @@ static char i8042_pnp_aux_name[32];
 
 static void i8042_pnp_id_to_string(struct pnp_id *id, char *dst, int dst_size)
 {
-	struct seq_buf sb;
-
-	seq_buf_init(&sb, dst, dst_size);
-	seq_buf_printf(&sb, "PNP:");
+	strscpy(dst, "PNP:", dst_size);
 
 	while (id) {
-		seq_buf_printf(&sb, " %s", id->id);
+		strlcat(dst, " ", dst_size);
+		strlcat(dst, id->id, dst_size);
 		id = id->next;
 	}
 }
 
 static int i8042_pnp_kbd_probe(struct pnp_dev *dev, const struct pnp_device_id *did)
 {
-	const char *name = pnp_dev_name(dev);
-
 	if (pnp_port_valid(dev, 0) && pnp_port_len(dev, 0) == 1)
 		i8042_pnp_data_reg = pnp_port_start(dev,0);
 
@@ -1504,8 +1499,11 @@ static int i8042_pnp_kbd_probe(struct pnp_dev *dev, const struct pnp_device_id *
 	if (pnp_irq_valid(dev,0))
 		i8042_pnp_kbd_irq = pnp_irq(dev, 0);
 
-	scnprintf(i8042_pnp_kbd_name, sizeof(i8042_pnp_kbd_name), "%s%s%s",
-		  did->id, strlen(name) ? ":" : "", name);
+	strscpy(i8042_pnp_kbd_name, did->id, sizeof(i8042_pnp_kbd_name));
+	if (strlen(pnp_dev_name(dev))) {
+		strlcat(i8042_pnp_kbd_name, ":", sizeof(i8042_pnp_kbd_name));
+		strlcat(i8042_pnp_kbd_name, pnp_dev_name(dev), sizeof(i8042_pnp_kbd_name));
+	}
 	i8042_pnp_id_to_string(dev->id, i8042_kbd_firmware_id,
 			       sizeof(i8042_kbd_firmware_id));
 	i8042_kbd_fwnode = dev_fwnode(&dev->dev);
@@ -1519,8 +1517,6 @@ static int i8042_pnp_kbd_probe(struct pnp_dev *dev, const struct pnp_device_id *
 
 static int i8042_pnp_aux_probe(struct pnp_dev *dev, const struct pnp_device_id *did)
 {
-	const char *name = pnp_dev_name(dev);
-
 	if (pnp_port_valid(dev, 0) && pnp_port_len(dev, 0) == 1)
 		i8042_pnp_data_reg = pnp_port_start(dev,0);
 
@@ -1530,8 +1526,11 @@ static int i8042_pnp_aux_probe(struct pnp_dev *dev, const struct pnp_device_id *
 	if (pnp_irq_valid(dev, 0))
 		i8042_pnp_aux_irq = pnp_irq(dev, 0);
 
-	scnprintf(i8042_pnp_aux_name, sizeof(i8042_pnp_aux_name), "%s%s%s",
-		  did->id, strlen(name) ? ":" : "", name);
+	strscpy(i8042_pnp_aux_name, did->id, sizeof(i8042_pnp_aux_name));
+	if (strlen(pnp_dev_name(dev))) {
+		strlcat(i8042_pnp_aux_name, ":", sizeof(i8042_pnp_aux_name));
+		strlcat(i8042_pnp_aux_name, pnp_dev_name(dev), sizeof(i8042_pnp_aux_name));
+	}
 	i8042_pnp_id_to_string(dev->id, i8042_aux_firmware_id,
 			       sizeof(i8042_aux_firmware_id));
 

@@ -8,15 +8,6 @@
 #include "../iommu-priv.h"
 #include "iommufd_private.h"
 
-static const struct iommu_ops *get_iommu_ops(struct iommufd_device *idev)
-{
-	if (IS_ENABLED(CONFIG_IOMMUFD_NOIOMMU) && !idev->igroup->group)
-		return &iommufd_noiommu_ops;
-	if (WARN_ON_ONCE(!idev->dev->iommu))
-		return NULL;
-	return dev_iommu_ops(idev->dev);
-}
-
 static void __iommufd_hwpt_destroy(struct iommufd_hw_pagetable *hwpt)
 {
 	if (hwpt->domain)
@@ -123,13 +114,11 @@ iommufd_hwpt_paging_alloc(struct iommufd_ctx *ictx, struct iommufd_ioas *ioas,
 				IOMMU_HWPT_ALLOC_DIRTY_TRACKING |
 				IOMMU_HWPT_FAULT_ID_VALID |
 				IOMMU_HWPT_ALLOC_PASID;
-	const struct iommu_ops *ops = get_iommu_ops(idev);
+	const struct iommu_ops *ops = dev_iommu_ops(idev->dev);
 	struct iommufd_hwpt_paging *hwpt_paging;
 	struct iommufd_hw_pagetable *hwpt;
 	int rc;
 
-	if (!ops)
-		return ERR_PTR(-ENODEV);
 	lockdep_assert_held(&ioas->mutex);
 
 	if ((flags || user_data) && !ops->domain_alloc_paging_flags)
@@ -240,7 +229,7 @@ iommufd_hwpt_nested_alloc(struct iommufd_ctx *ictx,
 			  struct iommufd_device *idev, u32 flags,
 			  const struct iommu_user_data *user_data)
 {
-	const struct iommu_ops *ops = get_iommu_ops(idev);
+	const struct iommu_ops *ops = dev_iommu_ops(idev->dev);
 	struct iommufd_hwpt_nested *hwpt_nested;
 	struct iommufd_hw_pagetable *hwpt;
 	int rc;
@@ -400,12 +389,10 @@ int iommufd_hwpt_alloc(struct iommufd_ucmd *ucmd)
 		hwpt = &hwpt_nested->common;
 	} else if (pt_obj->type == IOMMUFD_OBJ_VIOMMU) {
 		struct iommufd_hwpt_nested *hwpt_nested;
-		struct iommu_device *iommu_dev;
 		struct iommufd_viommu *viommu;
 
 		viommu = container_of(pt_obj, struct iommufd_viommu, obj);
-		iommu_dev = iommufd_device_get_iommu_dev(idev);
-		if (!iommu_dev || viommu->iommu_dev != iommu_dev) {
+		if (viommu->iommu_dev != __iommu_get_iommu_dev(idev->dev)) {
 			rc = -EINVAL;
 			goto out_unlock;
 		}

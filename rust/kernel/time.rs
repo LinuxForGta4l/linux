@@ -246,7 +246,7 @@ impl<C: ClockSource> ops::Sub for Instant<C> {
     #[inline]
     fn sub(self, other: Instant<C>) -> Delta {
         Delta {
-            value: self.inner - other.inner,
+            nanos: self.inner - other.inner,
         }
     }
 }
@@ -258,7 +258,7 @@ impl<T: ClockSource> ops::Add<Delta> for Instant<T> {
     fn add(self, rhs: Delta) -> Self::Output {
         // INVARIANT: With arithmetic over/underflow checks enabled, this will panic if we overflow
         // (e.g. go above `KTIME_MAX`)
-        let res = self.inner + rhs.value;
+        let res = self.inner + rhs.nanos;
 
         // INVARIANT: With overflow checks enabled, we verify here that the value is >= 0
         #[cfg(CONFIG_RUST_OVERFLOW_CHECKS)]
@@ -278,7 +278,7 @@ impl<T: ClockSource> ops::Sub<Delta> for Instant<T> {
     fn sub(self, rhs: Delta) -> Self::Output {
         // INVARIANT: With arithmetic over/underflow checks enabled, this will panic if we overflow
         // (e.g. go above `KTIME_MAX`)
-        let res = self.inner - rhs.value;
+        let res = self.inner - rhs.nanos;
 
         // INVARIANT: With overflow checks enabled, we verify here that the value is >= 0
         #[cfg(CONFIG_RUST_OVERFLOW_CHECKS)]
@@ -291,64 +291,14 @@ impl<T: ClockSource> ops::Sub<Delta> for Instant<T> {
     }
 }
 
-mod private {
-    pub trait Sealed {}
-
-    impl Sealed for super::Nsec {}
-    impl Sealed for super::Jiffy {}
-}
-
-/// A trait for time units.
-pub trait TimeUnit: private::Sealed {
-    /// The underlying representation of the time unit.
-    type Repr: Copy + Clone + PartialEq + PartialOrd + Eq + Ord + core::fmt::Debug;
-}
-
-/// A time unit of nanoseconds.
-///
-/// A [`Delta<Nsec>`] stores its value as [`i64`] nanoseconds and can represent
-/// any [`i64`] value, including negative, zero, and positive numbers.
-#[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Debug)]
-pub enum Nsec {}
-
-impl TimeUnit for Nsec {
-    type Repr = i64;
-}
-
-/// A time unit of jiffies.
-///
-/// A [`Delta<Jiffy>`] stores its value as [`isize`] jiffies and can represent
-/// any [`isize`] value, including negative, zero, and positive numbers.
-#[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Debug)]
-pub enum Jiffy {}
-
-impl TimeUnit for Jiffy {
-    type Repr = isize;
-}
-
 /// A span of time.
 ///
-/// The span is stored in the unit given by the type parameter `U` (see
-/// [`TimeUnit`]); its value has type `U::Repr`. `U` defaults to [`Nsec`], so a
-/// plain [`Delta`] is a span in nanoseconds. The value can be negative, zero, or
-/// positive.
+/// This struct represents a span of time, with its value stored as nanoseconds.
+/// The value can represent any valid i64 value, including negative, zero, and
+/// positive numbers.
 #[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Debug)]
-pub struct Delta<U: TimeUnit = Nsec> {
-    value: U::Repr,
-}
-
-impl Delta<Jiffy> {
-    /// Create a new [`Delta`] from a number of jiffies.
-    #[inline]
-    pub const fn from_jiffies(jiffies: isize) -> Self {
-        Self { value: jiffies }
-    }
-
-    /// Return the number of jiffies in the [`Delta`].
-    #[inline]
-    pub const fn as_jiffies(self) -> isize {
-        self.value
-    }
+pub struct Delta {
+    nanos: i64,
 }
 
 impl ops::Add for Delta {
@@ -357,7 +307,7 @@ impl ops::Add for Delta {
     #[inline]
     fn add(self, rhs: Self) -> Self {
         Self {
-            value: self.value + rhs.value,
+            nanos: self.nanos + rhs.nanos,
         }
     }
 }
@@ -365,7 +315,7 @@ impl ops::Add for Delta {
 impl ops::AddAssign for Delta {
     #[inline]
     fn add_assign(&mut self, rhs: Self) {
-        self.value += rhs.value;
+        self.nanos += rhs.nanos;
     }
 }
 
@@ -375,7 +325,7 @@ impl ops::Sub for Delta {
     #[inline]
     fn sub(self, rhs: Self) -> Self::Output {
         Self {
-            value: self.value - rhs.value,
+            nanos: self.nanos - rhs.nanos,
         }
     }
 }
@@ -383,7 +333,7 @@ impl ops::Sub for Delta {
 impl ops::SubAssign for Delta {
     #[inline]
     fn sub_assign(&mut self, rhs: Self) {
-        self.value -= rhs.value;
+        self.nanos -= rhs.nanos;
     }
 }
 
@@ -393,7 +343,7 @@ impl ops::Mul<i64> for Delta {
     #[inline]
     fn mul(self, rhs: i64) -> Self::Output {
         Self {
-            value: self.value * rhs,
+            nanos: self.nanos * rhs,
         }
     }
 }
@@ -401,7 +351,7 @@ impl ops::Mul<i64> for Delta {
 impl ops::MulAssign<i64> for Delta {
     #[inline]
     fn mul_assign(&mut self, rhs: i64) {
-        self.value *= rhs;
+        self.nanos *= rhs;
     }
 }
 
@@ -412,25 +362,25 @@ impl ops::Div for Delta {
     fn div(self, rhs: Self) -> Self::Output {
         #[cfg(CONFIG_64BIT)]
         {
-            self.value / rhs.value
+            self.nanos / rhs.nanos
         }
 
         #[cfg(not(CONFIG_64BIT))]
         {
             // SAFETY: This function is always safe to call regardless of the input values
-            unsafe { bindings::div64_s64(self.value, rhs.value) }
+            unsafe { bindings::div64_s64(self.nanos, rhs.nanos) }
         }
     }
 }
 
 impl Delta {
     /// A span of time equal to zero.
-    pub const ZERO: Self = Self { value: 0 };
+    pub const ZERO: Self = Self { nanos: 0 };
 
     /// Create a new [`Delta`] from a number of nanoseconds.
     #[inline]
     pub const fn from_nanos(nanos: i64) -> Self {
-        Self { value: nanos }
+        Self { nanos }
     }
 
     /// Create a new [`Delta`] from a number of microseconds.
@@ -441,7 +391,7 @@ impl Delta {
     #[inline]
     pub const fn from_micros(micros: i64) -> Self {
         Self {
-            value: micros.saturating_mul(NSEC_PER_USEC),
+            nanos: micros.saturating_mul(NSEC_PER_USEC),
         }
     }
 
@@ -453,7 +403,7 @@ impl Delta {
     #[inline]
     pub const fn from_millis(millis: i64) -> Self {
         Self {
-            value: millis.saturating_mul(NSEC_PER_MSEC),
+            nanos: millis.saturating_mul(NSEC_PER_MSEC),
         }
     }
 
@@ -465,7 +415,7 @@ impl Delta {
     #[inline]
     pub const fn from_secs(secs: i64) -> Self {
         Self {
-            value: secs.saturating_mul(NSEC_PER_SEC),
+            nanos: secs.saturating_mul(NSEC_PER_SEC),
         }
     }
 
@@ -484,32 +434,29 @@ impl Delta {
     /// Return the number of nanoseconds in the [`Delta`].
     #[inline]
     pub const fn as_nanos(self) -> i64 {
-        self.value
+        self.nanos
     }
 
     /// Return the smallest number of microseconds greater than or equal
     /// to the value in the [`Delta`].
     #[inline]
     pub fn as_micros_ceil(self) -> i64 {
-        // Only positive values need to be rounded up: truncating division already
-        // rounds towards zero, i.e. up, for negative values.
-        //
-        // The usual `(nanos + d - 1) / d` is not used because the addition overflows
-        // once `nanos` exceeds `i64::MAX - (d - 1)`; saturating the addition instead
-        // would drop the rounding bias and return a result one unit too small.
         let n = self.as_nanos();
-
-        let (n, add) = if n > 0 { (n - 1, 1) } else { (n, 0) };
+        let n = if n >= 0 {
+            n.saturating_add(NSEC_PER_USEC - 1)
+        } else {
+            n
+        };
 
         #[cfg(CONFIG_64BIT)]
         {
-            n / NSEC_PER_USEC + add
+            n / NSEC_PER_USEC
         }
 
         #[cfg(not(CONFIG_64BIT))]
         // SAFETY: It is always safe to call `ktime_to_us()` with any value.
         unsafe {
-            bindings::ktime_to_us(n) + add
+            bindings::ktime_to_us(n)
         }
     }
 
@@ -528,32 +475,6 @@ impl Delta {
         }
     }
 
-    /// Return the smallest number of milliseconds greater than or equal
-    /// to the value in the [`Delta`].
-    #[inline]
-    pub fn as_millis_ceil(self) -> i64 {
-        // Only positive values need to be rounded up: truncating division already
-        // rounds towards zero, i.e. up, for negative values.
-        //
-        // The usual `(nanos + d - 1) / d` is not used because the addition overflows
-        // once `nanos` exceeds `i64::MAX - (d - 1)`; saturating the addition instead
-        // would drop the rounding bias and return a result one unit too small.
-        let n = self.as_nanos();
-
-        let (n, add) = if n > 0 { (n - 1, 1) } else { (n, 0) };
-
-        #[cfg(CONFIG_64BIT)]
-        {
-            n / NSEC_PER_MSEC + add
-        }
-
-        #[cfg(not(CONFIG_64BIT))]
-        // SAFETY: It is always safe to call `ktime_to_ms()` with any value.
-        unsafe {
-            bindings::ktime_to_ms(n) + add
-        }
-    }
-
     /// Return `self % dividend` where `dividend` is in nanoseconds.
     ///
     /// The kernel doesn't have any emulation for `s64 % s64` on 32 bit platforms, so this is
@@ -563,7 +484,7 @@ impl Delta {
         #[cfg(CONFIG_64BIT)]
         {
             Self {
-                value: self.as_nanos() % i64::from(dividend),
+                nanos: self.as_nanos() % i64::from(dividend),
             }
         }
 
@@ -575,7 +496,7 @@ impl Delta {
             unsafe { bindings::div_s64_rem(self.as_nanos(), dividend, &mut rem) };
 
             Self {
-                value: i64::from(rem),
+                nanos: i64::from(rem),
             }
         }
     }

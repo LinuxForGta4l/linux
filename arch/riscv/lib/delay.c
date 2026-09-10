@@ -6,6 +6,7 @@
 #include <linux/delay.h>
 #include <linux/math.h>
 #include <linux/param.h>
+#include <linux/timex.h>
 #include <linux/types.h>
 #include <linux/export.h>
 
@@ -108,9 +109,3 @@ void ndelay(unsigned long nsecs)
 	__delay(ncycles >> NDELAY_SHIFT);
 }
 EXPORT_SYMBOL(ndelay);
-
-bool delay_read_timer(unsigned long *timer_val)
-{
-	*timer_val = get_cycles();
-	return true;
-}

@@ -18,8 +18,6 @@ enum {
 	TASK_REQ_UPIU_SIZE_DWORDS	= 8,
 	TASK_RSP_UPIU_SIZE_DWORDS	= 8,
 	ALIGNED_UPIU_SIZE		= 512,
-	/* Larger response area, only for the devman UCD */
-	ALIGNED_DEVMAN_RSP_SIZE		= 4096,
 };
 
 /* UFSHCI Registers */
@@ -502,16 +500,6 @@ struct utp_transfer_cmd_desc {
 	u8 response_upiu[ALIGNED_UPIU_SIZE];
 	u8 prd_table[];
 };
-
-/* Dedicated UCD for the devman/reserved slot */
-struct utp_devman_cmd_desc {
-	u8 command_upiu[ALIGNED_UPIU_SIZE];
-	u8 response_upiu[ALIGNED_DEVMAN_RSP_SIZE];
-	u8 prd_table[];
-};
-
-static_assert(sizeof(struct utp_upiu_req) + QUERY_AGGREGATED_MAX_SIZE <=
-	      ALIGNED_DEVMAN_RSP_SIZE);
 
 /**
  * struct request_desc_header - Descriptor Header common to both UTRD and UTMRD

@@ -25,26 +25,24 @@
 static struct futex_waitv waitv[NR_FUTEXES];
 u_int32_t futexes[NR_FUTEXES] = {0};
 
-
 void *waiterfn(void *arg)
 {
-	struct __test_metadata *_metadata = (struct __test_metadata *)arg;
 	struct timespec to;
 	int res;
 
 	/* setting absolute timeout for futex2 */
-	ASSERT_EQ(clock_gettime(CLOCK_MONOTONIC, &to), 0)
-		TH_LOG("gettime64 failed");
+	if (clock_gettime(CLOCK_MONOTONIC, &to))
+		ksft_exit_fail_msg("gettime64 failed\n");
 
 	to.tv_sec++;
 
 	res = futex_waitv(waitv, NR_FUTEXES, 0, &to, CLOCK_MONOTONIC);
 	if (res < 0) {
-		EXPECT_EQ(res, NR_FUTEXES - 1)
-			TH_LOG("futex_waitv failed: %s", strerror(errno));
-	} else {
-		EXPECT_EQ(res, NR_FUTEXES - 1)
-			TH_LOG("futex_waitv returned %d, expected %d", res, NR_FUTEXES - 1);
+		ksft_test_result_fail("futex_waitv returned: %d %s\n",
+				      errno, strerror(errno));
+	} else if (res != NR_FUTEXES - 1) {
+		ksft_test_result_fail("futex_waitv returned: %d, expecting %d\n",
+				      res, NR_FUTEXES - 1);
 	}
 
 	return NULL;
@@ -55,9 +53,6 @@ TEST(private_waitv)
 	pthread_t waiter;
 	int res, i;
 
-	if (!is_futex_waitv_supported())
-		SKIP(return, "futex_waitv syscall not supported");
-
 	for (i = 0; i < NR_FUTEXES; i++) {
 		waitv[i].uaddr = (uintptr_t)&futexes[i];
 		waitv[i].flags = FUTEX_32 | FUTEX_PRIVATE_FLAG;
@@ -66,14 +61,19 @@ TEST(private_waitv)
 	}
 
 	/* Private waitv */
-	ASSERT_EQ(pthread_create(&waiter, NULL, waiterfn, _metadata), 0)
-		TH_LOG("pthread_create failed");
+	if (pthread_create(&waiter, NULL, waiterfn, NULL))
+		ksft_exit_fail_msg("pthread_create failed\n");
 
 	usleep(WAKE_WAIT_US);
 
 	res = futex_wake(u64_to_ptr(waitv[NR_FUTEXES - 1].uaddr), 1, FUTEX_PRIVATE_FLAG);
-	EXPECT_EQ(res, 1)
-		TH_LOG("futex_wake private returned: %d %s", res, res < 0 ? strerror(errno) : "");
+	if (res != 1) {
+		ksft_test_result_fail("futex_wake private returned: %d %s\n",
+				      res ? errno : res,
+				      res ? strerror(errno) : "");
+	} else {
+		ksft_test_result_pass("futex_waitv private\n");
+	}
 }
 
 TEST(shared_waitv)
@@ -81,18 +81,15 @@ TEST(shared_waitv)
 	pthread_t waiter;
 	int res, i;
 
-	if (!is_futex_waitv_supported())
-		SKIP(return, "futex_waitv syscall not supported");
-
 	/* Shared waitv */
 	for (i = 0; i < NR_FUTEXES; i++) {
 		int shm_id = shmget(IPC_PRIVATE, 4096, IPC_CREAT | 0666);
 
 		if (shm_id < 0) {
 			if (errno == ENOSYS)
-				SKIP(return, "shmget syscall not supported");
-			ASSERT_GE(shm_id, 0)
-				TH_LOG("shmget failed");
+				ksft_exit_skip("shmget syscall not supported\n");
+			perror("shmget");
+			exit(1);
 		}
 
 		unsigned int *shared_data = shmat(shm_id, NULL, 0);
@@ -104,14 +101,19 @@ TEST(shared_waitv)
 		waitv[i].__reserved = 0;
 	}
 
-	ASSERT_EQ(pthread_create(&waiter, NULL, waiterfn, _metadata), 0)
-		TH_LOG("pthread_create failed");
+	if (pthread_create(&waiter, NULL, waiterfn, NULL))
+		ksft_exit_fail_msg("pthread_create failed\n");
 
 	usleep(WAKE_WAIT_US);
 
 	res = futex_wake(u64_to_ptr(waitv[NR_FUTEXES - 1].uaddr), 1, 0);
-	EXPECT_EQ(res, 1)
-		TH_LOG("futex_wake shared returned: %d %s", res, res < 0 ? strerror(errno) : "");
+	if (res != 1) {
+		ksft_test_result_fail("futex_wake shared returned: %d %s\n",
+				      res ? errno : res,
+				      res ? strerror(errno) : "");
+	} else {
+		ksft_test_result_pass("futex_waitv shared\n");
+	}
 
 	for (i = 0; i < NR_FUTEXES; i++)
 		shmdt(u64_to_ptr(waitv[i].uaddr));
@@ -122,24 +124,21 @@ TEST(invalid_flag)
 	struct timespec to;
 	int res;
 
-	if (!is_futex_waitv_supported())
-		SKIP(return, "futex_waitv syscall not supported");
-
 	/* Testing a waiter without FUTEX_32 flag */
 	waitv[0].flags = FUTEX_PRIVATE_FLAG;
 
-	ASSERT_EQ(clock_gettime(CLOCK_MONOTONIC, &to), 0)
-		TH_LOG("gettime64 failed");
+	if (clock_gettime(CLOCK_MONOTONIC, &to))
+		ksft_exit_fail_msg("gettime64 failed\n");
 
 	to.tv_sec++;
 
 	res = futex_waitv(waitv, NR_FUTEXES, 0, &to, CLOCK_MONOTONIC);
-
-	EXPECT_EQ(res, -1)
-		TH_LOG("futex_waitv returned unexpected result: %d", res);
-	if (res == -1) {
-		EXPECT_EQ(errno, EINVAL)
-			TH_LOG("futex_waitv returned unexpected errno: %d", errno);
+	if (res == EINVAL) {
+		ksft_test_result_fail("futex_waitv private returned: %d %s\n",
+				      res ? errno : res,
+				      res ? strerror(errno) : "");
+	} else {
+		ksft_test_result_pass("futex_waitv without FUTEX_32\n");
 	}
 }
 
@@ -148,25 +147,22 @@ TEST(unaligned_address)
 	struct timespec to;
 	int res;
 
-	if (!is_futex_waitv_supported())
-		SKIP(return, "futex_waitv syscall not supported");
-
 	/* Testing a waiter with an unaligned address */
 	waitv[0].flags = FUTEX_PRIVATE_FLAG | FUTEX_32;
 	waitv[0].uaddr = 1;
 
-	ASSERT_EQ(clock_gettime(CLOCK_MONOTONIC, &to), 0)
-		TH_LOG("gettime64 failed");
+	if (clock_gettime(CLOCK_MONOTONIC, &to))
+		ksft_exit_fail_msg("gettime64 failed\n");
 
 	to.tv_sec++;
 
 	res = futex_waitv(waitv, NR_FUTEXES, 0, &to, CLOCK_MONOTONIC);
-
-	EXPECT_EQ(res, -1)
-		TH_LOG("futex_waitv returned unexpected result: %d", res);
-	if (res == -1) {
-		EXPECT_EQ(errno, EINVAL)
-			TH_LOG("futex_waitv returned unexpected errno: %d", errno);
+	if (res == EINVAL) {
+		ksft_test_result_fail("futex_wake private returned: %d %s\n",
+				      res ? errno : res,
+				      res ? strerror(errno) : "");
+	} else {
+		ksft_test_result_pass("futex_waitv with an unaligned address\n");
 	}
 }
 
@@ -175,39 +171,36 @@ TEST(null_address)
 	struct timespec to;
 	int res;
 
-	if (!is_futex_waitv_supported())
-		SKIP(return, "futex_waitv syscall not supported");
-
 	/* Testing a NULL address for waiters.uaddr */
 	waitv[0].uaddr = 0x00000000;
 
-	ASSERT_EQ(clock_gettime(CLOCK_MONOTONIC, &to), 0)
-		TH_LOG("gettime64 failed");
+	if (clock_gettime(CLOCK_MONOTONIC, &to))
+		ksft_exit_fail_msg("gettime64 failed\n");
 
 	to.tv_sec++;
 
 	res = futex_waitv(waitv, NR_FUTEXES, 0, &to, CLOCK_MONOTONIC);
-
-	EXPECT_EQ(res, -1)
-		TH_LOG("futex_waitv returned unexpected result: %d", res);
-	if (res == -1) {
-		EXPECT_EQ(errno, EINVAL)
-			TH_LOG("futex_waitv returned unexpected errno: %d", errno);
+	if (res == EINVAL) {
+		ksft_test_result_fail("futex_waitv private returned: %d %s\n",
+				      res ? errno : res,
+				      res ? strerror(errno) : "");
+	} else {
+		ksft_test_result_pass("futex_waitv NULL address in waitv.uaddr\n");
 	}
 
 	/* Testing a NULL address for *waiters */
-	ASSERT_EQ(clock_gettime(CLOCK_MONOTONIC, &to), 0)
-		TH_LOG("gettime64 failed");
+	if (clock_gettime(CLOCK_MONOTONIC, &to))
+		ksft_exit_fail_msg("gettime64 failed\n");
 
 	to.tv_sec++;
 
 	res = futex_waitv(NULL, NR_FUTEXES, 0, &to, CLOCK_MONOTONIC);
-
-	EXPECT_EQ(res, -1)
-		TH_LOG("futex_waitv returned unexpected result: %d", res);
-	if (res == -1) {
-		EXPECT_EQ(errno, EINVAL)
-			TH_LOG("futex_waitv returned unexpected errno: %d", errno);
+	if (res == EINVAL) {
+		ksft_test_result_fail("futex_waitv private returned: %d %s\n",
+				      res ? errno : res,
+				      res ? strerror(errno) : "");
+	} else {
+		ksft_test_result_pass("futex_waitv NULL address in *waiters\n");
 	}
 }
 
@@ -216,22 +209,19 @@ TEST(invalid_clockid)
 	struct timespec to;
 	int res;
 
-	if (!is_futex_waitv_supported())
-		SKIP(return, "futex_waitv syscall not supported");
-
 	/* Testing an invalid clockid */
-	ASSERT_EQ(clock_gettime(CLOCK_MONOTONIC, &to), 0)
-		TH_LOG("gettime64 failed");
+	if (clock_gettime(CLOCK_MONOTONIC, &to))
+		ksft_exit_fail_msg("gettime64 failed\n");
 
 	to.tv_sec++;
 
 	res = futex_waitv(NULL, NR_FUTEXES, 0, &to, CLOCK_TAI);
-
-	EXPECT_EQ(res, -1)
-		TH_LOG("futex_waitv returned unexpected result: %d", res);
-	if (res == -1) {
-		EXPECT_EQ(errno, EINVAL)
-			TH_LOG("futex_waitv returned unexpected errno: %d", errno);
+	if (res == EINVAL) {
+		ksft_test_result_fail("futex_waitv private returned: %d %s\n",
+				      res ? errno : res,
+				      res ? strerror(errno) : "");
+	} else {
+		ksft_test_result_pass("futex_waitv invalid clockid\n");
 	}
 }
 

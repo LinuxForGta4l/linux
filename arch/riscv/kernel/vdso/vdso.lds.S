@@ -45,11 +45,9 @@ SECTIONS
 	.text		: { *(.text .text.*) }		:text
 
 	. = ALIGN(4);
-	__vdso_alternatives_start = .;
 	.alternative : {
 		*(.alternative)
 	}
-	__vdso_alternatives_end = .;
 }
 
 /*

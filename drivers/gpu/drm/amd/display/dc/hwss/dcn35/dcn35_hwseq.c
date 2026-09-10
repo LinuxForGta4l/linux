@@ -48,7 +48,6 @@
 #include "dpcd_defs.h"
 #include "dce/dmub_outbox.h"
 #include "link_service.h"
-#include "dce/dmub_hw_lock_mgr.h"
 #include "dcn10/dcn10_hwseq.h"
 #include "inc/link_enc_cfg.h"
 #include "dcn30/dcn30_vpg.h"
@@ -488,7 +487,7 @@ void dcn35_update_odm(struct dc *dc, struct dc_state *context, struct pipe_ctx *
 
 void dcn35_dpp_root_clock_control(struct dce_hwseq *hws, unsigned int dpp_inst, bool clock_on)
 {
-	if (!hws->ctx->dc->debug.root_clock_optimization.bits.dpp && !clock_on)
+	if (!hws->ctx->dc->debug.root_clock_optimization.bits.dpp)
 		return;
 
 	if (hws->ctx->dc->res_pool->dccg->funcs->dpp_root_clock_control) {
@@ -499,7 +498,7 @@ void dcn35_dpp_root_clock_control(struct dce_hwseq *hws, unsigned int dpp_inst, 
 
 void dcn35_dpstream_root_clock_control(struct dce_hwseq *hws, unsigned int dp_hpo_inst, bool clock_on)
 {
-	if (!hws->ctx->dc->debug.root_clock_optimization.bits.dpstream && !clock_on)
+	if (!hws->ctx->dc->debug.root_clock_optimization.bits.dpstream)
 		return;
 
 	if (hws->ctx->dc->res_pool->dccg->funcs->set_dpstreamclk_root_clock_gating) {
@@ -510,7 +509,7 @@ void dcn35_dpstream_root_clock_control(struct dce_hwseq *hws, unsigned int dp_hp
 
 void dcn35_hdmistream_root_clock_control(struct dce_hwseq *hws, bool clock_on)
 {
-	if (!hws->ctx->dc->debug.root_clock_optimization.bits.hdmistream && !clock_on)
+	if (!hws->ctx->dc->debug.root_clock_optimization.bits.hdmistream)
 		return;
 
 	if (hws->ctx->dc->res_pool->dccg->funcs->set_hdmistreamclk_root_clock_gating) {
@@ -521,7 +520,7 @@ void dcn35_hdmistream_root_clock_control(struct dce_hwseq *hws, bool clock_on)
 
 void dcn35_physymclk_root_clock_control(struct dce_hwseq *hws, unsigned int phy_inst, bool clock_on)
 {
-	if (!hws->ctx->dc->debug.root_clock_optimization.bits.physymclk && !clock_on)
+	if (!hws->ctx->dc->debug.root_clock_optimization.bits.physymclk)
 		return;
 
 	if (hws->ctx->dc->res_pool->dccg->funcs->set_physymclk_root_clock_gating) {
@@ -582,6 +581,9 @@ void dcn35_power_down_on_boot(struct dc *dc)
 
 bool dcn35_apply_idle_power_optimizations(struct dc *dc, bool enable)
 {
+	if (dc->debug.dmcub_emulation)
+		return true;
+
 	if (enable) {
 		uint32_t num_active_edp = 0;
 		int i;
@@ -1819,11 +1821,8 @@ void dcn35_disable_link_output(struct dc_link *link,
 		disable_link_output_symclk_on_tx_off(link, DP_UNKNOWN_ENCODING);
 		link->phy_state.symclk_state = SYMCLK_ON_TX_OFF;
 	} else {
-		if (!(signal == SIGNAL_TYPE_EDP &&
-		      link->forced_psr_active)) {
-			link_hwss->disable_link_output(link, link_res, signal);
-			link->phy_state.symclk_state = SYMCLK_OFF_TX_OFF;
-		}
+		link_hwss->disable_link_output(link, link_res, signal);
+		link->phy_state.symclk_state = SYMCLK_OFF_TX_OFF;
 	}
 	/*
 	 * Add the logic to extract BOTH power up and power down sequences

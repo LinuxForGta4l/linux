@@ -119,15 +119,13 @@ VERSION
 {
 	VDSO_VERSION_STRING {
 	global:
-#ifdef CONFIG_COMPAT_32BIT_TIME
+		__kernel_get_syscall_map;
 		__kernel_gettimeofday;
 		__kernel_clock_gettime;
-		__kernel_clock_getres;
-		__kernel_time;
-#endif /* CONFIG_COMPAT_32BIT_TIME */
-		__kernel_get_syscall_map;
 		__kernel_clock_gettime64;
+		__kernel_clock_getres;
 		__kernel_clock_getres_time64;
+		__kernel_time;
 		__kernel_get_tbfreq;
 		__kernel_sync_dicache;
 		__kernel_sigtramp32;

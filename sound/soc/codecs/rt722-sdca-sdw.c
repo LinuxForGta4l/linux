@@ -6,7 +6,6 @@
 //
 //
 
-#include <linux/cleanup.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/module.h>
@@ -518,13 +517,13 @@ static int rt722_sdca_dev_system_suspend(struct device *dev)
 	 * deferred work completes and before the parent disables
 	 * interrupts on the link
 	 */
-	scoped_guard(mutex, &rt722_sdca->disable_irq_lock) {
-		rt722_sdca->disable_irq = true;
-		ret1 = sdw_update_no_pm(slave, SDW_SCP_SDCA_INTMASK1,
-					SDW_SCP_SDCA_INTMASK_SDCA_0, 0);
-		ret2 = sdw_update_no_pm(slave, SDW_SCP_SDCA_INTMASK2,
-					SDW_SCP_SDCA_INTMASK_SDCA_8, 0);
-	}
+	mutex_lock(&rt722_sdca->disable_irq_lock);
+	rt722_sdca->disable_irq = true;
+	ret1 = sdw_update_no_pm(slave, SDW_SCP_SDCA_INTMASK1,
+				SDW_SCP_SDCA_INTMASK_SDCA_0, 0);
+	ret2 = sdw_update_no_pm(slave, SDW_SCP_SDCA_INTMASK2,
+				SDW_SCP_SDCA_INTMASK_SDCA_8, 0);
+	mutex_unlock(&rt722_sdca->disable_irq_lock);
 
 	if (ret1 < 0 || ret2 < 0) {
 		/* log but don't prevent suspend from happening */
@@ -546,15 +545,13 @@ static int rt722_sdca_dev_resume(struct device *dev)
 		return 0;
 
 	if (!slave->unattach_request) {
-		scoped_guard(mutex, &rt722->disable_irq_lock) {
-			if (rt722->disable_irq) {
-				sdw_write_no_pm(slave, SDW_SCP_SDCA_INTMASK1,
-						SDW_SCP_SDCA_INTMASK_SDCA_0);
-				sdw_write_no_pm(slave, SDW_SCP_SDCA_INTMASK2,
-						SDW_SCP_SDCA_INTMASK_SDCA_8);
-				rt722->disable_irq = false;
-			}
+		mutex_lock(&rt722->disable_irq_lock);
+		if (rt722->disable_irq == true) {
+			sdw_write_no_pm(slave, SDW_SCP_SDCA_INTMASK1, SDW_SCP_SDCA_INTMASK_SDCA_0);
+			sdw_write_no_pm(slave, SDW_SCP_SDCA_INTMASK2, SDW_SCP_SDCA_INTMASK_SDCA_8);
+			rt722->disable_irq = false;
 		}
+		mutex_unlock(&rt722->disable_irq_lock);
 	}
 
 	ret = sdw_slave_wait_for_init(slave, RT722_PROBE_TIMEOUT);
@@ -564,13 +561,7 @@ static int rt722_sdca_dev_resume(struct device *dev)
 	}
 
 	regcache_cache_only(rt722->regmap, false);
-	ret = regcache_sync(rt722->regmap);
-	if (ret) {
-		regcache_cache_only(rt722->regmap, true);
-		regcache_mark_dirty(rt722->regmap);
-		return ret;
-	}
-
+	regcache_sync(rt722->regmap);
 	return 0;
 }
 

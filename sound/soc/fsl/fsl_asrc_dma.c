@@ -219,9 +219,7 @@ static int fsl_asrc_dma_hw_params(struct snd_soc_component *component,
 	 */
 	component_be = snd_soc_lookup_component_nolocked(dev_be, SND_DMAENGINE_PCM_DRV_NAME);
 	if (component_be) {
-		struct dmaengine_pcm *pcm = snd_soc_component_to_priv(component_be);
-
-		be_chan = pcm->chan[substream->stream];
+		be_chan = soc_component_to_pcm(component_be)->chan[substream->stream];
 		tmp_chan = be_chan;
 	}
 	if (!tmp_chan) {

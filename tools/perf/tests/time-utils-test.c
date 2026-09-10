@@ -69,19 +69,16 @@ struct test_data {
 
 static bool test__perf_time__parse_for_ranges(struct test_data *d)
 {
-	struct evlist *evlist = evlist__new();
-	struct perf_session session = { .evlist = evlist };
+	struct evlist evlist = {
+		.first_sample_time = d->first,
+		.last_sample_time = d->last,
+	};
+	struct perf_session session = { .evlist = &evlist };
 	struct perf_time_interval *ptime = NULL;
 	int range_size, range_num;
 	bool pass = false;
 	int i, err;
 
-	if (!evlist) {
-		pr_debug("Missing evlist\n");
-		return false;
-	}
-	evlist__set_first_sample_time(evlist, d->first);
-	evlist__set_last_sample_time(evlist, d->last);
 	pr_debug("\nperf_time__parse_for_ranges(\"%s\")\n", d->str);
 
 	if (strchr(d->str, '%'))
@@ -130,7 +127,6 @@ static bool test__perf_time__parse_for_ranges(struct test_data *d)
 
 	pass = true;
 out:
-	evlist__put(evlist);
 	free(ptime);
 	return pass;
 }

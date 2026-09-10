@@ -762,13 +762,12 @@ skip_peek_checks:
 
 static void taprio_next_tc_txq(struct net_device *dev, int tc, int *txq)
 {
-	struct netdev_tc_txq res;
-
-	res.combined = READ_ONCE(dev->tc_to_txq[tc].combined);
+	int offset = dev->tc_to_txq[tc].offset;
+	int count = dev->tc_to_txq[tc].count;
 
 	(*txq)++;
-	if (*txq == res.offset + res.count)
-		*txq = res.offset;
+	if (*txq == offset + count)
+		*txq = offset;
 }
 
 /* Prioritize higher traffic classes, and select among TXQs belonging to the
@@ -1185,7 +1184,7 @@ static int taprio_parse_mqprio_opt(struct net_device *dev,
 	bool allow_overlapping_txqs = TXTIME_ASSIST_IS_ENABLED(taprio_flags);
 
 	if (!qopt) {
-		if (!netdev_get_num_tc(dev)) {
+		if (!dev->num_tc) {
 			NL_SET_ERR_MSG(extack, "'mqprio' configuration is necessary");
 			return -EINVAL;
 		}
@@ -1439,18 +1438,18 @@ static void taprio_offload_config_changed(struct taprio_sched *q)
 
 static u32 tc_map_to_queue_mask(struct net_device *dev, u32 tc_mask)
 {
-	int num_tc = netdev_get_num_tc(dev);
 	u32 i, queue_mask = 0;
 
-	for (i = 0; i < num_tc; i++) {
-		struct netdev_tc_txq res;
+	for (i = 0; i < dev->num_tc; i++) {
+		u32 offset, count;
 
 		if (!(tc_mask & BIT(i)))
 			continue;
 
-		res.combined = READ_ONCE(dev->tc_to_txq[i].combined);
+		offset = dev->tc_to_txq[i].offset;
+		count = dev->tc_to_txq[i].count;
 
-		queue_mask |= GENMASK(res.offset + res.count - 1, res.offset);
+		queue_mask |= GENMASK(offset + count - 1, offset);
 	}
 
 	return queue_mask;
@@ -1800,20 +1799,16 @@ static int taprio_mqprio_cmp(const struct net_device *dev,
 {
 	int i;
 
-	if (!mqprio || mqprio->num_tc != netdev_get_num_tc(dev))
+	if (!mqprio || mqprio->num_tc != dev->num_tc)
 		return -1;
 
-	for (i = 0; i < mqprio->num_tc; i++) {
-		struct netdev_tc_txq res;
-
-		res.combined = READ_ONCE(dev->tc_to_txq[i].combined);
-		if (res.count != mqprio->count[i] ||
-		    res.offset != mqprio->offset[i])
+	for (i = 0; i < mqprio->num_tc; i++)
+		if (dev->tc_to_txq[i].count != mqprio->count[i] ||
+		    dev->tc_to_txq[i].offset != mqprio->offset[i])
 			return -1;
-	}
 
 	for (i = 0; i <= TC_BITMASK; i++)
-		if (netdev_get_prio_tc_map(dev, i) != mqprio->prio_tc_map[i])
+		if (dev->prio_tc_map[i] != mqprio->prio_tc_map[i])
 			return -1;
 
 	return 0;

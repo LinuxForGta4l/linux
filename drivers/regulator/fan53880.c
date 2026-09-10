@@ -164,8 +164,8 @@ static const struct of_device_id fan53880_dt_ids[] = {
 MODULE_DEVICE_TABLE(of, fan53880_dt_ids);
 
 static const struct i2c_device_id fan53880_i2c_id[] = {
-	{ .name = "fan53880" },
-	{ }
+	{ "fan53880", },
+	{}
 };
 MODULE_DEVICE_TABLE(i2c, fan53880_i2c_id);
 

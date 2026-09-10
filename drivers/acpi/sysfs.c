@@ -316,7 +316,6 @@ struct acpi_table_attr {
 struct acpi_data_attr {
 	struct bin_attribute attr;
 	u64	addr;
-	char filename[ACPI_NAMESEG_SIZE+ACPI_INST_SIZE];
 };
 
 static ssize_t acpi_table_show(struct file *filp, struct kobject *kobj,
@@ -448,12 +447,13 @@ static int acpi_bert_data_init(void *th, struct acpi_data_attr *data_attr)
 	struct acpi_table_bert *bert = th;
 
 	if (bert->header.length < sizeof(struct acpi_table_bert) ||
-	    bert->region_length < sizeof(struct acpi_bert_region)) {
+	    bert->region_length < sizeof(struct acpi_hest_generic_status)) {
 		kfree(data_attr);
 		return -EINVAL;
 	}
 	data_attr->addr = bert->address;
 	data_attr->attr.size = bert->region_length;
+	data_attr->attr.attr.name = "BERT";
 
 	return sysfs_create_bin_file(tables_data_kobj, &data_attr->attr);
 }
@@ -469,6 +469,7 @@ static int acpi_ccel_data_init(void *th, struct acpi_data_attr *data_attr)
 	}
 	data_attr->addr = ccel->log_area_start_address;
 	data_attr->attr.size = ccel->log_area_minimum_length;
+	data_attr->attr.attr.name = "CCEL";
 
 	return sysfs_create_bin_file(tables_data_kobj, &data_attr->attr);
 }
@@ -483,7 +484,7 @@ static struct acpi_data_obj {
 
 #define NUM_ACPI_DATA_OBJS ARRAY_SIZE(acpi_data_objs)
 
-static int acpi_table_data_init(struct acpi_table_header *th, struct acpi_table_attr *table_attr)
+static int acpi_table_data_init(struct acpi_table_header *th)
 {
 	struct acpi_data_attr *data_attr;
 	int i;
@@ -496,8 +497,6 @@ static int acpi_table_data_init(struct acpi_table_header *th, struct acpi_table_
 			sysfs_attr_init(&data_attr->attr.attr);
 			data_attr->attr.read = acpi_data_show;
 			data_attr->attr.attr.mode = 0400;
-			strscpy(data_attr->filename, table_attr->filename);
-			data_attr->attr.attr.name = data_attr->filename;
 			return acpi_data_objs[i].fn(th, data_attr);
 		}
 	}
@@ -544,7 +543,7 @@ static int acpi_tables_sysfs_init(void)
 			return ret;
 		}
 		list_add_tail(&table_attr->node, &acpi_table_attr_list);
-		acpi_table_data_init(table_header, table_attr);
+		acpi_table_data_init(table_header);
 	}
 
 	kobject_uevent(tables_kobj, KOBJ_ADD);

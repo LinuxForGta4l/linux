@@ -35,7 +35,6 @@ properties:
       - items:
           - enum:
               - qcom,hawi-pmic-glink
-              - qcom,maili-pmic-glink
           - const: qcom,kaanapali-pmic-glink
           - const: qcom,pmic-glink
       - items:

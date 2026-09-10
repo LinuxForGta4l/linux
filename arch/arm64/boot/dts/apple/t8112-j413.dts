@@ -91,5 +91,3 @@
 &fpwm1 {
 	status = "okay";
 };
-
-#include "hwmon-laptop.dtsi"

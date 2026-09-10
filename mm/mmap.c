@@ -80,13 +80,13 @@ core_param(ignore_rlimit_data, ignore_rlimit_data, bool, 0644);
 /* Update vma->vm_page_prot to reflect vma->vm_flags. */
 void vma_set_page_prot(struct vm_area_struct *vma)
 {
-	vma_flags_t vma_flags = vma->flags;
+	vm_flags_t vm_flags = vma->vm_flags;
 	pgprot_t vm_page_prot;
 
-	vm_page_prot = vma_pgprot_modify(vma->vm_page_prot, vma_flags);
+	vm_page_prot = vm_pgprot_modify(vma->vm_page_prot, vm_flags);
 	if (vma_wants_writenotify(vma, vm_page_prot)) {
-		vma_flags_clear(&vma_flags, VMA_SHARED_BIT);
-		vm_page_prot = vma_pgprot_modify(vm_page_prot, vma_flags);
+		vm_flags &= ~VM_SHARED;
+		vm_page_prot = vm_pgprot_modify(vm_page_prot, vm_flags);
 	}
 	/* remove_protection_ptes reads vma->vm_page_prot without mmap_lock */
 	WRITE_ONCE(vma->vm_page_prot, vm_page_prot);
@@ -102,16 +102,15 @@ void vma_set_page_prot(struct vm_area_struct *vma)
  */
 static int check_brk_limits(unsigned long addr, unsigned long len)
 {
-	const struct mm_struct *mm = current->mm;
-	const bool is_def_locked =
-		vma_flags_test(&mm->def_vma_flags, VMA_LOCKED_BIT);
 	unsigned long mapped_addr;
 
 	mapped_addr = get_unmapped_area(NULL, addr, len, 0, MAP_FIXED);
 	if (IS_ERR_VALUE(mapped_addr))
 		return mapped_addr;
 
-	return mlock_future_ok(mm, is_def_locked, len) ? 0 : -EAGAIN;
+	return mlock_future_ok(current->mm,
+			      current->mm->def_flags & VM_LOCKED, len)
+		? 0 : -EAGAIN;
 }
 
 SYSCALL_DEFINE1(brk, unsigned long, brk)
@@ -198,7 +197,7 @@ SYSCALL_DEFINE1(brk, unsigned long, brk)
 		goto out;
 
 	mm->brk = brk;
-	if (vma_flags_test(&mm->def_vma_flags, VMA_LOCKED_BIT))
+	if (mm->def_flags & VM_LOCKED)
 		populate = true;
 
 success:
@@ -281,7 +280,7 @@ static inline bool file_mmap_ok(struct file *file, struct inode *inode,
  * do_mmap() - Perform a userland memory mapping into the current process
  * address space of length @len with protection bits @prot, mmap flags @flags
  * (from which VMA flags will be inferred), and any additional VMA flags to
- * apply @vma_flags. If this is a file-backed mapping then the file is specified
+ * apply @vm_flags. If this is a file-backed mapping then the file is specified
  * in @file and page offset into the file via @pgoff.
  *
  * This function does not perform security checks on the file and assumes, if
@@ -321,8 +320,7 @@ static inline bool file_mmap_ok(struct file *file, struct inode *inode,
  * (2) for details.
  * @flags: Flags specifying how the mapping should be performed, see mmap (2)
  * for details.
- * @vma_flags: VMA flags which should be set by default, or EMPTY_VMA_FLAGS
- * otherwise.
+ * @vm_flags: VMA flags which should be set by default, or 0 otherwise.
  * @pgoff: Page offset into the @file if file-backed, should be 0 otherwise.
  * @populate: A pointer to a value which will be set to 0 if no population of
  * the range is required, or the number of bytes to populate if it is. Must be
@@ -337,7 +335,7 @@ static inline bool file_mmap_ok(struct file *file, struct inode *inode,
  */
 unsigned long do_mmap(struct file *file, unsigned long addr,
 			unsigned long len, unsigned long prot,
-			unsigned long flags, vma_flags_t vma_flags,
+			unsigned long flags, vm_flags_t vm_flags,
 			unsigned long pgoff, unsigned long *populate,
 			struct list_head *uf)
 {
@@ -401,18 +399,13 @@ unsigned long do_mmap(struct file *file, unsigned long addr,
 	 * to. we assume access permissions have been handled by the open
 	 * of the memory object, so we don't do any here.
 	 */
-	vma_flags_set_mask(&vma_flags,
-			   legacy_to_vma_flags(calc_vm_prot_bits(prot, pkey)));
-	vma_flags_set_mask(&vma_flags,
-			   legacy_to_vma_flags(calc_vm_flag_bits(file, flags)));
-	vma_flags_set_mask(&vma_flags, mm->def_vma_flags);
-	vma_flags_set(&vma_flags, VMA_MAYREAD_BIT, VMA_MAYWRITE_BIT,
-		      VMA_MAYEXEC_BIT);
+	vm_flags |= calc_vm_prot_bits(prot, pkey) | calc_vm_flag_bits(file, flags) |
+			mm->def_flags | VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC;
 
 	/* Obtain the address to map to. we verify (or select) it and ensure
 	 * that it represents a valid section of the address space.
 	 */
-	addr = __get_unmapped_area(file, addr, len, pgoff, flags, vma_flags);
+	addr = __get_unmapped_area(file, addr, len, pgoff, flags, vm_flags);
 	if (IS_ERR_VALUE(addr))
 		return addr;
 
@@ -425,7 +418,7 @@ unsigned long do_mmap(struct file *file, unsigned long addr,
 		if (!can_do_mlock())
 			return -EPERM;
 
-	if (!mlock_future_ok(mm, vma_flags_test(&vma_flags, VMA_LOCKED_BIT), len))
+	if (!mlock_future_ok(mm, vm_flags & VM_LOCKED, len))
 		return -EAGAIN;
 
 	if (file) {
@@ -468,23 +461,22 @@ unsigned long do_mmap(struct file *file, unsigned long addr,
 			if (IS_APPEND(inode) && (file->f_mode & FMODE_WRITE))
 				return -EACCES;
 
-			vma_flags_set(&vma_flags, VMA_SHARED_BIT, VMA_MAYSHARE_BIT);
+			vm_flags |= VM_SHARED | VM_MAYSHARE;
 			if (!(file->f_mode & FMODE_WRITE))
-				vma_flags_clear(&vma_flags, VMA_MAYWRITE_BIT,
-						VMA_SHARED_BIT);
+				vm_flags &= ~(VM_MAYWRITE | VM_SHARED);
 			fallthrough;
 		case MAP_PRIVATE:
 			if (!(file->f_mode & FMODE_READ))
 				return -EACCES;
 			if (path_noexec(&file->f_path)) {
-				if (vma_flags_test(&vma_flags, VMA_EXEC_BIT))
+				if (vm_flags & VM_EXEC)
 					return -EPERM;
-				vma_flags_clear(&vma_flags, VMA_MAYEXEC_BIT);
+				vm_flags &= ~VM_MAYEXEC;
 			}
 
 			if (!can_mmap_file(file))
 				return -ENODEV;
-			if (vma_flags_can_grow(&vma_flags))
+			if (vm_flags & (VM_GROWSDOWN|VM_GROWSUP))
 				return -EINVAL;
 			break;
 
@@ -496,27 +488,23 @@ unsigned long do_mmap(struct file *file, unsigned long addr,
 		 * Check to see if we are violating any seals and update VMA
 		 * flags if necessary to avoid future seal violations.
 		 */
-		err = memfd_check_seals_mmap(file, &vma_flags);
+		err = memfd_check_seals_mmap(file, &vm_flags);
 		if (err)
 			return (unsigned long)err;
 	} else {
 		switch (flags & MAP_TYPE) {
 		case MAP_SHARED:
-			if (vma_flags_can_grow(&vma_flags))
+			if (vm_flags & (VM_GROWSDOWN|VM_GROWSUP))
 				return -EINVAL;
 			/*
 			 * Ignore pgoff.
 			 */
 			pgoff = 0;
-			vma_flags_set(&vma_flags, VMA_SHARED_BIT, VMA_MAYSHARE_BIT);
+			vm_flags |= VM_SHARED | VM_MAYSHARE;
 			break;
-		case MAP_DROPPABLE: {
-			vma_flags_t droppable = VMA_DROPPABLE;
-
-			if (vma_flags_empty(&droppable))
+		case MAP_DROPPABLE:
+			if (VM_DROPPABLE == VM_NONE)
 				return -EOPNOTSUPP;
-			vma_flags_set_mask(&vma_flags, droppable);
-
 			/*
 			 * A locked or stack area makes no sense to be droppable.
 			 *
@@ -527,24 +515,23 @@ unsigned long do_mmap(struct file *file, unsigned long addr,
 			 */
 			if (flags & (MAP_LOCKED | MAP_HUGETLB))
 			        return -EINVAL;
-			if (vma_flags_can_grow(&vma_flags))
+			if (vm_flags & (VM_GROWSDOWN | VM_GROWSUP))
 			        return -EINVAL;
+
+			vm_flags |= VM_DROPPABLE;
 
 			/*
 			 * If the pages can be dropped, then it doesn't make
 			 * sense to reserve them.
 			 */
-			vma_flags_set(&vma_flags, VMA_NORESERVE_BIT);
+			vm_flags |= VM_NORESERVE;
 
 			/*
 			 * Likewise, they're volatile enough that they
 			 * shouldn't survive forks or coredumps.
 			 */
-			vma_flags_set(&vma_flags, VMA_WIPEONFORK_BIT,
-				      VMA_DONTDUMP_BIT);
-
+			vm_flags |= VM_WIPEONFORK | VM_DONTDUMP;
 			fallthrough;
-		}
 		case MAP_PRIVATE:
 			/*
 			 * Set pgoff according to addr for anon_vma.
@@ -557,22 +544,22 @@ unsigned long do_mmap(struct file *file, unsigned long addr,
 	}
 
 	/*
-	 * Set VMA_NORESERVE_BIT if we should not account for the memory use
-	 * of this mapping.
+	 * Set 'VM_NORESERVE' if we should not account for the
+	 * memory use of this mapping.
 	 */
 	if (flags & MAP_NORESERVE) {
 		/* We honor MAP_NORESERVE if allowed to overcommit */
 		if (sysctl_overcommit_memory != OVERCOMMIT_NEVER)
-			vma_flags_set(&vma_flags, VMA_NORESERVE_BIT);
+			vm_flags |= VM_NORESERVE;
 
 		/* hugetlb applies strict overcommit unless MAP_NORESERVE */
 		if (file && is_file_hugepages(file))
-			vma_flags_set(&vma_flags, VMA_NORESERVE_BIT);
+			vm_flags |= VM_NORESERVE;
 	}
 
-	addr = mmap_region(file, addr, len, vma_flags, pgoff, uf);
+	addr = mmap_region(file, addr, len, vm_flags, pgoff, uf);
 	if (!IS_ERR_VALUE(addr) &&
-	    (vma_flags_test(&vma_flags, VMA_LOCKED_BIT) ||
+	    ((vm_flags & VM_LOCKED) ||
 	     (flags & (MAP_POPULATE | MAP_NONBLOCK)) == MAP_POPULATE))
 		*populate = len;
 	return addr;
@@ -658,9 +645,9 @@ SYSCALL_DEFINE1(old_mmap, struct mmap_arg_struct __user *, arg)
  * Determine if the allocation needs to ensure that there is no
  * existing mapping within it's guard gaps, for use as start_gap.
  */
-static inline unsigned long stack_guard_placement(vma_flags_t vma_flags)
+static inline unsigned long stack_guard_placement(vm_flags_t vm_flags)
 {
-	if (vma_flags_test_single_mask(&vma_flags, VMA_SHADOW_STACK))
+	if (vm_flags & VM_SHADOW_STACK)
 		return PAGE_SIZE;
 
 	return 0;
@@ -702,7 +689,7 @@ unsigned long vm_unmapped_area(struct vm_unmapped_area_info *info)
 unsigned long
 generic_get_unmapped_area(struct file *filp, unsigned long addr,
 			  unsigned long len, unsigned long pgoff,
-			  unsigned long flags, vma_flags_t vma_flags)
+			  unsigned long flags, vm_flags_t vm_flags)
 {
 	struct mm_struct *mm = current->mm;
 	struct vm_area_struct *vma, *prev;
@@ -727,7 +714,7 @@ generic_get_unmapped_area(struct file *filp, unsigned long addr,
 	info.length = len;
 	info.low_limit = mm->mmap_base;
 	info.high_limit = mmap_end;
-	info.start_gap = stack_guard_placement(vma_flags);
+	info.start_gap = stack_guard_placement(vm_flags);
 	if (filp && is_file_hugepages(filp))
 		info.align_mask = huge_page_mask_align(filp);
 	return vm_unmapped_area(&info);
@@ -740,7 +727,7 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 		       unsigned long flags, vm_flags_t vm_flags)
 {
 	return generic_get_unmapped_area(filp, addr, len, pgoff, flags,
-					 legacy_to_vma_flags(vm_flags));
+					 vm_flags);
 }
 #endif
 
@@ -751,7 +738,7 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 unsigned long
 generic_get_unmapped_area_topdown(struct file *filp, unsigned long addr,
 				  unsigned long len, unsigned long pgoff,
-				  unsigned long flags, vma_flags_t vma_flags)
+				  unsigned long flags, vm_flags_t vm_flags)
 {
 	struct vm_area_struct *vma, *prev;
 	struct mm_struct *mm = current->mm;
@@ -779,7 +766,7 @@ generic_get_unmapped_area_topdown(struct file *filp, unsigned long addr,
 	info.length = len;
 	info.low_limit = PAGE_SIZE;
 	info.high_limit = arch_get_mmap_base(addr, mm->mmap_base);
-	info.start_gap = stack_guard_placement(vma_flags);
+	info.start_gap = stack_guard_placement(vm_flags);
 	if (filp && is_file_hugepages(filp))
 		info.align_mask = huge_page_mask_align(filp);
 	addr = vm_unmapped_area(&info);
@@ -808,24 +795,23 @@ arch_get_unmapped_area_topdown(struct file *filp, unsigned long addr,
 			       unsigned long flags, vm_flags_t vm_flags)
 {
 	return generic_get_unmapped_area_topdown(filp, addr, len, pgoff, flags,
-						 legacy_to_vma_flags(vm_flags));
+						 vm_flags);
 }
 #endif
 
-unsigned long mm_get_unmapped_area_vmaflags(struct file *filp, unsigned long addr,
-		unsigned long len, unsigned long pgoff, unsigned long flags,
-		vma_flags_t vma_flags)
+unsigned long mm_get_unmapped_area_vmflags(struct file *filp, unsigned long addr,
+					   unsigned long len, unsigned long pgoff,
+					   unsigned long flags, vm_flags_t vm_flags)
 {
 	if (mm_flags_test(MMF_TOPDOWN, current->mm))
 		return arch_get_unmapped_area_topdown(filp, addr, len, pgoff,
-				flags, vma_flags_to_legacy(vma_flags));
-	return arch_get_unmapped_area(filp, addr, len, pgoff, flags,
-			vma_flags_to_legacy(vma_flags));
+						      flags, vm_flags);
+	return arch_get_unmapped_area(filp, addr, len, pgoff, flags, vm_flags);
 }
 
 unsigned long
 __get_unmapped_area(struct file *file, unsigned long addr, unsigned long len,
-		unsigned long pgoff, unsigned long flags, vma_flags_t vma_flags)
+		unsigned long pgoff, unsigned long flags, vm_flags_t vm_flags)
 {
 	unsigned long (*get_area)(struct file *, unsigned long,
 				  unsigned long, unsigned long, unsigned long)
@@ -860,11 +846,11 @@ __get_unmapped_area(struct file *file, unsigned long addr, unsigned long len,
 		   && !addr /* no hint */
 		   && IS_ALIGNED(len, PMD_SIZE)) {
 		/* Ensures that larger anonymous mappings are THP aligned. */
-		addr = thp_get_unmapped_area_vmaflags(file, addr, len,
-						      pgoff, flags, vma_flags);
+		addr = thp_get_unmapped_area_vmflags(file, addr, len,
+						     pgoff, flags, vm_flags);
 	} else {
-		addr = mm_get_unmapped_area_vmaflags(file, addr, len,
-						     pgoff, flags, vma_flags);
+		addr = mm_get_unmapped_area_vmflags(file, addr, len,
+						    pgoff, flags, vm_flags);
 	}
 	if (IS_ERR_VALUE(addr))
 		return addr;
@@ -882,8 +868,7 @@ unsigned long
 mm_get_unmapped_area(struct file *file, unsigned long addr, unsigned long len,
 		     unsigned long pgoff, unsigned long flags)
 {
-	return mm_get_unmapped_area_vmaflags(file, addr, len, pgoff, flags,
-					     EMPTY_VMA_FLAGS);
+	return mm_get_unmapped_area_vmflags(file, addr, len, pgoff, flags, 0);
 }
 EXPORT_SYMBOL(mm_get_unmapped_area);
 
@@ -985,7 +970,7 @@ struct vm_area_struct *find_extend_vma_locked(struct mm_struct *mm, unsigned lon
 		return NULL;
 	if (expand_stack_locked(prev, addr))
 		return NULL;
-	if (vma_test(prev, VMA_LOCKED_BIT))
+	if (prev->vm_flags & VM_LOCKED)
 		populate_vma_page_range(prev, addr, prev->vm_end, NULL);
 	return prev;
 }
@@ -1009,7 +994,7 @@ struct vm_area_struct *find_extend_vma_locked(struct mm_struct *mm, unsigned lon
 	start = vma->vm_start;
 	if (expand_stack_locked(vma, addr))
 		return NULL;
-	if (vma_test(vma, VMA_LOCKED_BIT))
+	if (vma->vm_flags & VM_LOCKED)
 		populate_vma_page_range(vma, addr, start, NULL);
 	return vma;
 }
@@ -1134,18 +1119,18 @@ SYSCALL_DEFINE5(remap_file_pages, unsigned long, start, unsigned long, size,
 	 */
 	vma = vma_lookup(mm, start);
 
-	if (!vma || !vma_test(vma, VMA_SHARED_BIT)) {
+	if (!vma || !(vma->vm_flags & VM_SHARED)) {
 		mmap_read_unlock(mm);
 		return -EINVAL;
 	}
 
-	prot |= vma_test(vma, VMA_READ_BIT) ? PROT_READ : 0;
-	prot |= vma_test(vma, VMA_WRITE_BIT) ? PROT_WRITE : 0;
-	prot |= vma_test(vma, VMA_EXEC_BIT) ? PROT_EXEC : 0;
+	prot |= vma->vm_flags & VM_READ ? PROT_READ : 0;
+	prot |= vma->vm_flags & VM_WRITE ? PROT_WRITE : 0;
+	prot |= vma->vm_flags & VM_EXEC ? PROT_EXEC : 0;
 
 	flags &= MAP_NONBLOCK;
 	flags |= MAP_SHARED | MAP_FIXED | MAP_POPULATE;
-	if (vma_test(vma, VMA_LOCKED_BIT))
+	if (vma->vm_flags & VM_LOCKED)
 		flags |= MAP_LOCKED;
 
 	/* Save vm_flags used to calculate prot and flags, and recheck later. */
@@ -1206,7 +1191,7 @@ SYSCALL_DEFINE5(remap_file_pages, unsigned long, start, unsigned long, size,
 	}
 
 	ret = do_mmap(vma->vm_file, start, size,
-			prot, flags, EMPTY_VMA_FLAGS, pgoff, &populate, NULL);
+			prot, flags, 0, pgoff, &populate, NULL);
 out:
 	mmap_write_unlock(mm);
 	fput(file);
@@ -1248,7 +1233,7 @@ int vm_brk_flags(unsigned long addr, unsigned long request, bool is_exec)
 
 	vma = vma_prev(&vmi);
 	ret = do_brk_flags(&vmi, vma, addr, len, vma_flags);
-	populate = vma_flags_test(&mm->def_vma_flags, VMA_LOCKED_BIT);
+	populate = ((mm->def_flags & VM_LOCKED) != 0);
 	mmap_write_unlock(mm);
 	userfaultfd_unmap_complete(mm, &uf);
 	if (populate && !ret)
@@ -1271,7 +1256,7 @@ unsigned long tear_down_vmas(struct mm_struct *mm, struct vma_iterator *vmi,
 	mmap_assert_write_locked(mm);
 	vma_iter_set(vmi, vma->vm_end);
 	do {
-		if (vma_test(vma, VMA_ACCOUNT_BIT))
+		if (vma->vm_flags & VM_ACCOUNT)
 			nr_accounted += vma_pages(vma);
 		vma_mark_detached(vma);
 		remove_vma(vma);
@@ -1420,7 +1405,7 @@ static int special_mapping_split(struct vm_area_struct *vma, unsigned long addr)
 {
 	/*
 	 * Forbid splitting special mappings - kernel has expectations over
-	 * the number of pages in mapping. Together with VMA_DONTEXPAND_BIT
+	 * the number of pages in mapping. Together with VM_DONTEXPAND
 	 * the size of vma should stay the same over the special mapping's
 	 * lifetime.
 	 */
@@ -1460,6 +1445,44 @@ static vm_fault_t special_mapping_fault(struct vm_fault *vmf)
 	}
 
 	return VM_FAULT_SIGBUS;
+}
+
+static struct vm_area_struct *__install_special_mapping(
+	struct mm_struct *mm,
+	unsigned long addr, unsigned long len,
+	vm_flags_t vm_flags, void *priv,
+	const struct vm_operations_struct *ops)
+{
+	int ret;
+	struct vm_area_struct *vma;
+
+	vma = vm_area_alloc(mm);
+	if (unlikely(vma == NULL))
+		return ERR_PTR(-ENOMEM);
+
+	vma_set_range(vma, addr, addr + len, 0);
+	vm_flags |= mm->def_flags | VM_DONTEXPAND;
+	if (pgtable_supports_soft_dirty())
+		vm_flags |= VM_SOFTDIRTY;
+	vm_flags_init(vma, vm_flags & ~VM_LOCKED_MASK);
+	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
+
+	vma->vm_ops = ops;
+	vma->vm_private_data = priv;
+
+	ret = insert_vm_struct(mm, vma);
+	if (ret)
+		goto out;
+
+	vm_stat_account(mm, vma->vm_flags, len >> PAGE_SHIFT);
+
+	perf_event_mmap(vma);
+
+	return vma;
+
+out:
+	vm_area_free(vma);
+	return ERR_PTR(ret);
 }
 
 bool vma_is_special_mapping(const struct vm_area_struct *vma,
@@ -1692,7 +1715,7 @@ bool mmap_read_lock_maybe_expand(struct mm_struct *mm,
 		return true;
 	}
 
-	if (!vma_test(new_vma, VMA_GROWSDOWN_BIT))
+	if (!(new_vma->vm_flags & VM_GROWSDOWN))
 		return false;
 
 	mmap_write_lock(mm);
@@ -1742,7 +1765,7 @@ __latent_entropy int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 		retval = vma_start_write_killable(mpnt);
 		if (retval < 0)
 			goto loop_out;
-		if (vma_test(mpnt, VMA_DONTCOPY_BIT)) {
+		if (mpnt->vm_flags & VM_DONTCOPY) {
 			retval = vma_iter_clear_gfp(&vmi, mpnt->vm_start,
 						    mpnt->vm_end, GFP_KERNEL);
 			if (retval)
@@ -1752,7 +1775,7 @@ __latent_entropy int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 			continue;
 		}
 		charge = 0;
-		if (vma_test(mpnt, VMA_ACCOUNT_BIT)) {
+		if (mpnt->vm_flags & VM_ACCOUNT) {
 			unsigned long len = vma_pages(mpnt);
 
 			if (security_vm_enough_memory_mm(oldmm, len)) /* sic */
@@ -1770,19 +1793,16 @@ __latent_entropy int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 		retval = dup_userfaultfd(tmp, &uf);
 		if (retval)
 			goto fail_nomem_anon_vma_fork;
-
-		if (vma_test(tmp, VMA_WIPEONFORK_BIT)) {
+		if (tmp->vm_flags & VM_WIPEONFORK) {
 			/*
-			 * VMA_WIPEONFORK_BIT gets a clean slate in the child.
+			 * VM_WIPEONFORK gets a clean slate in the child.
 			 * Don't prepare anon_vma until fault since we don't
 			 * copy page for current vma.
 			 */
 			tmp->anon_vma = NULL;
 		} else if (anon_vma_fork(tmp, mpnt))
 			goto fail_nomem_anon_vma_fork;
-
-		vma_start_write(tmp);
-		vma_clear_flags_mask(tmp, VMA_LOCKED_MASK);
+		vm_flags_clear(tmp, VM_LOCKED_MASK);
 		/*
 		 * Copy/update hugetlb private vma information.
 		 */
@@ -1810,12 +1830,13 @@ __latent_entropy int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 				mapping_allow_writable(mapping);
 			flush_dcache_mmap_lock(mapping);
 			/* insert tmp into the share list, just after mpnt */
-			mapping_rmap_tree_insert_after(tmp, mpnt, mapping);
+			vma_interval_tree_insert_after(tmp, mpnt,
+					&mapping->i_mmap);
 			flush_dcache_mmap_unlock(mapping);
 			i_mmap_unlock_write(mapping);
 		}
 
-		if (!vma_test(tmp, VMA_WIPEONFORK_BIT))
+		if (!(tmp->vm_flags & VM_WIPEONFORK))
 			retval = copy_page_range(tmp, mpnt);
 
 		if (retval) {

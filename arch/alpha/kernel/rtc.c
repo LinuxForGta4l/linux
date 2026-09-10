@@ -15,7 +15,6 @@
 #include <linux/bcd.h>
 #include <linux/rtc.h>
 #include <linux/platform_device.h>
-#include <linux/workqueue.h>
 
 #include "proto.h"
 
@@ -143,40 +142,54 @@ static const struct rtc_class_ops alpha_rtc_ops = {
 };
 
 /*
- * Similarly, except do the actual CMOS access on the boot cpu only.  The
- * access polls for the RTC update cycle and takes rtc_lock, so run it in a
- * worker on that cpu rather than from an interprocessor interrupt.
+ * Similarly, except do the actual CMOS access on the boot cpu only.
+ * This requires marshalling the data across an interprocessor call.
  */
 
 #if defined(CONFIG_SMP) && \
     (defined(CONFIG_ALPHA_GENERIC) || defined(CONFIG_ALPHA_MARVEL))
 # define HAVE_REMOTE_RTC 1
 
-static long
+union remote_data {
+	struct rtc_time *tm;
+	long retval;
+};
+
+static void
 do_remote_read(void *data)
 {
-	return alpha_rtc_read_time(NULL, data);
+	union remote_data *x = data;
+	x->retval = alpha_rtc_read_time(NULL, x->tm);
 }
 
 static int
 remote_read_time(struct device *dev, struct rtc_time *tm)
 {
-	if (smp_processor_id() != boot_cpuid)
-		return work_on_cpu(boot_cpuid, do_remote_read, tm);
+	union remote_data x;
+	if (smp_processor_id() != boot_cpuid) {
+		x.tm = tm;
+		smp_call_function_single(boot_cpuid, do_remote_read, &x, 1);
+		return x.retval;
+	}
 	return alpha_rtc_read_time(NULL, tm);
 }
 
-static long
+static void
 do_remote_set(void *data)
 {
-	return alpha_rtc_set_time(NULL, data);
+	union remote_data *x = data;
+	x->retval = alpha_rtc_set_time(NULL, x->tm);
 }
 
 static int
 remote_set_time(struct device *dev, struct rtc_time *tm)
 {
-	if (smp_processor_id() != boot_cpuid)
-		return work_on_cpu(boot_cpuid, do_remote_set, tm);
+	union remote_data x;
+	if (smp_processor_id() != boot_cpuid) {
+		x.tm = tm;
+		smp_call_function_single(boot_cpuid, do_remote_set, &x, 1);
+		return x.retval;
+	}
 	return alpha_rtc_set_time(NULL, tm);
 }
 

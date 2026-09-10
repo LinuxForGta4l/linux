@@ -11,10 +11,12 @@ import pathlib
 import pprint
 import sys
 import re
+import os
 
 # pylint: disable=no-name-in-module,wrong-import-position
 sys.path.append(pathlib.Path(__file__).resolve().parent.parent.joinpath('pyynl').as_posix())
 # pylint: disable=import-error
+from cli import schema_dir, spec_dir
 from lib import YnlFamily
 
 
@@ -171,7 +173,10 @@ def main():
 
     args = parser.parse_args()
 
-    ynl = YnlFamily(family='ethtool', recv_size=args.dbg_small_recv)
+    spec = os.path.join(spec_dir(), 'ethtool.yaml')
+    schema = os.path.join(schema_dir(), 'genetlink-legacy.yaml')
+
+    ynl = YnlFamily(spec, schema, recv_size=args.dbg_small_recv)
     if args.dbg_small_recv:
         ynl.set_recv_dbg(True)
 

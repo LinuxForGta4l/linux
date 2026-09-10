@@ -405,7 +405,6 @@ static int meson_ao_cec_g12a_write(void *context, unsigned int addr,
 }
 
 static const struct regmap_config meson_ao_cec_g12a_cec_regmap_conf = {
-	.name = "core",
 	.reg_bits = 8,
 	.val_bits = 8,
 	.reg_read = meson_ao_cec_g12a_read,
@@ -689,8 +688,10 @@ static int meson_ao_cec_g12a_probe(struct platform_device *pdev)
 					meson_ao_cec_g12a_irq,
 					meson_ao_cec_g12a_irq_thread,
 					0, NULL, ao_cec);
-	if (ret)
+	if (ret) {
+		dev_err(&pdev->dev, "irq request failed\n");
 		goto out_probe_adapter;
+	}
 
 	ao_cec->oscin = devm_clk_get(&pdev->dev, "oscin");
 	if (IS_ERR(ao_cec->oscin)) {

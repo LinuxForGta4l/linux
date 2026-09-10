@@ -267,8 +267,8 @@ static SIMPLE_DEV_PM_OPS(cros_ec_sensorhub_pm_ops,
 		cros_ec_sensorhub_resume);
 
 static const struct platform_device_id cros_ec_sensorhub_id[] = {
-	{ .name = DRV_NAME },
-	{ }
+	{ DRV_NAME, 0 },
+	{}
 };
 MODULE_DEVICE_TABLE(platform, cros_ec_sensorhub_id);
 

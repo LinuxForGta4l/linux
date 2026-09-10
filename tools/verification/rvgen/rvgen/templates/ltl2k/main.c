@@ -77,7 +77,7 @@ static void disable_%%MODEL_NAME%%(void)
 /*
  * This is the monitor register section.
  */
-static struct rv_monitor rv_this = {
+static struct rv_monitor rv_%%MODEL_NAME%% = {
 	.name = "%%MODEL_NAME%%",
 	.description = "%%DESCRIPTION%%",
 	.enable = enable_%%MODEL_NAME%%,
@@ -86,17 +86,17 @@ static struct rv_monitor rv_this = {
 
 static int __init register_%%MODEL_NAME%%(void)
 {
-	return rv_register_monitor(&rv_this, %%PARENT%%);
+	return rv_register_monitor(&rv_%%MODEL_NAME%%, %%PARENT%%);
 }
 
 static void __exit unregister_%%MODEL_NAME%%(void)
 {
-	rv_unregister_monitor(&rv_this);
+	rv_unregister_monitor(&rv_%%MODEL_NAME%%);
 }
 
 module_init(register_%%MODEL_NAME%%);
 module_exit(unregister_%%MODEL_NAME%%);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("rvgen: auto-generated");
+MODULE_AUTHOR(/* TODO */);
 MODULE_DESCRIPTION("%%MODEL_NAME%%: %%DESCRIPTION%%");

@@ -17,7 +17,6 @@
 #include <linux/stddef.h>
 
 #include "../internal.h"
-#include "../vmalloc.h"
 #include "kmsan.h"
 
 #define shadow_page_for(page) ((page)->kmsan_shadow)

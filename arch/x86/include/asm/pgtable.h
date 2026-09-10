@@ -50,7 +50,7 @@ void ptdump_walk_user_pgd_level_checkwx(void);
 extern spinlock_t pgd_lock;
 extern struct list_head pgd_list;
 
-struct mm_struct *pgd_page_get_mm(struct ptdesc *pt);
+extern struct mm_struct *pgd_page_get_mm(struct page *page);
 
 extern pmdval_t early_pmd_flags;
 
@@ -411,19 +411,19 @@ static inline pte_t pte_wrprotect(pte_t pte)
 }
 
 #ifdef CONFIG_HAVE_ARCH_USERFAULTFD_WP
-static inline int pte_uffd(pte_t pte)
+static inline int pte_uffd_wp(pte_t pte)
 {
-	return pte_flags(pte) & _PAGE_UFFD;
+	return pte_flags(pte) & _PAGE_UFFD_WP;
 }
 
-static inline pte_t pte_mkuffd(pte_t pte)
+static inline pte_t pte_mkuffd_wp(pte_t pte)
 {
-	return pte_wrprotect(pte_set_flags(pte, _PAGE_UFFD));
+	return pte_wrprotect(pte_set_flags(pte, _PAGE_UFFD_WP));
 }
 
-static inline pte_t pte_clear_uffd(pte_t pte)
+static inline pte_t pte_clear_uffd_wp(pte_t pte)
 {
-	return pte_clear_flags(pte, _PAGE_UFFD);
+	return pte_clear_flags(pte, _PAGE_UFFD_WP);
 }
 #endif /* CONFIG_HAVE_ARCH_USERFAULTFD_WP */
 
@@ -526,19 +526,19 @@ static inline pmd_t pmd_wrprotect(pmd_t pmd)
 }
 
 #ifdef CONFIG_HAVE_ARCH_USERFAULTFD_WP
-static inline int pmd_uffd(pmd_t pmd)
+static inline int pmd_uffd_wp(pmd_t pmd)
 {
-	return pmd_flags(pmd) & _PAGE_UFFD;
+	return pmd_flags(pmd) & _PAGE_UFFD_WP;
 }
 
-static inline pmd_t pmd_mkuffd(pmd_t pmd)
+static inline pmd_t pmd_mkuffd_wp(pmd_t pmd)
 {
-	return pmd_wrprotect(pmd_set_flags(pmd, _PAGE_UFFD));
+	return pmd_wrprotect(pmd_set_flags(pmd, _PAGE_UFFD_WP));
 }
 
-static inline pmd_t pmd_clear_uffd(pmd_t pmd)
+static inline pmd_t pmd_clear_uffd_wp(pmd_t pmd)
 {
-	return pmd_clear_flags(pmd, _PAGE_UFFD);
+	return pmd_clear_flags(pmd, _PAGE_UFFD_WP);
 }
 #endif /* CONFIG_HAVE_ARCH_USERFAULTFD_WP */
 
@@ -911,7 +911,7 @@ pgd_t __pti_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd);
  */
 static inline pgd_t pti_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 {
-	if (!cpu_feature_enabled(X86_FEATURE_PTI))
+	if (!static_cpu_has(X86_FEATURE_PTI))
 		return pgd;
 	return __pti_set_user_pgtbl(pgdp, pgd);
 }
@@ -985,7 +985,11 @@ static inline int pmd_present(pmd_t pmd)
 	return pmd_flags(pmd) & (_PAGE_PRESENT | _PAGE_PROTNONE | _PAGE_PSE);
 }
 
-#ifdef CONFIG_ARCH_HAS_PTE_PROTNONE
+#ifdef CONFIG_NUMA_BALANCING
+/*
+ * These work without NUMA balancing but the kernel does not care. See the
+ * comment in include/linux/pgtable.h
+ */
 static inline int pte_protnone(pte_t pte)
 {
 	return (pte_flags(pte) & (_PAGE_PROTNONE | _PAGE_PRESENT))
@@ -997,7 +1001,7 @@ static inline int pmd_protnone(pmd_t pmd)
 	return (pmd_flags(pmd) & (_PAGE_PROTNONE | _PAGE_PRESENT))
 		== _PAGE_PROTNONE;
 }
-#endif /* CONFIG_ARCH_HAS_PTE_PROTNONE */
+#endif /* CONFIG_NUMA_BALANCING */
 
 static inline int pmd_none(pmd_t pmd)
 {
@@ -1467,7 +1471,7 @@ static inline void clone_pgd_range(pgd_t *dst, pgd_t *src, int count)
 {
 	memcpy(dst, src, count * sizeof(pgd_t));
 #ifdef CONFIG_MITIGATION_PAGE_TABLE_ISOLATION
-	if (!cpu_feature_enabled(X86_FEATURE_PTI))
+	if (!static_cpu_has(X86_FEATURE_PTI))
 		return;
 	/* Clone the user space pgd as well */
 	memcpy(kernel_to_user_pgdp(dst), kernel_to_user_pgdp(src),
@@ -1541,7 +1545,7 @@ static inline pte_t pte_swp_clear_soft_dirty(pte_t pte)
 	return pte_clear_flags(pte, _PAGE_SWP_SOFT_DIRTY);
 }
 
-#ifdef CONFIG_ARCH_HAS_PMD_SOFTLEAVES
+#ifdef CONFIG_ARCH_ENABLE_THP_MIGRATION
 static inline pmd_t pmd_swp_mksoft_dirty(pmd_t pmd)
 {
 	return pmd_set_flags(pmd, _PAGE_SWP_SOFT_DIRTY);
@@ -1560,34 +1564,34 @@ static inline pmd_t pmd_swp_clear_soft_dirty(pmd_t pmd)
 #endif
 
 #ifdef CONFIG_HAVE_ARCH_USERFAULTFD_WP
-static inline pte_t pte_swp_mkuffd(pte_t pte)
+static inline pte_t pte_swp_mkuffd_wp(pte_t pte)
 {
-	return pte_set_flags(pte, _PAGE_SWP_UFFD);
+	return pte_set_flags(pte, _PAGE_SWP_UFFD_WP);
 }
 
-static inline int pte_swp_uffd(pte_t pte)
+static inline int pte_swp_uffd_wp(pte_t pte)
 {
-	return pte_flags(pte) & _PAGE_SWP_UFFD;
+	return pte_flags(pte) & _PAGE_SWP_UFFD_WP;
 }
 
-static inline pte_t pte_swp_clear_uffd(pte_t pte)
+static inline pte_t pte_swp_clear_uffd_wp(pte_t pte)
 {
-	return pte_clear_flags(pte, _PAGE_SWP_UFFD);
+	return pte_clear_flags(pte, _PAGE_SWP_UFFD_WP);
 }
 
-static inline pmd_t pmd_swp_mkuffd(pmd_t pmd)
+static inline pmd_t pmd_swp_mkuffd_wp(pmd_t pmd)
 {
-	return pmd_set_flags(pmd, _PAGE_SWP_UFFD);
+	return pmd_set_flags(pmd, _PAGE_SWP_UFFD_WP);
 }
 
-static inline int pmd_swp_uffd(pmd_t pmd)
+static inline int pmd_swp_uffd_wp(pmd_t pmd)
 {
-	return pmd_flags(pmd) & _PAGE_SWP_UFFD;
+	return pmd_flags(pmd) & _PAGE_SWP_UFFD_WP;
 }
 
-static inline pmd_t pmd_swp_clear_uffd(pmd_t pmd)
+static inline pmd_t pmd_swp_clear_uffd_wp(pmd_t pmd)
 {
-	return pmd_clear_flags(pmd, _PAGE_SWP_UFFD);
+	return pmd_clear_flags(pmd, _PAGE_SWP_UFFD_WP);
 }
 #endif /* CONFIG_HAVE_ARCH_USERFAULTFD_WP */
 

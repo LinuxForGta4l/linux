@@ -119,10 +119,7 @@ usbtv_audio_fail:
 
 usbtv_video_fail:
 	usb_set_intfdata(intf, NULL);
-	if (usbtv->v4l2_dev.dev)
-		v4l2_device_put(&usbtv->v4l2_dev);
-	else
-		kfree(usbtv);
+	kfree(usbtv);
 
 	return ret;
 }

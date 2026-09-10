@@ -154,7 +154,7 @@ void nilfs_folio_bug(struct folio *folio)
 {
 	struct buffer_head *bh, *head;
 	struct address_space *m;
-	u64 ino;
+	unsigned long ino;
 
 	if (unlikely(!folio)) {
 		printk(KERN_CRIT "NILFS_FOLIO_BUG(NULL)\n");
@@ -164,9 +164,10 @@ void nilfs_folio_bug(struct folio *folio)
 	m = folio->mapping;
 	ino = m ? m->host->i_ino : 0;
 
-	printk(KERN_CRIT "NILFS_FOLIO_BUG(%p): cnt=%d index#=%lu flags=0x%lx  mapping=%p ino=%llu\n",
-		folio, folio_ref_count(folio), folio->index, folio->flags.f,
-		m, ino);
+	printk(KERN_CRIT "NILFS_FOLIO_BUG(%p): cnt=%d index#=%llu flags=0x%lx "
+	       "mapping=%p ino=%lu\n",
+	       folio, folio_ref_count(folio),
+	       (unsigned long long)folio->index, folio->flags.f, m, ino);
 
 	head = folio_buffers(folio);
 	if (head) {
@@ -242,7 +243,6 @@ static void nilfs_copy_folio(struct folio *dst, struct folio *src,
 int nilfs_copy_dirty_pages(struct address_space *dmap,
 			   struct address_space *smap)
 {
-	struct inode *smap_inode = smap->host;
 	struct folio_batch fbatch;
 	unsigned int i;
 	pgoff_t index = 0;
@@ -258,19 +258,8 @@ repeat:
 		struct folio *folio = fbatch.folios[i], *dfolio;
 
 		folio_lock(folio);
-		if (unlikely(!folio_test_dirty(folio))) {
-			if (WARN_ONCE(!sb_rdonly(smap_inode->i_sb),
-					"inconsistent dirty state\n"))
-				goto unlock_folio;
-
-			/*
-			 * If the filesystem has been forced to read-only
-			 * due to metadata corruption.
-			 */
-			folio_unlock(folio);
-			err = -EROFS;
-			break;
-		}
+		if (unlikely(!folio_test_dirty(folio)))
+			NILFS_FOLIO_BUG(folio, "inconsistent dirty state");
 
 		dfolio = filemap_grab_folio(dmap, folio->index);
 		if (IS_ERR(dfolio)) {
@@ -288,7 +277,6 @@ repeat:
 
 		folio_unlock(dfolio);
 		folio_put(dfolio);
-unlock_folio:
 		folio_unlock(folio);
 	}
 	folio_batch_release(&fbatch);

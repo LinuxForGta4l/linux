@@ -5,7 +5,6 @@
  * Copyright 2009-2014 Analog Devices Inc.
  */
 
-#include <linux/cleanup.h>
 #include <linux/crc32.h>
 #include <linux/firmware.h>
 #include <linux/kernel.h>
@@ -136,7 +135,7 @@ static int sigmadsp_ctrl_put(struct snd_kcontrol *kcontrol,
 	uint8_t *data;
 	int ret = 0;
 
-	guard(mutex)(&sigmadsp->lock);
+	mutex_lock(&sigmadsp->lock);
 
 	data = ucontrol->value.bytes.data;
 
@@ -149,6 +148,8 @@ static int sigmadsp_ctrl_put(struct snd_kcontrol *kcontrol,
 			ctrl->cached = true;
 	}
 
+	mutex_unlock(&sigmadsp->lock);
+
 	return ret;
 }
 
@@ -159,7 +160,7 @@ static int sigmadsp_ctrl_get(struct snd_kcontrol *kcontrol,
 	struct sigmadsp *sigmadsp = snd_kcontrol_chip(kcontrol);
 	int ret = 0;
 
-	guard(mutex)(&sigmadsp->lock);
+	mutex_lock(&sigmadsp->lock);
 
 	if (!ctrl->cached) {
 		ret = sigmadsp_read(sigmadsp, ctrl->addr, ctrl->cache,
@@ -172,6 +173,8 @@ static int sigmadsp_ctrl_get(struct snd_kcontrol *kcontrol,
 		memcpy(ucontrol->value.bytes.data, ctrl->cache,
 			ctrl->num_bytes);
 	}
+
+	mutex_unlock(&sigmadsp->lock);
 
 	return ret;
 }
@@ -484,7 +487,7 @@ static void devm_sigmadsp_release(struct device *dev, void *res)
 static int sigmadsp_firmware_load(struct sigmadsp *sigmadsp, const char *name)
 {
 	const struct sigma_firmware_header *ssfw_head;
-	const struct firmware *fw __free(firmware) = NULL;
+	const struct firmware *fw;
 	int ret;
 	u32 crc;
 
@@ -492,7 +495,7 @@ static int sigmadsp_firmware_load(struct sigmadsp *sigmadsp, const char *name)
 	ret = request_firmware(&fw, name, sigmadsp->dev);
 	if (ret) {
 		pr_debug("%s: request_firmware() failed with %i\n", __func__, ret);
-		return ret;
+		goto done;
 	}
 
 	/* then verify the header */
@@ -506,13 +509,13 @@ static int sigmadsp_firmware_load(struct sigmadsp *sigmadsp, const char *name)
 	 */
 	if (fw->size < sizeof(*ssfw_head) || fw->size >= 0x4000000) {
 		dev_err(sigmadsp->dev, "Failed to load firmware: Invalid size\n");
-		return -EINVAL;
+		goto done;
 	}
 
 	ssfw_head = (void *)fw->data;
 	if (memcmp(ssfw_head->magic, SIGMA_MAGIC, ARRAY_SIZE(ssfw_head->magic))) {
 		dev_err(sigmadsp->dev, "Failed to load firmware: Invalid magic\n");
-		return -EINVAL;
+		goto done;
 	}
 
 	crc = crc32(0, fw->data + sizeof(*ssfw_head),
@@ -521,7 +524,7 @@ static int sigmadsp_firmware_load(struct sigmadsp *sigmadsp, const char *name)
 	if (crc != le32_to_cpu(ssfw_head->crc)) {
 		dev_err(sigmadsp->dev, "Failed to load firmware: Wrong crc checksum: expected %x got %x\n",
 			le32_to_cpu(ssfw_head->crc), crc);
-		return -EINVAL;
+		goto done;
 	}
 
 	switch (ssfw_head->version) {
@@ -541,6 +544,9 @@ static int sigmadsp_firmware_load(struct sigmadsp *sigmadsp, const char *name)
 
 	if (ret)
 		sigmadsp_firmware_release(sigmadsp);
+
+done:
+	release_firmware(fw);
 
 	return ret;
 }
@@ -671,10 +677,10 @@ static void sigmadsp_activate_ctrl(struct sigmadsp *sigmadsp,
 		return;
 	changed = snd_ctl_activate_id(card, &ctrl->kcontrol->id, active);
 	if (active && changed > 0) {
-		scoped_guard(mutex, &sigmadsp->lock) {
-			if (ctrl->cached)
-				sigmadsp_ctrl_write(sigmadsp, ctrl, ctrl->cache);
-		}
+		mutex_lock(&sigmadsp->lock);
+		if (ctrl->cached)
+			sigmadsp_ctrl_write(sigmadsp, ctrl, ctrl->cache);
+		mutex_unlock(&sigmadsp->lock);
 	}
 }
 

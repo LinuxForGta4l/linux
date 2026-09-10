@@ -135,21 +135,9 @@ int bpftool_prog_sign(struct bpf_load_and_run_opts *opts)
 	CMS_ContentInfo *cms = NULL;
 	long actual_sig_len = 0;
 	X509 *x509 = NULL;
-	void *data = NULL;
-	size_t data_sz;
 	int err = 0;
 
-	data_sz = (size_t)opts->insns_sz + opts->data_sz;
-	data = malloc(data_sz);
-	if (!data) {
-		err = -ENOMEM;
-		goto cleanup;
-	}
-	memcpy(data, opts->insns, opts->insns_sz);
-	if (opts->data_sz)
-		memcpy((char *)data + opts->insns_sz, opts->data, opts->data_sz);
-
-	bd_in = BIO_new_mem_buf(data, data_sz);
+	bd_in = BIO_new_mem_buf(opts->insns, opts->insns_sz);
 	if (!bd_in) {
 		err = -ENOMEM;
 		goto cleanup;
@@ -187,13 +175,10 @@ int bpftool_prog_sign(struct bpf_load_and_run_opts *opts)
 		goto cleanup;
 	}
 
-	if (EVP_Digest(opts->insns, opts->insns_sz, opts->excl_prog_hash,
-		       &opts->excl_prog_hash_sz, EVP_sha256(), NULL) != 1) {
-		err = -EIO;
-		goto cleanup;
-	}
+	EVP_Digest(opts->insns, opts->insns_sz, opts->excl_prog_hash,
+		   &opts->excl_prog_hash_sz, EVP_sha256(), NULL);
 
-	bd_out = BIO_new(BIO_s_mem());
+		bd_out = BIO_new(BIO_s_mem());
 	if (!bd_out) {
 		err = -ENOMEM;
 		goto cleanup;
@@ -227,7 +212,6 @@ cleanup:
 	X509_free(x509);
 	EVP_PKEY_free(private_key);
 	BIO_free(bd_in);
-	free(data);
 	DISPLAY_OSSL_ERR(err < 0);
 	return err;
 }

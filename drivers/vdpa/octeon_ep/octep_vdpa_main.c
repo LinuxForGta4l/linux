@@ -170,8 +170,10 @@ static int octep_request_irqs(struct octep_hw *oct_hw, irqreturn_t (*irq_handler
 		irq = pci_irq_vector(pdev, idx);
 		ret = devm_request_irq(&pdev->dev, irq, irq_handler, 0, dev_name(&pdev->dev),
 				       oct_hw);
-		if (ret)
+		if (ret) {
+			dev_err(&pdev->dev, "Failed to register interrupt handler\n");
 			goto free_irqs;
+		}
 		oct_hw->irqs[idx] = irq;
 	}
 	oct_hw->requested_irqs = nb_irqs;
@@ -977,7 +979,6 @@ static struct pci_device_id octep_pci_vdpa_map[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_VDPA_DEVID_CN103K_VF) },
 	{ 0 },
 };
-MODULE_DEVICE_TABLE(pci, octep_pci_vdpa_map);
 
 static struct pci_driver octep_pci_vdpa = {
 	.name     = OCTEP_VDPA_DRIVER_NAME,

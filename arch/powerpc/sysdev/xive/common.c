@@ -74,8 +74,6 @@ static struct xive_ipi_desc {
  */
 static unsigned int xive_ipi_cpu_to_irq(unsigned int cpu)
 {
-	if (!xive_ipis)
-		return XIVE_BAD_IRQ;
 	return xive_ipis[early_cpu_to_node(cpu)].irq;
 }
 #endif
@@ -1134,7 +1132,8 @@ static int __init xive_init_ipis(void)
 	if (!ipi_domain)
 		goto out_free_fwnode;
 
-	xive_ipis = kzalloc_objs(*xive_ipis, nr_node_ids, GFP_KERNEL);
+	xive_ipis = kzalloc_objs(*xive_ipis, nr_node_ids,
+				 GFP_KERNEL | __GFP_NOFAIL);
 	if (!xive_ipis)
 		goto out_free_domain;
 
@@ -1159,7 +1158,6 @@ static int __init xive_init_ipis(void)
 
 out_free_xive_ipis:
 	kfree(xive_ipis);
-	xive_ipis = NULL;
 out_free_domain:
 	irq_domain_remove(ipi_domain);
 out_free_fwnode:
@@ -1191,9 +1189,6 @@ static int xive_setup_cpu_ipi(unsigned int cpu)
 	int rc;
 
 	pr_debug("Setting up IPI for CPU %d\n", cpu);
-
-	if (xive_ipi_irq == XIVE_BAD_IRQ)
-		return -EIO;
 
 	xc = per_cpu(xive_cpu, cpu);
 
@@ -1239,9 +1234,6 @@ noinstr static void xive_cleanup_cpu_ipi(unsigned int cpu, struct xive_cpu *xc)
 
 	/* Disable the IPI and free the IRQ data */
 
-	if (xive_ipi_irq == XIVE_BAD_IRQ)
-		return;
-
 	/* Already cleaned up ? */
 	if (xc->hw_ipi == XIVE_BAD_IRQ)
 		return;
@@ -1265,23 +1257,15 @@ noinstr static void xive_cleanup_cpu_ipi(unsigned int cpu, struct xive_cpu *xc)
 	xive_ops->put_ipi(cpu, xc);
 }
 
-int __init xive_smp_probe(void)
+void __init xive_smp_probe(void)
 {
-	int ret;
-
-	/* Register the IPI */
-	ret = xive_init_ipis();
-	if (ret < 0)
-		return ret;
-
-	/* Allocate and setup IPI for the boot CPU */
-	ret = xive_setup_cpu_ipi(smp_processor_id());
-	if (ret < 0)
-		return ret;
-
 	smp_ops->cause_ipi = xive_cause_ipi;
 
-	return 0;
+	/* Register the IPI */
+	xive_init_ipis();
+
+	/* Allocate and setup IPI for the boot CPU */
+	xive_setup_cpu_ipi(smp_processor_id());
 }
 
 #endif /* CONFIG_SMP */

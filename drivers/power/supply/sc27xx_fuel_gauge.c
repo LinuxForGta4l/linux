@@ -1231,8 +1231,10 @@ static int sc27xx_fgu_probe(struct platform_device *pdev)
 					sc27xx_fgu_interrupt,
 					IRQF_NO_SUSPEND | IRQF_ONESHOT,
 					pdev->name, data);
-	if (ret)
+	if (ret) {
+		dev_err(data->dev, "failed to request fgu IRQ\n");
 		return ret;
+	}
 
 	irq = gpiod_to_irq(data->gpiod);
 	if (irq < 0) {
@@ -1245,8 +1247,10 @@ static int sc27xx_fgu_probe(struct platform_device *pdev)
 					IRQF_ONESHOT | IRQF_TRIGGER_RISING |
 					IRQF_TRIGGER_FALLING,
 					pdev->name, data);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "failed to request IRQ\n");
 		return ret;
+	}
 
 	return 0;
 }

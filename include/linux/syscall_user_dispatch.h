@@ -6,23 +6,9 @@
 #define _SYSCALL_USER_DISPATCH_H
 
 #include <linux/thread_info.h>
-#include <linux/sched.h>
 #include <linux/syscall_user_dispatch_types.h>
 
-struct pt_regs;
-
-#ifdef CONFIG_SYSCALL_USER_DISPATCH
-
-bool syscall_user_dispatch(struct pt_regs *regs);
-
-static __always_inline bool syscall_user_dispatch_clear_on_dispatch(void)
-{
-	if (likely(!current->syscall_dispatch.on_dispatch))
-		return false;
-
-	current->syscall_dispatch.on_dispatch = false;
-	return true;
-}
+#ifdef CONFIG_GENERIC_ENTRY
 
 int set_syscall_user_dispatch(unsigned long mode, unsigned long offset,
 			      unsigned long len, char __user *selector);
@@ -37,16 +23,6 @@ int syscall_user_dispatch_set_config(struct task_struct *task, unsigned long siz
 				     void __user *data);
 
 #else
-
-static __always_inline bool syscall_user_dispatch(struct pt_regs *regs)
-{
-	return false;
-}
-
-static __always_inline bool syscall_user_dispatch_clear_on_dispatch(void)
-{
-	return false;
-}
 
 static inline int set_syscall_user_dispatch(unsigned long mode, unsigned long offset,
 					    unsigned long len, char __user *selector)
@@ -70,6 +46,6 @@ static inline int syscall_user_dispatch_set_config(struct task_struct *task,
 	return -EINVAL;
 }
 
-#endif /* CONFIG_SYSCALL_USER_DISPATCH */
+#endif /* CONFIG_GENERIC_ENTRY */
 
 #endif /* _SYSCALL_USER_DISPATCH_H */

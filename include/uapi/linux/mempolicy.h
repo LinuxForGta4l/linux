@@ -16,7 +16,7 @@
  */
 
 /* Policies */
-enum mempolicy_mode {
+enum {
 	MPOL_DEFAULT,
 	MPOL_PREFERRED,
 	MPOL_BIND,

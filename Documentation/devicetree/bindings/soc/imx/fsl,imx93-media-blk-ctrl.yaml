@@ -26,12 +26,6 @@ properties:
   reg:
     maxItems: 1
 
-  '#address-cells':
-    const: 1
-
-  '#size-cells':
-    const: 1
-
   '#power-domain-cells':
     const: 1
 
@@ -98,11 +92,6 @@ properties:
       - compatible
       - ports
 
-  bridge@20:
-    type: object
-    $ref: /schemas/display/bridge/fsl,ldb.yaml#
-    unevaluatedProperties: false
-
 allOf:
   - if:
       properties:
@@ -123,7 +112,6 @@ allOf:
             - const: lcdif
             - const: isi
             - const: csi
-        bridge@20: false
   - if:
       properties:
         compatible:
@@ -175,8 +163,6 @@ examples:
                <&clk IMX93_CLK_MIPI_DSI_GATE>;
                clock-names = "apb", "axi", "nic", "disp", "cam",
                              "pxp", "lcdif", "isi", "csi", "dsi";
-      #address-cells = <1>;
-      #size-cells = <1>;
       #power-domain-cells = <1>;
 
       dpi-bridge {
@@ -201,31 +187,6 @@ examples:
               remote-endpoint = <&panel_from_pdfc>;
               bus-width = <18>;
             };
-          };
-        };
-      };
-
-      bridge@20 {
-        compatible = "fsl,imx93-ldb";
-        reg = <0x20 0x4>, <0x24 0x4>;
-        reg-names = "ldb", "lvds";
-        clocks = <&clk IMX93_CLK_LVDS_GATE>;
-        clock-names = "ldb";
-
-        ports {
-          #address-cells = <1>;
-          #size-cells = <0>;
-
-          port@0 {
-            reg = <0>;
-
-            endpoint {
-              remote-endpoint = <&lcdif_to_ldb>;
-            };
-          };
-
-          port@1 {
-            reg = <1>;
           };
         };
       };

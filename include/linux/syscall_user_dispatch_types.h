@@ -4,7 +4,7 @@
 
 #include <linux/types.h>
 
-#ifdef CONFIG_SYSCALL_USER_DISPATCH
+#ifdef CONFIG_GENERIC_ENTRY
 
 struct syscall_user_dispatch {
 	char __user	*selector;

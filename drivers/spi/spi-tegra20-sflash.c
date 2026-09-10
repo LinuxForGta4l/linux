@@ -533,6 +533,7 @@ static void tegra_sflash_remove(struct platform_device *pdev)
 		tegra_sflash_runtime_suspend(&pdev->dev);
 }
 
+#ifdef CONFIG_PM_SLEEP
 static int tegra_sflash_suspend(struct device *dev)
 {
 	struct spi_controller *host = dev_get_drvdata(dev);
@@ -556,6 +557,7 @@ static int tegra_sflash_resume(struct device *dev)
 
 	return spi_controller_resume(host);
 }
+#endif
 
 static int tegra_sflash_runtime_suspend(struct device *dev)
 {
@@ -584,14 +586,14 @@ static int tegra_sflash_runtime_resume(struct device *dev)
 }
 
 static const struct dev_pm_ops slink_pm_ops = {
-	RUNTIME_PM_OPS(tegra_sflash_runtime_suspend,
-		       tegra_sflash_runtime_resume, NULL)
-	SYSTEM_SLEEP_PM_OPS(tegra_sflash_suspend, tegra_sflash_resume)
+	SET_RUNTIME_PM_OPS(tegra_sflash_runtime_suspend,
+		tegra_sflash_runtime_resume, NULL)
+	SET_SYSTEM_SLEEP_PM_OPS(tegra_sflash_suspend, tegra_sflash_resume)
 };
 static struct platform_driver tegra_sflash_driver = {
 	.driver = {
 		.name		= "spi-tegra-sflash",
-		.pm		= pm_ptr(&slink_pm_ops),
+		.pm		= &slink_pm_ops,
 		.of_match_table	= tegra_sflash_of_match,
 	},
 	.probe =	tegra_sflash_probe,

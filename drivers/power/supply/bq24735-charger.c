@@ -462,8 +462,12 @@ static int bq24735_charger_probe(struct i2c_client *client)
 						IRQF_ONESHOT,
 						supply_desc->name,
 						charger->charger);
-		if (ret)
+		if (ret) {
+			dev_err(&client->dev,
+				"Unable to register IRQ %d err %d\n",
+				client->irq, ret);
 			return ret;
+		}
 	} else {
 		ret = device_property_read_u32(&client->dev, "poll-interval",
 					       &charger->poll_interval);

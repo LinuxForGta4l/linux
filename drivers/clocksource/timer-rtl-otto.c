@@ -56,37 +56,37 @@ struct rttm_cs {
 /* Simple internal register functions */
 static inline unsigned int rttm_get_counter(void __iomem *base)
 {
-	return __raw_readl(base + RTTM_CNT);
+	return ioread32(base + RTTM_CNT);
 }
 
 static inline void rttm_set_period(void __iomem *base, unsigned int period)
 {
-	__raw_writel(period, base + RTTM_DATA);
+	iowrite32(period, base + RTTM_DATA);
 }
 
 static inline void rttm_disable_timer(void __iomem *base)
 {
-	__raw_writel(0, base + RTTM_CTRL);
+	iowrite32(0, base + RTTM_CTRL);
 }
 
 static inline void rttm_enable_timer(void __iomem *base, u32 mode, u32 divisor)
 {
-	__raw_writel(RTTM_CTRL_ENABLE | mode | divisor, base + RTTM_CTRL);
+	iowrite32(RTTM_CTRL_ENABLE | mode | divisor, base + RTTM_CTRL);
 }
 
 static inline void rttm_ack_irq(void __iomem *base)
 {
-	__raw_writel(__raw_readl(base + RTTM_INT) | RTTM_INT_PENDING, base + RTTM_INT);
+	iowrite32(ioread32(base + RTTM_INT) | RTTM_INT_PENDING, base + RTTM_INT);
 }
 
 static inline void rttm_enable_irq(void __iomem *base)
 {
-	__raw_writel(RTTM_INT_ENABLE, base + RTTM_INT);
+	iowrite32(RTTM_INT_ENABLE, base + RTTM_INT);
 }
 
 static inline void rttm_disable_irq(void __iomem *base)
 {
-	__raw_writel(0, base + RTTM_INT);
+	iowrite32(0, base + RTTM_INT);
 }
 
 /* Aggregated control functions for kernel clock framework */

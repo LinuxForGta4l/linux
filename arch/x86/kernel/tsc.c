@@ -1221,11 +1221,11 @@ static void __init check_system_tsc_reliable(void)
 	if (is_geode_lx()) {
 		/* RTSC counts during suspend */
 #define RTSC_SUSP 0x100
-		u64 res;
+		unsigned long res_low, res_high;
 
-		rdmsrq_safe(MSR_GEODE_BUSCONT_CONF0, &res);
+		rdmsr_safe(MSR_GEODE_BUSCONT_CONF0, &res_low, &res_high);
 		/* Geode_LX - the OLPC CPU has a very reliable TSC */
-		if (res & RTSC_SUSP)
+		if (res_low & RTSC_SUSP)
 			tsc_clocksource_reliable = 1;
 	}
 #endif

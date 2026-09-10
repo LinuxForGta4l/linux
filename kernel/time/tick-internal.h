@@ -3,7 +3,6 @@
  * tick internal variable and functions used by low/high res code
  */
 #include <linux/hrtimer.h>
-#include <linux/hrtimer_bases.h>
 #include <linux/tick.h>
 
 #include "timekeeping.h"

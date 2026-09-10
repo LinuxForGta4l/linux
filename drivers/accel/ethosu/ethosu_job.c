@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
 /* Copyright 2024-2025 Tomeu Vizoso <tomeu@tomeuvizoso.net> */
-/* Copyright 2025-2026 Arm, Ltd. */
+/* Copyright 2025 Arm, Ltd. */
 
 #include <linux/bitfield.h>
 #include <linux/genalloc.h>
@@ -147,8 +147,6 @@ static void ethosu_job_err_cleanup(struct ethosu_job *job)
 {
 	unsigned int i;
 
-	ethosu_perfmon_put(job->perfmon);
-
 	for (i = 0; i < job->region_cnt; i++)
 		drm_gem_object_put(job->region_bo[i]);
 
@@ -183,26 +181,6 @@ static void ethosu_job_free(struct drm_sched_job *sched_job)
 	ethosu_job_put(job);
 }
 
-static void
-ethosu_switch_perfmon(struct ethosu_device *ethosu, struct ethosu_job *job)
-{
-	struct ethosu_perfmon *perfmon;
-
-	guard(mutex)(&ethosu->perfmon_state.lock);
-
-	perfmon = ethosu->global_perfmon;
-	if (!perfmon)
-		perfmon = job->perfmon;
-
-	if (perfmon == ethosu->perfmon_state.active)
-		return;
-
-	ethosu_perfmon_stop_locked(ethosu, ethosu->perfmon_state.active, true);
-
-	if (perfmon)
-		ethosu_perfmon_start(ethosu, perfmon);
-}
-
 static struct dma_fence *ethosu_job_run(struct drm_sched_job *sched_job)
 {
 	struct ethosu_job *job = to_ethosu_job(sched_job);
@@ -216,10 +194,10 @@ static struct dma_fence *ethosu_job_run(struct drm_sched_job *sched_job)
 		       dev->fence_context, ++dev->emit_seqno);
 	dma_fence_get(fence);
 
-	ethosu_switch_perfmon(dev, job);
-
-	WRITE_ONCE(dev->in_flight_job, job);
-	ethosu_job_hw_submit(dev, job);
+	scoped_guard(mutex, &dev->job_lock) {
+		dev->in_flight_job = job;
+		ethosu_job_hw_submit(dev, job);
+	}
 
 	return fence;
 }
@@ -227,7 +205,6 @@ static struct dma_fence *ethosu_job_run(struct drm_sched_job *sched_job)
 static void ethosu_job_handle_irq(struct ethosu_device *dev)
 {
 	u32 status = readl_relaxed(dev->regs + NPU_REG_STATUS);
-	struct ethosu_job *job;
 
 	if (status & (STATUS_BUS_STATUS | STATUS_CMD_PARSE_ERR)) {
 		dev_err(dev->base.dev, "Error IRQ - %x\n", status);
@@ -235,10 +212,11 @@ static void ethosu_job_handle_irq(struct ethosu_device *dev)
 		return;
 	}
 
-	job = READ_ONCE(dev->in_flight_job);
-	if (job) {
-		WRITE_ONCE(dev->in_flight_job, NULL);
-		dma_fence_signal(job->done_fence);
+	scoped_guard(mutex, &dev->job_lock) {
+		if (dev->in_flight_job) {
+			dma_fence_signal(dev->in_flight_job->done_fence);
+			dev->in_flight_job = NULL;
+		}
 	}
 }
 
@@ -294,7 +272,8 @@ static enum drm_gpu_sched_stat ethosu_job_timedout(struct drm_sched_job *bad)
 
 	drm_sched_stop(&dev->sched, bad);
 
-	WRITE_ONCE(dev->in_flight_job, NULL);
+	scoped_guard(mutex, &dev->job_lock)
+		dev->in_flight_job = NULL;
 
 	/* Proceed with reset now. */
 	pm_runtime_force_suspend(dev->base.dev);
@@ -326,6 +305,9 @@ int ethosu_job_init(struct ethosu_device *edev)
 	int ret;
 
 	spin_lock_init(&edev->fence_lock);
+	ret = devm_mutex_init(dev, &edev->job_lock);
+	if (ret)
+		return ret;
 	ret = devm_mutex_init(dev, &edev->sched_lock);
 	if (ret)
 		return ret;
@@ -384,8 +366,7 @@ void ethosu_job_close(struct ethosu_file_priv *ethosu_priv)
 }
 
 static int ethosu_ioctl_submit_job(struct drm_device *dev, struct drm_file *file,
-				   struct drm_ethosu_job *job,
-				   int perfmon_id)
+				   struct drm_ethosu_job *job)
 {
 	struct ethosu_device *edev = to_ethosu_device(dev);
 	struct ethosu_file_priv *file_priv = file->driver_priv;
@@ -408,9 +389,6 @@ static int ethosu_ioctl_submit_job(struct drm_device *dev, struct drm_file *file
 
 	ejob->dev = edev;
 	ejob->sram_size = job->sram_size;
-
-	if (perfmon_id)
-		ejob->perfmon = ethosu_perfmon_find(file_priv, perfmon_id);
 
 	ejob->done_fence = kzalloc_obj(*ejob->done_fence);
 	if (!ejob->done_fence) {
@@ -514,6 +492,11 @@ int ethosu_ioctl_submit(struct drm_device *dev, void *data, struct drm_file *fil
 	int ret = 0;
 	unsigned int i = 0;
 
+	if (args->pad) {
+		drm_dbg(dev, "Reserved field in drm_ethosu_submit struct should be 0.\n");
+		return -EINVAL;
+	}
+
 	struct drm_ethosu_job __free(kvfree) *jobs =
 		kvmalloc_objs(*jobs, args->job_count);
 	if (!jobs)
@@ -527,7 +510,7 @@ int ethosu_ioctl_submit(struct drm_device *dev, void *data, struct drm_file *fil
 	}
 
 	for (i = 0; i < args->job_count; i++) {
-		ret = ethosu_ioctl_submit_job(dev, file, &jobs[i], args->perfmon_id);
+		ret = ethosu_ioctl_submit_job(dev, file, &jobs[i]);
 		if (ret)
 			return ret;
 	}

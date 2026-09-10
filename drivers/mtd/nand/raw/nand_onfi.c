@@ -35,21 +35,16 @@ static int nand_flash_detect_ext_param_page(struct nand_chip *chip,
 					    struct nand_onfi_params *p)
 {
 	struct nand_device *base = &chip->base;
-	struct mtd_info *mtd = nand_to_mtd(chip);
 	struct nand_ecc_props requirements;
 	struct onfi_ext_param_page *ep;
 	struct onfi_ext_section *s;
 	struct onfi_ext_ecc_info *ecc;
-	size_t remaining, section_len;
 	uint8_t *cursor;
 	int ret;
 	int len;
 	int i;
 
 	len = le16_to_cpu(p->ext_param_page_length) * 16;
-	if (len < sizeof(*ep))
-		return -EINVAL;
-
 	ep = kmalloc(len, GFP_KERNEL);
 	if (!ep)
 		return -ENOMEM;
@@ -82,29 +77,11 @@ static int nand_flash_detect_ext_param_page(struct nand_chip *chip,
 
 	/* find the ECC section. */
 	cursor = (uint8_t *)(ep + 1);
-	remaining = len - sizeof(*ep);
 	for (i = 0; i < ONFI_EXT_SECTION_MAX; i++) {
 		s = ep->sections + i;
-		section_len = s->length * 16;
-		if (section_len > remaining) {
-			dev_dbg(&mtd->dev,
-				"ONFI extended parameter section %d exceeds page\n",
-				i);
-			goto ext_out;
-		}
-
-		if (s->type == ONFI_SECTION_TYPE_2) {
-			if (section_len < sizeof(*ecc)) {
-				dev_dbg(&mtd->dev,
-					"ONFI extended parameter ECC section %d is too short\n",
-					i);
-				goto ext_out;
-			}
+		if (s->type == ONFI_SECTION_TYPE_2)
 			break;
-		}
-
-		cursor += section_len;
-		remaining -= section_len;
+		cursor += s->length * 16;
 	}
 	if (i == ONFI_EXT_SECTION_MAX) {
 		pr_debug("We can not find the ECC section.\n");

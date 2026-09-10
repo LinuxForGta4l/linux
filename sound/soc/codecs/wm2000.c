@@ -23,7 +23,6 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/firmware.h>
-#include <linux/cleanup.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/pm.h>
@@ -613,15 +612,20 @@ static int wm2000_anc_mode_put(struct snd_kcontrol *kcontrol,
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct wm2000_priv *wm2000 = dev_get_drvdata(component->dev);
 	unsigned int anc_active = ucontrol->value.integer.value[0];
+	int ret;
 
 	if (anc_active > 1)
 		return -EINVAL;
 
-	guard(mutex)(&wm2000->lock);
+	mutex_lock(&wm2000->lock);
 
 	wm2000->anc_active = anc_active;
 
-	return wm2000_anc_set_mode(wm2000);
+	ret = wm2000_anc_set_mode(wm2000);
+
+	mutex_unlock(&wm2000->lock);
+
+	return ret;
 }
 
 static int wm2000_speaker_get(struct snd_kcontrol *kcontrol,
@@ -641,15 +645,20 @@ static int wm2000_speaker_put(struct snd_kcontrol *kcontrol,
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct wm2000_priv *wm2000 = dev_get_drvdata(component->dev);
 	unsigned int val = ucontrol->value.integer.value[0];
+	int ret;
 
 	if (val > 1)
 		return -EINVAL;
 
-	guard(mutex)(&wm2000->lock);
+	mutex_lock(&wm2000->lock);
 
 	wm2000->spk_ena = val;
 
-	return wm2000_anc_set_mode(wm2000);
+	ret = wm2000_anc_set_mode(wm2000);
+
+	mutex_unlock(&wm2000->lock);
+
+	return ret;
 }
 
 static const struct snd_kcontrol_new wm2000_controls[] = {
@@ -667,8 +676,9 @@ static int wm2000_anc_power_event(struct snd_soc_dapm_widget *w,
 {
 	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
 	struct wm2000_priv *wm2000 = dev_get_drvdata(component->dev);
+	int ret;
 
-	guard(mutex)(&wm2000->lock);
+	mutex_lock(&wm2000->lock);
 
 	if (SND_SOC_DAPM_EVENT_ON(event))
 		wm2000->anc_eng_ena = 1;
@@ -676,7 +686,11 @@ static int wm2000_anc_power_event(struct snd_soc_dapm_widget *w,
 	if (SND_SOC_DAPM_EVENT_OFF(event))
 		wm2000->anc_eng_ena = 0;
 
-	return wm2000_anc_set_mode(wm2000);
+	ret = wm2000_anc_set_mode(wm2000);
+
+	mutex_unlock(&wm2000->lock);
+
+	return ret;
 }
 
 static const struct snd_soc_dapm_widget wm2000_dapm_widgets[] = {
@@ -796,7 +810,7 @@ static int wm2000_i2c_probe(struct i2c_client *i2c)
 	struct wm2000_priv *wm2000;
 	struct wm2000_platform_data *pdata;
 	const char *filename;
-	const struct firmware *fw __free(firmware) = NULL;
+	const struct firmware *fw = NULL;
 	int ret, i;
 	unsigned int reg;
 	u16 id;
@@ -814,7 +828,7 @@ static int wm2000_i2c_probe(struct i2c_client *i2c)
 		ret = PTR_ERR(wm2000->regmap);
 		dev_err(&i2c->dev, "Failed to allocate register map: %d\n",
 			ret);
-		return ret;
+		goto out;
 	}
 
 	for (i = 0; i < WM2000_NUM_SUPPLIES; i++)
@@ -908,6 +922,9 @@ static int wm2000_i2c_probe(struct i2c_client *i2c)
 
 err_supplies:
 	regulator_bulk_disable(WM2000_NUM_SUPPLIES, wm2000->supplies);
+
+out:
+	release_firmware(fw);
 	return ret;
 }
 

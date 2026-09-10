@@ -35,7 +35,6 @@
 #include "amdgpu_vce.h"
 #include "atom.h"
 #include "amd_pcie.h"
-#include "amdgpu_video_codecs.h"
 
 #include "si_dpm.h"
 #include "sid.h"
@@ -1510,6 +1509,12 @@ static void si_invalidate_hdp(struct amdgpu_device *adev,
 	}
 }
 
+static bool si_need_full_reset(struct amdgpu_device *adev)
+{
+	/* change this when we support soft reset */
+	return true;
+}
+
 static bool si_need_reset_on_init(struct amdgpu_device *adev)
 {
 	return false;
@@ -2014,6 +2019,7 @@ static const struct amdgpu_asic_funcs si_asic_funcs =
 	.get_config_memsize = &si_get_config_memsize,
 	.flush_hdp = &si_flush_hdp,
 	.invalidate_hdp = &si_invalidate_hdp,
+	.need_full_reset = &si_need_full_reset,
 	.get_pcie_usage = &si_get_pcie_usage,
 	.need_reset_on_init = &si_need_reset_on_init,
 	.get_pcie_replay_count = &si_get_pcie_replay_count,
@@ -2218,7 +2224,7 @@ static void si_init_golden_registers(struct amdgpu_device *adev)
 
 
 	default:
-		break;
+		BUG();
 	}
 }
 
@@ -2735,7 +2741,7 @@ int si_set_ip_blocks(struct amdgpu_device *adev)
 			amdgpu_device_ip_block_add(adev, &amdgpu_vkms_ip_block);
 		break;
 	default:
-		break;
+		BUG();
 	}
 	return 0;
 }

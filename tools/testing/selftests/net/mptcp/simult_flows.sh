@@ -24,7 +24,6 @@ small=""
 sout=""
 cout=""
 capout=""
-capprefix=""
 size=0
 
 usage() {
@@ -70,11 +69,6 @@ setup()
 	trap cleanup EXIT
 
 	mptcp_lib_ns_init ns1 ns2 ns3
-
-	if $capture; then
-		capprefix="simult_flows-${ns1:4}"
-		mptcp_lib_pr_info "pcap will have this prefix: ${capprefix}-"
-	fi
 
 	ip link add ns1eth1 netns "$ns1" type veth peer name ns2eth1 netns "$ns2"
 	ip link add ns1eth2 netns "$ns1" type veth peer name ns2eth2 netns "$ns2"
@@ -142,14 +136,15 @@ do_transfer()
 
 	if $capture; then
 		local capuser
+		local rndh="${ns1:4}"
 		if [ -z $SUDO_USER ] ; then
 			capuser=""
 		else
 			capuser="-Z $SUDO_USER"
 		fi
 
-		local capfile="${capprefix}-${port}"
-		local capopt="-i any -s 108 -B 32768 ${capuser}"
+		local capfile="${rndh}-${port}"
+		local capopt="-i any -s 65535 -B 32768 ${capuser}"
 
 		ip netns exec ${ns3}  tcpdump ${capopt} -w "${capfile}-listener.pcap"  >> "${capout}" 2>&1 &
 		local cappid_listener=$!

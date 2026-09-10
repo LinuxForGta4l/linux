@@ -6,7 +6,6 @@
 //
 // Author: Herve Codina <herve.codina@bootlin.com>
 
-#include <linux/cleanup.h>
 #include <linux/unaligned.h>
 #include <linux/clk.h>
 #include <linux/firmware.h>
@@ -1538,14 +1537,17 @@ static int peb2466_fw_parse(struct snd_soc_component *component,
 
 static int peb2466_load_coeffs(struct snd_soc_component *component, const char *fw_name)
 {
-	const struct firmware *fw __free(firmware) = NULL;
+	const struct firmware *fw;
 	int ret;
 
 	ret = request_firmware(&fw, fw_name, component->dev);
 	if (ret)
 		return ret;
 
-	return peb2466_fw_parse(component, fw->data, fw->size);
+	ret = peb2466_fw_parse(component, fw->data, fw->size);
+	release_firmware(fw);
+
+	return ret;
 }
 
 static int peb2466_component_probe(struct snd_soc_component *component)
@@ -1702,11 +1704,13 @@ static int peb2466_chip_gpio_update_bits(struct peb2466 *peb2466, unsigned int x
 	 * So, a specific cache value is used.
 	 */
 
-	guard(mutex)(&peb2466->gpio.lock);
+	mutex_lock(&peb2466->gpio.lock);
 
 	cache = peb2466_chip_gpio_get_cache(peb2466, xr_reg);
-	if (!cache)
-		return -EINVAL;
+	if (!cache) {
+		ret = -EINVAL;
+		goto end;
+	}
 
 	tmp = *cache;
 	tmp &= ~mask;
@@ -1714,11 +1718,14 @@ static int peb2466_chip_gpio_update_bits(struct peb2466 *peb2466, unsigned int x
 
 	ret = regmap_write(peb2466->regmap, xr_reg, tmp);
 	if (ret)
-		return ret;
+		goto end;
 
 	*cache = tmp;
+	ret = 0;
 
-	return 0;
+end:
+	mutex_unlock(&peb2466->gpio.lock);
+	return ret;
 }
 
 static int peb2466_chip_gpio_set(struct gpio_chip *c, unsigned int offset,

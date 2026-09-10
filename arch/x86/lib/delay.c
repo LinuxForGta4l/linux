@@ -14,10 +14,12 @@
 
 #include <linux/export.h>
 #include <linux/sched.h>
+#include <linux/timex.h>
 #include <linux/preempt.h>
 #include <linux/delay.h>
 
 #include <asm/processor.h>
+#include <asm/delay.h>
 #include <asm/timer.h>
 #include <asm/mwait.h>
 
@@ -187,13 +189,13 @@ void use_mwaitx_delay(void)
 	delay_fn = delay_halt;
 }
 
-bool delay_read_timer(unsigned long *timer_val)
+int read_current_timer(unsigned long *timer_val)
 {
 	if (delay_fn == delay_tsc) {
 		*timer_val = rdtsc();
-		return true;
+		return 0;
 	}
-	return false;
+	return -1;
 }
 
 void __delay(unsigned long loops)

@@ -837,7 +837,9 @@ static int mt6370_chg_init_irq(struct mt6370_priv *priv)
 						IRQF_TRIGGER_FALLING,
 						dev_name(priv->dev), priv);
 		if (ret)
-			return ret;
+			return dev_err_probe(priv->dev, ret,
+					     "Failed to request irq %s\n",
+					     mt6370_chg_irqs[i].name);
 	}
 
 	return 0;

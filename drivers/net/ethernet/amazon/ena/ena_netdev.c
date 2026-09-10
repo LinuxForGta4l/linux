@@ -2303,7 +2303,11 @@ static int ena_open(struct net_device *netdev)
 		return rc;
 	}
 
-	return ena_up(adapter);
+	rc = ena_up(adapter);
+	if (rc)
+		return rc;
+
+	return rc;
 }
 
 /* ena_close - Disables a network interface

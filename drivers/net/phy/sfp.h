@@ -12,7 +12,6 @@ struct sfp_quirk {
 	void (*support)(const struct sfp_eeprom_id *id,
 			struct sfp_module_caps *caps);
 	void (*fixup)(struct sfp *sfp);
-	bool part_prefix_match;
 };
 
 struct sfp_socket_ops {

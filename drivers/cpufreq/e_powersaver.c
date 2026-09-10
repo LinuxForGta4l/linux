@@ -90,7 +90,7 @@ static int eps_acpi_exit(struct cpufreq_policy *policy)
 static unsigned int eps_get(unsigned int cpu)
 {
 	struct eps_cpu_data *centaur;
-	u64 val;
+	u32 lo, hi;
 
 	if (cpu)
 		return 0;
@@ -99,50 +99,50 @@ static unsigned int eps_get(unsigned int cpu)
 		return 0;
 
 	/* Return current frequency */
-	rdmsrq(MSR_IA32_PERF_STATUS, val);
-	return centaur->fsb * ((val >> 8) & 0xff);
+	rdmsr(MSR_IA32_PERF_STATUS, lo, hi);
+	return centaur->fsb * ((lo >> 8) & 0xff);
 }
 
 static int eps_set_state(struct eps_cpu_data *centaur,
 			 struct cpufreq_policy *policy,
 			 u32 dest_state)
 {
-	u64 val;
+	u32 lo, hi;
 	int i;
 
 	/* Wait while CPU is busy */
-	rdmsrq(MSR_IA32_PERF_STATUS, val);
+	rdmsr(MSR_IA32_PERF_STATUS, lo, hi);
 	i = 0;
-	while (val & ((1 << 16) | (1 << 17))) {
+	while (lo & ((1 << 16) | (1 << 17))) {
 		udelay(16);
-		rdmsrq(MSR_IA32_PERF_STATUS, val);
+		rdmsr(MSR_IA32_PERF_STATUS, lo, hi);
 		i++;
 		if (unlikely(i > 64)) {
 			return -ENODEV;
 		}
 	}
 	/* Set new multiplier and voltage */
-	wrmsrq(MSR_IA32_PERF_CTL, dest_state & 0xffff);
+	wrmsr(MSR_IA32_PERF_CTL, dest_state & 0xffff, 0);
 	/* Wait until transition end */
 	i = 0;
 	do {
 		udelay(16);
-		rdmsrq(MSR_IA32_PERF_STATUS, val);
+		rdmsr(MSR_IA32_PERF_STATUS, lo, hi);
 		i++;
 		if (unlikely(i > 64)) {
 			return -ENODEV;
 		}
-	} while (val & ((1 << 16) | (1 << 17)));
+	} while (lo & ((1 << 16) | (1 << 17)));
 
 #ifdef DEBUG
 	{
 	u8 current_multiplier, current_voltage;
 
 	/* Print voltage and multiplier */
-	rdmsrq(MSR_IA32_PERF_STATUS, val);
-	current_voltage = val & 0xff;
+	rdmsr(MSR_IA32_PERF_STATUS, lo, hi);
+	current_voltage = lo & 0xff;
 	pr_info("Current voltage = %dmV\n", current_voltage * 16 + 700);
-	current_multiplier = (val >> 8) & 0xff;
+	current_multiplier = (lo >> 8) & 0xff;
 	pr_info("Current multiplier = %d\n", current_multiplier);
 	}
 #endif
@@ -171,6 +171,7 @@ static int eps_target(struct cpufreq_policy *policy, unsigned int index)
 static int eps_cpu_init(struct cpufreq_policy *policy)
 {
 	unsigned int i;
+	u32 lo, hi;
 	u64 val;
 	u8 current_multiplier, current_voltage;
 	u8 max_multiplier, max_voltage;
@@ -194,13 +195,13 @@ static int eps_cpu_init(struct cpufreq_policy *policy)
 
 	switch (c->x86_model) {
 	case 10:
-		rdmsrq(0x1153, val);
-		brand = (((val >> 2) ^ val) >> 18) & 3;
+		rdmsr(0x1153, lo, hi);
+		brand = (((lo >> 2) ^ lo) >> 18) & 3;
 		pr_cont("Model A ");
 		break;
 	case 13:
-		rdmsrq(0x1154, val);
-		brand = (((val >> 4) ^ (val >> 2))) & 0x000000ff;
+		rdmsr(0x1154, lo, hi);
+		brand = (((lo >> 4) ^ (lo >> 2))) & 0x000000ff;
 		pr_cont("Model D ");
 		break;
 	}
@@ -236,20 +237,20 @@ static int eps_cpu_init(struct cpufreq_policy *policy)
 	}
 
 	/* Print voltage and multiplier */
-	rdmsrq(MSR_IA32_PERF_STATUS, val);
-	current_voltage = val & 0xff;
+	rdmsr(MSR_IA32_PERF_STATUS, lo, hi);
+	current_voltage = lo & 0xff;
 	pr_info("Current voltage = %dmV\n", current_voltage * 16 + 700);
-	current_multiplier = (val >> 8) & 0xff;
+	current_multiplier = (lo >> 8) & 0xff;
 	pr_info("Current multiplier = %d\n", current_multiplier);
 
 	/* Print limits */
-	max_voltage = (val >> 32) & 0xff;
+	max_voltage = hi & 0xff;
 	pr_info("Highest voltage = %dmV\n", max_voltage * 16 + 700);
-	max_multiplier = (val >> 40) & 0xff;
+	max_multiplier = (hi >> 8) & 0xff;
 	pr_info("Highest multiplier = %d\n", max_multiplier);
-	min_voltage = (val >> 48) & 0xff;
+	min_voltage = (hi >> 16) & 0xff;
 	pr_info("Lowest voltage = %dmV\n", min_voltage * 16 + 700);
-	min_multiplier = (val >> 56) & 0xff;
+	min_multiplier = (hi >> 24) & 0xff;
 	pr_info("Lowest multiplier = %d\n", min_multiplier);
 
 	/* Sanity checks */

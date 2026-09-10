@@ -88,16 +88,16 @@ static int udp_uncompress(struct sk_buff *skb, size_t needed)
 	switch (lowpan_dev(skb->dev)->lltype) {
 	case LOWPAN_LLTYPE_IEEE802154:
 		if (lowpan_802154_cb(skb)->d_size)
-			udp_set_len_short(&uh, lowpan_802154_cb(skb)->d_size -
-					  sizeof(struct ipv6hdr));
+			uh.len = htons(lowpan_802154_cb(skb)->d_size -
+				       sizeof(struct ipv6hdr));
 		else
-			udp_set_len_short(&uh, skb->len + sizeof(struct udphdr));
+			uh.len = htons(skb->len + sizeof(struct udphdr));
 		break;
 	default:
-		udp_set_len_short(&uh, skb->len + sizeof(struct udphdr));
+		uh.len = htons(skb->len + sizeof(struct udphdr));
 		break;
 	}
-	pr_debug("uncompressed UDP length: src = %d", udp_get_len_short(&uh));
+	pr_debug("uncompressed UDP length: src = %d", ntohs(uh.len));
 
 	/* replace the compressed UDP head by the uncompressed UDP
 	 * header

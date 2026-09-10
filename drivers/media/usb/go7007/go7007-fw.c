@@ -13,7 +13,6 @@
  */
 
 #include <linux/module.h>
-#include <linux/bitops.h>
 #include <linux/time.h>
 #include <linux/mm.h>
 #include <linux/device.h>
@@ -59,16 +58,14 @@ struct code_gen {
 #define CODE_GEN(name, dest) struct code_gen name = { dest, 0, 32, 0 }
 
 #define CODE_ADD(name, val, length) do { \
-	if (length) { \
-		name.b -= (length); \
-		name.a |= (val) << name.b; \
-		while (name.b <= 24) { \
-			*name.p = name.a >> 24; \
-			++name.p; \
-			name.a <<= 8; \
-			name.b += 8; \
-			name.len += 8; \
-		} \
+	name.b -= (length); \
+	name.a |= (val) << name.b; \
+	while (name.b <= 24) { \
+		*name.p = name.a >> 24; \
+		++name.p; \
+		name.a <<= 8; \
+		name.b += 8; \
+		name.len += 8; \
 	} \
 } while (0)
 
@@ -710,10 +707,11 @@ done:
 
 static int vti_bitlen(struct go7007 *go)
 {
-	unsigned int max_time_incr = go->sensor_framerate / go->fps_scale;
-	int bitlen = fls(max_time_incr);
+	unsigned int i, max_time_incr = go->sensor_framerate / go->fps_scale;
 
-	return bitlen ?: 1;
+	for (i = 31; (max_time_incr & ((1 << i) - 1)) == max_time_incr; --i)
+		;
+	return i + 1;
 }
 
 static int mpeg4_frame_header(struct go7007 *go, unsigned char *buf,
@@ -1211,7 +1209,7 @@ static int seqhead_to_package(struct go7007 *go, __le16 *code, int space,
 		0xbf08,		fps,
 		0xbf09,		0,
 		0xbff2,		vop_time_increment_bitlength,
-		0xbff3,		GENMASK(vop_time_increment_bitlength - 1, 0),
+		0xbff3,		(1 << vop_time_increment_bitlength) - 1,
 		0xbfe6,		0,
 		0xbfe7,		(fps / 1000) << 8,
 		0,		0,

@@ -25,10 +25,10 @@ void test_sha256(void)
 	size_t i;
 
 	data = malloc(MAX_LEN);
-	if (!ASSERT_NEQ(data, NULL, "malloc"))
+	if (!ASSERT_OK_PTR(data, "malloc"))
 		goto out;
 	digests = malloc((MAX_LEN + 1) * SHA256_DIGEST_LENGTH);
-	if (!ASSERT_NEQ(digests, NULL, "malloc"))
+	if (!ASSERT_OK_PTR(digests, "malloc"))
 		goto out;
 
 	/* Generate MAX_LEN bytes of "random" data deterministically. */

@@ -653,11 +653,9 @@ static int fuse_iomap_end(struct inode *inode, loff_t pos, loff_t length,
 	return 0;
 }
 
-static DEFINE_IOMAP_ITER_NEXT_END(fuse_iomap_next, fuse_iomap_begin,
-				  fuse_iomap_end);
-
 static const struct iomap_ops fuse_iomap_ops = {
-	.iomap_next = fuse_iomap_next,
+	.iomap_begin = fuse_iomap_begin,
+	.iomap_end = fuse_iomap_end,
 };
 
 static void fuse_wait_dax_page(struct inode *inode)

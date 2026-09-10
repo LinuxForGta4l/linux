@@ -41,7 +41,7 @@ EXPORT_SYMBOL(perf_irq);
  * The main interrupt entry point.
  */
 
-asmlinkage void
+asmlinkage void 
 do_entInt(unsigned long type, unsigned long vector,
 	  unsigned long la_ptr, struct pt_regs *regs)
 {
@@ -52,91 +52,42 @@ do_entInt(unsigned long type, unsigned long vector,
 	 * Note that there is no matching local_irq_enable() due to
 	 * severe problems with RTI at IPL0 and some MILO PALcode
 	 * (namely LX164).
-	 *
-	 * PALcode has already raised PS.IPL to the level of the interrupt
-	 * being delivered.  For an IPL 7 entry - a machine check or a system
-	 * event - that is IPL_MAX, which is what arch_irqs_disabled() tests
-	 * for, so local_irq_disable() would decide interrupts were already
-	 * off and skip trace_hardirqs_off().  lockdep would then spend the
-	 * whole handler believing interrupts are enabled.  Drive the
-	 * annotation from lockdep's own state rather than the hardware IPL.
 	 */
-	raw_local_irq_disable();
-	if (lockdep_hardirqs_enabled())
-		trace_hardirqs_off();
-
-	old_regs = set_irq_regs(regs);
-
+	local_irq_disable();
 	switch (type) {
 	case 0:
 #ifdef CONFIG_SMP
-		irq_enter();
 		handle_ipi(regs);
-		irq_exit();
-		break;
+		return;
 #else
 		irq_err_count++;
-		pr_crit("Interprocessor interrupt? You must be kidding!\n");
-		break;
+		printk(KERN_CRIT "Interprocessor interrupt? "
+		       "You must be kidding!\n");
 #endif
+		break;
 	case 1:
-		/* handle_irq() already does irq_enter()/irq_exit() */
+		old_regs = set_irq_regs(regs);
 		handle_irq(RTC_IRQ);
-		break;
+		set_irq_regs(old_regs);
+		return;
 	case 2:
-		irq_enter();
+		old_regs = set_irq_regs(regs);
 		alpha_mv.machine_check(vector, la_ptr);
-		irq_exit();
-		break;
+		set_irq_regs(old_regs);
+		return;
 	case 3:
-		irq_enter();
+		old_regs = set_irq_regs(regs);
 		alpha_mv.device_interrupt(vector);
-		irq_exit();
-		break;
+		set_irq_regs(old_regs);
+		return;
 	case 4:
-		irq_enter();
 		perf_irq(la_ptr, regs);
-		irq_exit();
-		break;
+		return;
 	default:
-		pr_crit("Hardware intr %lu %lx? Huh?\n", type, vector);
-		pr_crit("PC = %016lx PS=%04lx\n", regs->pc, regs->ps);
-		break;
+		printk(KERN_CRIT "Hardware intr %ld %lx? Huh?\n",
+		       type, vector);
 	}
-
-	set_irq_regs(old_regs);
-
-	/*
-	 * Intentionally no local_irq_enable(): Alpha historically avoids
-	 * enabling at IPL0 here due to PAL/RTI issues (LX164/MILO note).
-	 */
-}
-
-void notrace lockdep_on_restore(unsigned long ps,
-				unsigned long ip)
-{
-#ifdef CONFIG_PROVE_LOCKING
-	/* Restoring IPL==7 means interrupts remain disabled. */
-	if ((ps & 7) == 7)
-		return;
-
-	/*
-	 * If hardware IRQs are already enabled here, then emitting a
-	 * hardirqs-on transition is redundant.
-	 */
-	if (!irqs_disabled())
-		return;
-
-	/*
-	 * Only emit the transition if lockdep currently believes
-	 * hardirqs are off.
-	 */
-	if (lockdep_hardirqs_enabled())
-		return;
-
-	lockdep_hardirqs_on_prepare();
-	lockdep_hardirqs_on(ip);
-#endif
+	printk(KERN_CRIT "PC = %016lx PS=%04lx\n", regs->pc, regs->ps);
 }
 
 void __init

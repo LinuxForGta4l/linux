@@ -36,14 +36,11 @@ static void usb6fire_comm_receiver_handler(struct urb *urb)
 	struct midi_runtime *midi_rt = rt->chip->midi;
 
 	if (!urb->status) {
-		u8 len = rt->receiver_buffer[1];
-
-		if (rt->receiver_buffer[0] == 0x10 && /* midi in event */
-		    len <= COMM_RECEIVER_BUFSIZE - 2 &&
-		    urb->actual_length >= len + 2)
+		if (rt->receiver_buffer[0] == 0x10) /* midi in event */
 			if (midi_rt)
 				midi_rt->in_received(midi_rt,
-						rt->receiver_buffer + 2, len);
+						rt->receiver_buffer + 2,
+						rt->receiver_buffer[1]);
 	}
 
 	if (!rt->chip->shutdown) {

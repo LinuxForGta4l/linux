@@ -25,9 +25,7 @@ struct device;
  */
 struct gpio_keys_button {
 	unsigned int code;
-#ifdef CONFIG_GPIOLIB_LEGACY
 	int gpio;
-#endif
 	int active_low;
 	const char *desc;
 	unsigned int type;

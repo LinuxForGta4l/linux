@@ -742,9 +742,11 @@ static void mlx5_ib_fill_counters(struct mlx5_ib_dev *dev,
 	names = is_vport ? vport_roce_accl_cnts : roce_accl_cnts;
 	size = is_vport ? ARRAY_SIZE(vport_roce_accl_cnts) :
 			  ARRAY_SIZE(roce_accl_cnts);
-	for (i = 0; i < size; i++, j++) {
-		descs[j].name = names[i].name;
-		offsets[j] = names[i].offset;
+	if (MLX5_CAP_GEN(dev->mdev, roce_accl)) {
+		for (i = 0; i < size; i++, j++) {
+			descs[j].name = names[i].name;
+			offsets[j] = names[i].offset;
+		}
 	}
 
 	if (is_vport)
@@ -824,7 +826,8 @@ static int __mlx5_ib_alloc_counters(struct mlx5_ib_dev *dev,
 
 	size = is_vport ? ARRAY_SIZE(vport_roce_accl_cnts) :
 			  ARRAY_SIZE(roce_accl_cnts);
-	num_counters += size;
+	if (MLX5_CAP_GEN(dev->mdev, roce_accl))
+		num_counters += size;
 
 	cnts->num_q_counters = num_counters;
 

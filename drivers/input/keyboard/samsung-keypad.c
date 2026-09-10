@@ -142,7 +142,7 @@ static irqreturn_t samsung_keypad_irq(int irq, void *dev_id)
 	unsigned int row_state[SAMSUNG_MAX_COLS];
 	bool key_down;
 
-	guard(pm_runtime_active)(&keypad->pdev->dev);
+	pm_runtime_get_sync(&keypad->pdev->dev);
 
 	do {
 		readl(keypad->base + SAMSUNG_KEYIFSTSCLR);
@@ -158,6 +158,8 @@ static irqreturn_t samsung_keypad_irq(int irq, void *dev_id)
 
 	} while (key_down && !keypad->stopped);
 
+	pm_runtime_put(&keypad->pdev->dev);
+
 	return IRQ_HANDLED;
 }
 
@@ -165,7 +167,7 @@ static void samsung_keypad_start(struct samsung_keypad *keypad)
 {
 	unsigned int val;
 
-	guard(pm_runtime_active)(&keypad->pdev->dev);
+	pm_runtime_get_sync(&keypad->pdev->dev);
 
 	/* Tell IRQ thread that it may poll the device. */
 	keypad->stopped = false;
@@ -180,14 +182,14 @@ static void samsung_keypad_start(struct samsung_keypad *keypad)
 	/* KEYIFCOL reg clear. */
 	writel(0, keypad->base + SAMSUNG_KEYIFCOL);
 
-	enable_irq(keypad->irq);
+	pm_runtime_put(&keypad->pdev->dev);
 }
 
 static void samsung_keypad_stop(struct samsung_keypad *keypad)
 {
 	unsigned int val;
 
-	guard(pm_runtime_active)(&keypad->pdev->dev);
+	pm_runtime_get_sync(&keypad->pdev->dev);
 
 	/* Signal IRQ thread to stop polling and disable the handler. */
 	keypad->stopped = true;
@@ -203,6 +205,14 @@ static void samsung_keypad_stop(struct samsung_keypad *keypad)
 	writel(val, keypad->base + SAMSUNG_KEYIFCON);
 
 	clk_disable(keypad->clk);
+
+	/*
+	 * Now that chip should not generate interrupts we can safely
+	 * re-enable the handler.
+	 */
+	enable_irq(keypad->irq);
+
+	pm_runtime_put(&keypad->pdev->dev);
 }
 
 static int samsung_keypad_open(struct input_dev *input_dev)
@@ -402,8 +412,7 @@ static int samsung_keypad_probe(struct platform_device *pdev)
 	}
 
 	error = devm_request_threaded_irq(&pdev->dev, keypad->irq, NULL,
-					  samsung_keypad_irq,
-					  IRQF_ONESHOT | IRQF_NO_AUTOEN,
+					  samsung_keypad_irq, IRQF_ONESHOT,
 					  dev_name(&pdev->dev), keypad);
 	if (error) {
 		dev_err(&pdev->dev, "failed to register keypad interrupt\n");
@@ -483,17 +492,15 @@ static void samsung_keypad_toggle_wakeup(struct samsung_keypad *keypad,
 
 	val = readl(keypad->base + SAMSUNG_KEYIFCON);
 	if (enable) {
-		enable_irq_wake(keypad->irq);
 		val |= SAMSUNG_KEYIFCON_WAKEUPEN;
-		writel(val, keypad->base + SAMSUNG_KEYIFCON);
+		if (device_may_wakeup(&keypad->pdev->dev))
+			enable_irq_wake(keypad->irq);
 	} else {
 		val &= ~SAMSUNG_KEYIFCON_WAKEUPEN;
-		writel(val, keypad->base + SAMSUNG_KEYIFCON);
-		disable_irq_wake(keypad->irq);
-
-		if (!input_device_enabled(keypad->input_dev))
-			writel(~0x0, keypad->base + SAMSUNG_KEYIFSTSCLR);
+		if (device_may_wakeup(&keypad->pdev->dev))
+			disable_irq_wake(keypad->irq);
 	}
+	writel(val, keypad->base + SAMSUNG_KEYIFCON);
 
 	clk_disable(keypad->clk);
 }
@@ -509,8 +516,7 @@ static int samsung_keypad_suspend(struct device *dev)
 	if (input_device_enabled(input_dev))
 		samsung_keypad_stop(keypad);
 
-	if (device_may_wakeup(dev))
-		samsung_keypad_toggle_wakeup(keypad, true);
+	samsung_keypad_toggle_wakeup(keypad, true);
 
 	return 0;
 }
@@ -523,8 +529,7 @@ static int samsung_keypad_resume(struct device *dev)
 
 	guard(mutex)(&input_dev->mutex);
 
-	if (device_may_wakeup(dev))
-		samsung_keypad_toggle_wakeup(keypad, false);
+	samsung_keypad_toggle_wakeup(keypad, false);
 
 	if (input_device_enabled(input_dev))
 		samsung_keypad_start(keypad);

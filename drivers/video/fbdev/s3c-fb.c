@@ -1421,8 +1421,10 @@ static int s3c_fb_probe(struct platform_device *pdev)
 
 	ret = devm_request_irq(dev, sfb->irq_no, s3c_fb_irq,
 			  0, "s3c_fb", sfb);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "irq request failed\n");
 		goto err_lcd_clk;
+	}
 
 	dev_dbg(dev, "got resources (regs %p), probing windows\n", sfb->regs);
 

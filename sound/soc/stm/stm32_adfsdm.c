@@ -360,8 +360,11 @@ static int stm32_adfsdm_probe(struct platform_device *pdev)
 	ret = devm_snd_soc_register_component(&pdev->dev,
 					      &stm32_adfsdm_soc_platform,
 					      NULL, 0);
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(&pdev->dev, "%s: Failed to register PCM platform\n",
+			__func__);
 		return ret;
+	}
 
 	pm_runtime_enable(&pdev->dev);
 

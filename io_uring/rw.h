@@ -2,7 +2,6 @@
 
 #include <linux/io_uring_types.h>
 #include <linux/pagemap.h>
-#include <linux/uio.h>
 
 struct io_meta_state {
 	u32			seed;

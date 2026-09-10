@@ -1907,8 +1907,6 @@ static int uvesafb_init(void)
 			err = 0;
 		}
 	}
-	if (err)
-		cn_del_callback(&uvesafb_cn_id);
 	return err;
 }
 

@@ -24,7 +24,6 @@
  */
 
 #include "dm_services.h"
-#include "dm_helpers.h"
 #include "basics/dc_common.h"
 #include "dc.h"
 #include "core_types.h"
@@ -100,9 +99,7 @@ void update_stream_signal(struct dc_stream_state *stream, struct dc_sink *sink)
 
 		if (stream->link->frl_flags.force_frl_always ||
 				stream->link->frl_flags.force_frl_max
-				|| stream->link->frl_flags.force_frl_dsc
-				|| (stream->link->frl_flags.force_frl_rate != 0 &&
-					stream->link->frl_flags.force_frl_rate != 0xF))
+				|| stream->link->frl_flags.force_frl_dsc)
 			stream->signal = SIGNAL_TYPE_HDMI_FRL;
 	}
 }
@@ -196,6 +193,7 @@ static void dc_stream_free(struct kref *kref)
 	struct dc_stream_state *stream = container_of(kref, struct dc_stream_state, refcount);
 
 	dc_stream_destruct(stream);
+	kfree(stream->update_scratch);
 	kfree(stream);
 }
 
@@ -205,7 +203,6 @@ void dc_stream_release(struct dc_stream_state *stream)
 		kref_put(&stream->refcount, dc_stream_free);
 	}
 }
-EXPORT_IF_KUNIT(dc_stream_release);
 
 struct dc_stream_state *dc_create_stream_for_sink(
 		struct dc_sink *sink)
@@ -220,6 +217,13 @@ struct dc_stream_state *dc_create_stream_for_sink(
 	if (stream == NULL)
 		goto fail;
 
+	DC_RUN_WITH_PREEMPTION_ENABLED(stream->update_scratch =
+					kzalloc((int32_t) dc_update_scratch_space_size(),
+						GFP_ATOMIC));
+
+	if (stream->update_scratch == NULL)
+		goto fail;
+
 	if (dc_stream_construct(stream, sink) == false)
 		goto fail;
 
@@ -228,8 +232,10 @@ struct dc_stream_state *dc_create_stream_for_sink(
 	return stream;
 
 fail:
-	if (stream)
+	if (stream) {
+		kfree(stream->update_scratch);
 		kfree(stream);
+	}
 
 	return NULL;
 }
@@ -241,6 +247,16 @@ struct dc_stream_state *dc_copy_stream(const struct dc_stream_state *stream)
 	new_stream = kmemdup(stream, sizeof(struct dc_stream_state), GFP_KERNEL);
 	if (!new_stream)
 		return NULL;
+
+	// Scratch is not meant to be reused across copies, as might have self-referential pointers
+	new_stream->update_scratch = kzalloc(
+			(int32_t) dc_update_scratch_space_size(),
+			GFP_KERNEL
+	);
+	if (!new_stream->update_scratch) {
+		kfree(new_stream);
+		return NULL;
+	}
 
 	if (new_stream->sink)
 		dc_sink_retain(new_stream->sink);
@@ -405,7 +421,6 @@ bool dc_stream_program_cursor_attributes(
 {
 	struct dc  *dc;
 	bool reset_idle_optimizations = false;
-	bool should_release_dmub_hw_control_lock = false;
 
 	if (!stream)
 		return false;
@@ -414,13 +429,6 @@ bool dc_stream_program_cursor_attributes(
 
 	if (dc_stream_set_cursor_attributes(stream, attributes)) {
 		dc_z10_restore(dc);
-		if (dc->hwss.dmub_hw_control_lock) {
-			if (dc_state_is_alt_in_use(dc, dc->current_state) &&
-			    !dc_dmub_srv_is_cursor_offload_enabled(dc)) {
-				dc->hwss.dmub_hw_control_lock(dc, dc->current_state, true);
-				should_release_dmub_hw_control_lock = true;
-			}
-		}
 		/* disable idle optimizations while updating cursor */
 		if (dc->idle_optimizations_allowed) {
 			dc_allow_idle_optimizations(dc, false);
@@ -433,10 +441,6 @@ bool dc_stream_program_cursor_attributes(
 		if (reset_idle_optimizations && !dc->debug.disable_dmub_reallow_idle)
 			dc_allow_idle_optimizations(dc, true);
 
-		if (dc->hwss.dmub_hw_control_lock) {
-			if (should_release_dmub_hw_control_lock)
-				dc->hwss.dmub_hw_control_lock(dc, dc->current_state, false);
-		}
 		return true;
 	}
 
@@ -519,7 +523,6 @@ bool dc_stream_program_cursor_position(
 	struct dc *dc;
 	bool reset_idle_optimizations = false;
 	const struct dc_cursor_position *old_position;
-	bool should_release_dmub_hw_control_lock = false;
 
 	if (!stream)
 		return false;
@@ -530,13 +533,6 @@ bool dc_stream_program_cursor_position(
 	if (dc_stream_set_cursor_position(stream, position)) {
 		dc_z10_restore(dc);
 
-		if (dc->hwss.dmub_hw_control_lock) {
-			if (dc_state_is_alt_in_use(dc, dc->current_state) &&
-			    !dc_dmub_srv_is_cursor_offload_enabled(dc)) {
-				dc->hwss.dmub_hw_control_lock(dc, dc->current_state, true);
-				should_release_dmub_hw_control_lock = true;
-			}
-		}
 		/* disable idle optimizations if enabling cursor */
 		if (dc->idle_optimizations_allowed &&
 		    (!old_position->enable || dc->debug.exit_idle_opt_for_cursor_updates) &&
@@ -587,10 +583,6 @@ bool dc_stream_program_cursor_position(
 			}
 		}
 
-		if (dc->hwss.dmub_hw_control_lock) {
-			if (should_release_dmub_hw_control_lock)
-				dc->hwss.dmub_hw_control_lock(dc, dc->current_state, false);
-		}
 		return true;
 	}
 
@@ -728,17 +720,20 @@ bool dc_stream_remove_writeback(struct dc *dc,
 		return false;
 	}
 
-	/* remove writeback info for the requested writeback pipe from stream */
+	/* remove writeback info for disabled writeback pipes from stream */
 	for (i = 0, j = 0; i < stream->num_wb_info; i++) {
-		/* drop every entry that targets the pipe being removed */
-		if (stream->writeback_info[i].dwb_pipe_inst == dwb_pipe_inst)
-			continue;
+		if (stream->writeback_info[i].wb_enabled) {
 
-		/* keep this entry, compacting it down when earlier entries were removed */
-		if (j != i)
-			memcpy(&stream->writeback_info[j], &stream->writeback_info[i],
-					sizeof(struct dc_writeback_info));
-		j++;
+			if (stream->writeback_info[i].dwb_pipe_inst == dwb_pipe_inst)
+				stream->writeback_info[i].wb_enabled = false;
+
+			/* trim the array */
+			if (j < i) {
+				memcpy(&stream->writeback_info[j], &stream->writeback_info[i],
+						sizeof(struct dc_writeback_info));
+				j++;
+			}
+		}
 	}
 	stream->num_wb_info = j;
 
@@ -991,7 +986,6 @@ void dc_stream_log(const struct dc *dc, const struct dc_stream_state *stream)
 	}
 }
 
-/* TODO - move to per plane ownership? */
 /*
 *	dc_stream_get_3dlut()
 *	Requirements:
@@ -1043,6 +1037,7 @@ void dc_stream_release_3dlut_for_stream(
 	if (rmcm_3dlut) {
 		rmcm_3dlut->isInUse = false;
 		rmcm_3dlut->stream  = NULL;
+		rmcm_3dlut->protection_bits = 0;
 	}
 }
 
@@ -1054,6 +1049,7 @@ void dc_stream_init_rmcm_3dlut(struct dc *dc)
 	for (unsigned int i = 0; i < num_rmcm; i++) {
 		dc->res_pool->rmcm_3dlut[i].isInUse = false;
 		dc->res_pool->rmcm_3dlut[i].stream = NULL;
+		dc->res_pool->rmcm_3dlut[i].protection_bits = 0;
 	}
 }
 

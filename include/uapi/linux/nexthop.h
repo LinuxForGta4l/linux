@@ -83,9 +83,6 @@ enum {
 	/* u32; read-only; whether any driver collects HW stats */
 	NHA_HW_STATS_USED,
 
-	/* be16; UDP destination port for an fdb nexthop (e.g. VXLAN) */
-	NHA_DST_PORT,
-
 	__NHA_MAX,
 };
 

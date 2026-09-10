@@ -373,7 +373,7 @@ enum vop_csc_format {
 	CSC_BT601L,
 	CSC_BT709L,
 	CSC_BT601F,
-	CSC_BT2020L,
+	CSC_BT2020,
 };
 
 enum src_factor_mode {

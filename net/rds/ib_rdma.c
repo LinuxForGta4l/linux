@@ -251,7 +251,9 @@ void __rds_ib_teardown_mr(struct rds_ib_mr *ibmr)
 
 			/* FIXME we need a way to tell a r/w MR
 			 * from a r/o MR */
-			unpin_user_pages_dirty_lock(&page, 1, true);
+			WARN_ON(!page->mapping && irqs_disabled());
+			set_page_dirty(page);
+			put_page(page);
 		}
 		kfree(ibmr->sg);
 

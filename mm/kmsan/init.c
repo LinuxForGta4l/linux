@@ -13,7 +13,7 @@
 #include <linux/mm.h>
 #include <linux/memblock.h>
 
-#include "../page_alloc.h"
+#include "../internal.h"
 
 #define NUM_FUTURE_RANGES 128
 struct start_end_pair {

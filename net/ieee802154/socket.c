@@ -831,12 +831,20 @@ static int ieee802154_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 	return ret;
 }
 
-static int do_dgram_getsockopt(struct sock *sk, int optname, sockopt_t *opt)
+static int dgram_getsockopt(struct sock *sk, int level, int optname,
+			    char __user *optval, int __user *optlen)
 {
 	struct dgram_sock *ro = dgram_sk(sk);
+
 	int val, len;
 
-	len = umin(sizeof(int), opt->optlen);
+	if (level != SOL_IEEE802154)
+		return -EOPNOTSUPP;
+
+	if (get_user(len, optlen))
+		return -EFAULT;
+
+	len = min_t(unsigned int, len, sizeof(int));
 
 	switch (optname) {
 	case WPAN_WANTACK:
@@ -863,32 +871,10 @@ static int do_dgram_getsockopt(struct sock *sk, int optname, sockopt_t *opt)
 		return -ENOPROTOOPT;
 	}
 
-	opt->optlen = len;
-	if (copy_to_iter(&val, len, &opt->iter_out) != len)
+	if (put_user(len, optlen))
 		return -EFAULT;
-	return 0;
-}
-
-static int dgram_getsockopt(struct sock *sk, int level, int optname,
-			    char __user *optval, int __user *optlen)
-{
-	sockopt_t opt;
-	int err;
-
-	if (level != SOL_IEEE802154)
-		return -EOPNOTSUPP;
-
-	err = sockopt_init_user(&opt, optval, optlen);
-	if (err)
-		return err;
-
-	err = do_dgram_getsockopt(sk, optname, &opt);
-	if (err)
-		return err;
-
-	if (put_user(opt.optlen, optlen))
+	if (copy_to_user(optval, &val, len))
 		return -EFAULT;
-
 	return 0;
 }
 

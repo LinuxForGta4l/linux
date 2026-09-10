@@ -33,8 +33,6 @@ llvm)
 rustc)
 	if [ "$SRCARCH" = "s390" ]; then
 		echo 1.96.0
-	elif [ "$ARCH" = powerpc ]; then
-		echo 1.95.0
 	else
 		echo 1.85.0
 	fi

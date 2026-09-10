@@ -456,9 +456,7 @@ static void carl9170_rx_phy_status(struct ar9170 *ar,
 		if (phy->rssi[i] & 0x80)
 			phy->rssi[i] = ((~phy->rssi[i] & 0x7f) + 1) & 0x7f;
 
-	if (phy->phy_err)
-		ar->rx_phy_errors++;
-
+	/* TODO: we could do something with phy_errors */
 	status->signal = ar->noise[0] + phy->rssi_combined;
 }
 

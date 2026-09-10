@@ -294,7 +294,7 @@ static int test__pmu_config_helpers(struct test_suite *test __maybe_unused,
 	ret = TEST_OK;
 err_out:
 	parse_events_terms__exit(&terms);
-	evlist__put(evlist);
+	evlist__delete(evlist);
 	test_pmu_put(dir, pmu);
 	return ret;
 }
@@ -346,7 +346,7 @@ static int test__pmu_events(struct test_suite *test __maybe_unused, int subtest 
 	ret = TEST_OK;
 err_out:
 	parse_events_error__exit(&err);
-	evlist__put(evlist);
+	evlist__delete(evlist);
 	test_pmu_put(dir, pmu);
 	return ret;
 }

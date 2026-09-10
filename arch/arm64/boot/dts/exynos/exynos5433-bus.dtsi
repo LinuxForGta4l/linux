@@ -12,7 +12,6 @@
 		clocks = <&cmu_top CLK_ACLK_G2D_400>;
 		clock-names = "bus";
 		operating-points-v2 = <&bus_g2d_400_opp_table>;
-
 		status = "disabled";
 	};
 
@@ -21,7 +20,6 @@
 		clocks = <&cmu_top CLK_ACLK_G2D_266>;
 		clock-names = "bus";
 		operating-points-v2 = <&bus_g2d_266_opp_table>;
-
 		status = "disabled";
 	};
 
@@ -30,7 +28,6 @@
 		clocks = <&cmu_top CLK_ACLK_GSCL_333>;
 		clock-names = "bus";
 		operating-points-v2 = <&bus_gscl_opp_table>;
-
 		status = "disabled";
 	};
 
@@ -39,7 +36,6 @@
 		clocks = <&cmu_top CLK_ACLK_HEVC_400>;
 		clock-names = "bus";
 		operating-points-v2 = <&bus_hevc_opp_table>;
-
 		status = "disabled";
 	};
 
@@ -48,7 +44,6 @@
 		clocks = <&cmu_top CLK_SCLK_JPEG_MSCL>;
 		clock-names = "bus";
 		operating-points-v2 = <&bus_g2d_400_opp_table>;
-
 		status = "disabled";
 	};
 
@@ -57,7 +52,6 @@
 		clocks = <&cmu_top CLK_ACLK_MFC_400>;
 		clock-names = "bus";
 		operating-points-v2 = <&bus_g2d_400_opp_table>;
-
 		status = "disabled";
 	};
 
@@ -66,7 +60,6 @@
 		clocks = <&cmu_top CLK_ACLK_MSCL_400>;
 		clock-names = "bus";
 		operating-points-v2 = <&bus_g2d_400_opp_table>;
-
 		status = "disabled";
 	};
 
@@ -75,7 +68,6 @@
 		clocks = <&cmu_top CLK_ACLK_BUS0_400>;
 		clock-names = "bus";
 		operating-points-v2 = <&bus_hevc_opp_table>;
-
 		status = "disabled";
 	};
 
@@ -84,7 +76,6 @@
 		clocks = <&cmu_top CLK_ACLK_BUS1_400>;
 		clock-names = "bus";
 		operating-points-v2 = <&bus_hevc_opp_table>;
-
 		status = "disabled";
 	};
 
@@ -93,7 +84,6 @@
 		clocks = <&cmu_mif CLK_ACLK_BUS2_400>;
 		clock-names = "bus";
 		operating-points-v2 = <&bus_noc2_opp_table>;
-
 		status = "disabled";
 	};
 
@@ -105,27 +95,22 @@
 			opp-hz = /bits/ 64 <400000000>;
 			opp-microvolt = <1075000>;
 		};
-
 		opp-267000000 {
 			opp-hz = /bits/ 64 <267000000>;
 			opp-microvolt = <1000000>;
 		};
-
 		opp-200000000 {
 			opp-hz = /bits/ 64 <200000000>;
 			opp-microvolt = <975000>;
 		};
-
 		opp-160000000 {
 			opp-hz = /bits/ 64 <160000000>;
 			opp-microvolt = <962500>;
 		};
-
 		opp-134000000 {
 			opp-hz = /bits/ 64 <134000000>;
 			opp-microvolt = <950000>;
 		};
-
 		opp-100000000 {
 			opp-hz = /bits/ 64 <100000000>;
 			opp-microvolt = <937500>;
@@ -138,19 +123,15 @@
 		opp-267000000 {
 			opp-hz = /bits/ 64 <267000000>;
 		};
-
 		opp-200000000 {
 			opp-hz = /bits/ 64 <200000000>;
 		};
-
 		opp-160000000 {
 			opp-hz = /bits/ 64 <160000000>;
 		};
-
 		opp-134000000 {
 			opp-hz = /bits/ 64 <134000000>;
 		};
-
 		opp-100000000 {
 			opp-hz = /bits/ 64 <100000000>;
 		};
@@ -162,11 +143,9 @@
 		opp-333000000 {
 			opp-hz = /bits/ 64 <333000000>;
 		};
-
 		opp-222000000 {
 			opp-hz = /bits/ 64 <222000000>;
 		};
-
 		opp-166500000 {
 			opp-hz = /bits/ 64 <166500000>;
 		};
@@ -179,23 +158,18 @@
 		opp-400000000 {
 			opp-hz = /bits/ 64 <400000000>;
 		};
-
 		opp-267000000 {
 			opp-hz = /bits/ 64 <267000000>;
 		};
-
 		opp-200000000 {
 			opp-hz = /bits/ 64 <200000000>;
 		};
-
 		opp-160000000 {
 			opp-hz = /bits/ 64 <160000000>;
 		};
-
 		opp-134000000 {
 			opp-hz = /bits/ 64 <134000000>;
 		};
-
 		opp-100000000 {
 			opp-hz = /bits/ 64 <100000000>;
 		};
@@ -207,15 +181,12 @@
 		opp-400000000 {
 			opp-hz = /bits/ 64 <400000000>;
 		};
-
 		opp-200000000 {
 			opp-hz = /bits/ 64 <200000000>;
 		};
-
 		opp-134000000 {
 			opp-hz = /bits/ 64 <134000000>;
 		};
-
 		opp-100000000 {
 			opp-hz = /bits/ 64 <100000000>;
 		};

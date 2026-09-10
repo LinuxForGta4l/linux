@@ -424,12 +424,10 @@ static void jsonw_write_log_message(json_writer_t *w, char *log_buf, size_t log_
 	}
 }
 
-/* @quiet elides the human readable output, the JSON report is unaffected */
 static void dump_test_log(const struct prog_test_def *test,
 			  const struct test_state *test_state,
 			  bool skip_ok_subtests,
 			  bool par_exec_result,
-			  bool quiet,
 			  json_writer_t *w)
 {
 	bool test_failed = test_state->error_cnt > 0;
@@ -451,7 +449,7 @@ static void dump_test_log(const struct prog_test_def *test,
 	if (verbose() && !par_exec_result)
 		return;
 
-	if (test_state->log_cnt && print_test && !quiet)
+	if (test_state->log_cnt && print_test)
 		print_test_log(test_state->log_buf, test_state->log_cnt);
 
 	if (w && print_test) {
@@ -473,16 +471,15 @@ static void dump_test_log(const struct prog_test_def *test,
 		if ((skip_ok_subtests && !subtest_failed) || subtest_filtered)
 			continue;
 
-		if (subtest_state->log_cnt && print_subtest && !quiet) {
+		if (subtest_state->log_cnt && print_subtest) {
 			print_test_log(subtest_state->log_buf,
 				       subtest_state->log_cnt);
 		}
 
-		if (!quiet)
-			print_subtest_name(test->test_num, i + 1,
-					   test->test_name, subtest_state->name,
-					   test_result(subtest_state->error_cnt,
-						       subtest_state->skipped));
+		print_subtest_name(test->test_num, i + 1,
+				   test->test_name, subtest_state->name,
+				   test_result(subtest_state->error_cnt,
+					       subtest_state->skipped));
 
 		if (w && print_subtest) {
 			jsonw_start_object(w);
@@ -499,8 +496,7 @@ static void dump_test_log(const struct prog_test_def *test,
 		jsonw_end_object(w);
 	}
 
-	if (!quiet)
-		print_test_result(test, test_state);
+	print_test_result(test, test_state);
 }
 
 /* A bunch of tests set custom affinity per-thread and/or per-process. Reset
@@ -577,19 +573,18 @@ bool test__start_subtest_with_desc(const char *subtest_name, const char *subtest
 	struct subtest_state *subtest_state;
 	const char *subtest_display_name;
 	size_t sub_state_size = sizeof(*subtest_state);
-	void *tmp;
 
 	if (env.subtest_state)
 		test__end_subtest();
 
 	state->subtest_num++;
-	tmp = realloc(state->subtest_states, state->subtest_num * sub_state_size);
-	if (!tmp) {
-		state->subtest_num--;
+	state->subtest_states =
+		realloc(state->subtest_states,
+			state->subtest_num * sub_state_size);
+	if (!state->subtest_states) {
 		fprintf(stderr, "Not enough memory to allocate subtest result\n");
 		return false;
 	}
-	state->subtest_states = tmp;
 
 	subtest_state = &state->subtest_states[state->subtest_num - 1];
 
@@ -735,14 +730,11 @@ int compare_map_keys(int map1_fd, int map2_fd)
 int compare_stack_ips(int smap_fd, int amap_fd, int stack_trace_len)
 {
 	__u32 key, next_key, *cur_key_p, *next_key_p;
-	char *val_buf1 = NULL, *val_buf2 = NULL;
-	int i, err = -ENOMEM;
+	char *val_buf1, *val_buf2;
+	int i, err = 0;
 
 	val_buf1 = malloc(stack_trace_len);
 	val_buf2 = malloc(stack_trace_len);
-	if (!val_buf1 || !val_buf2)
-		goto out;
-	err = 0;
 	cur_key_p = NULL;
 	next_key_p = &key;
 	while (bpf_map_get_next_key(smap_fd, cur_key_p, next_key_p) == 0) {
@@ -903,7 +895,6 @@ enum ARG_KEYS {
 	ARG_JSON_SUMMARY = 'J',
 	ARG_TRAFFIC_MONITOR = 'm',
 	ARG_WATCHDOG_TIMEOUT = 'w',
-	ARG_NO_ERROR_SUMMARY = -2,
 };
 
 static const struct argp_option opts[] = {
@@ -936,8 +927,6 @@ static const struct argp_option opts[] = {
 #endif
 	{ "watchdog-timeout", ARG_WATCHDOG_TIMEOUT, "SECONDS", 0,
 	  "Kill the process if tests are not making progress for specified number of seconds." },
-	{ "no-error-summary", ARG_NO_ERROR_SUMMARY, NULL, 0,
-	  "Do not re-print the aggregated error logs of failed tests at the end of the run." },
 	{},
 };
 
@@ -1139,9 +1128,6 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
 	case ARG_DEBUG:
 		env->debug = true;
 		break;
-	case ARG_NO_ERROR_SUMMARY:
-		env->error_summary = false;
-		break;
 	case ARG_JSON_SUMMARY:
 		env->json = fopen(arg, "w");
 		if (env->json == NULL) {
@@ -1314,7 +1300,7 @@ static void dump_crash_log(void)
 
 	if (env.test) {
 		env.test_state->error_cnt++;
-		dump_test_log(env.test, env.test_state, true, false, false, NULL);
+		dump_test_log(env.test, env.test_state, true, false, NULL);
 	}
 }
 
@@ -1472,7 +1458,7 @@ static void run_one_test(int test_num)
 
 	free(stop_libbpf_log_capture());
 
-	dump_test_log(test, state, false, false, false, NULL);
+	dump_test_log(test, state, false, false, NULL);
 }
 
 struct dispatch_data {
@@ -1527,14 +1513,12 @@ static int dispatch_thread_send_subtests(int sock_fd, struct test_state *state)
 	struct subtest_state *subtest_state;
 	int subtest_num = state->subtest_num;
 
-	state->subtest_states = calloc(subtest_num, sizeof(*subtest_state));
-	if (!state->subtest_states) {
-		state->subtest_num = 0;
-		return -ENOMEM;
-	}
+	state->subtest_states = malloc(subtest_num * sizeof(*subtest_state));
 
 	for (int i = 0; i < subtest_num; i++) {
 		subtest_state = &state->subtest_states[i];
+
+		memset(subtest_state, 0, sizeof(*subtest_state));
 
 		if (read_prog_test_msg(sock_fd, &msg, MSG_SUBTEST_DONE))
 			return 1;
@@ -1633,7 +1617,7 @@ static void *dispatch_thread(void *ctx)
 		} while (false);
 
 		pthread_mutex_lock(&stdout_output_lock);
-		dump_test_log(test, state, false, true, false, NULL);
+		dump_test_log(test, state, false, true, NULL);
 		pthread_mutex_unlock(&stdout_output_lock);
 	} /* while (true) */
 error:
@@ -1656,8 +1640,8 @@ done:
 
 static void calculate_summary_and_print_errors(struct test_env *env)
 {
-	int i, j;
-	int succ_cnt = 0, fail_cnt = 0, sub_succ_cnt = 0, sub_fail_cnt = 0, skip_cnt = 0;
+	int i;
+	int succ_cnt = 0, fail_cnt = 0, sub_succ_cnt = 0, skip_cnt = 0;
 	json_writer_t *w = NULL;
 
 	for (i = 0; i < prog_test_cnt; i++) {
@@ -1670,14 +1654,10 @@ static void calculate_summary_and_print_errors(struct test_env *env)
 		sub_succ_cnt += state->sub_succ_cnt;
 		skip_cnt += state->skip_cnt;
 
-		if (state->error_cnt) {
+		if (state->error_cnt)
 			fail_cnt++;
-			for (j = 0; j < state->subtest_num; j++)
-				if (state->subtest_states[j].error_cnt)
-					sub_fail_cnt++;
-		} else if (!test->not_built) {
+		else if (!test->not_built)
 			succ_cnt++;
-		}
 	}
 
 	if (env->json) {
@@ -1692,7 +1672,6 @@ static void calculate_summary_and_print_errors(struct test_env *env)
 		jsonw_uint_field(w, "success_subtest", sub_succ_cnt);
 		jsonw_uint_field(w, "skipped", skip_cnt);
 		jsonw_uint_field(w, "failed", fail_cnt);
-		jsonw_uint_field(w, "failed_subtest", sub_fail_cnt);
 		jsonw_name(w, "results");
 		jsonw_start_array(w);
 	}
@@ -1701,14 +1680,9 @@ static void calculate_summary_and_print_errors(struct test_env *env)
 	 * We only print error logs summary when there are failed tests and
 	 * verbose mode is not enabled. Otherwise, results may be inconsistent.
 	 *
-	 * --no-error-summary elides the human readable dump. The walk still
-	 * happens when a JSON report was requested, so the JSON output keeps
-	 * its per-test results; with no JSON report there is nothing left to
-	 * do and the whole loop is skipped.
 	 */
-	if (!verbose() && fail_cnt && (env->error_summary || w)) {
-		if (env->error_summary)
-			printf("\nAll error logs:\n");
+	if (!verbose() && fail_cnt) {
+		printf("\nAll error logs:\n");
 
 		/* print error logs again */
 		for (i = 0; i < prog_test_cnt; i++) {
@@ -1718,8 +1692,7 @@ static void calculate_summary_and_print_errors(struct test_env *env)
 			if (!state->tested || !state->error_cnt)
 				continue;
 
-			dump_test_log(test, state, true, true,
-				      !env->error_summary, w);
+			dump_test_log(test, state, true, true, w);
 		}
 	}
 
@@ -1733,12 +1706,12 @@ static void calculate_summary_and_print_errors(struct test_env *env)
 		fclose(env->json);
 
 	if (env->not_built_cnt)
-		printf("Summary: %d/%d PASSED, %d SKIPPED (%d not built), %d/%d FAILED\n",
+		printf("Summary: %d/%d PASSED, %d SKIPPED (%d not built), %d FAILED\n",
 		       succ_cnt, sub_succ_cnt, skip_cnt, env->not_built_cnt,
-		       fail_cnt, sub_fail_cnt);
+		       fail_cnt);
 	else
-		printf("Summary: %d/%d PASSED, %d SKIPPED, %d/%d FAILED\n",
-		       succ_cnt, sub_succ_cnt, skip_cnt, fail_cnt, sub_fail_cnt);
+		printf("Summary: %d/%d PASSED, %d SKIPPED, %d FAILED\n",
+		       succ_cnt, sub_succ_cnt, skip_cnt, fail_cnt);
 
 	env->succ_cnt = succ_cnt;
 	env->sub_succ_cnt = sub_succ_cnt;
@@ -1768,7 +1741,7 @@ static void server_main(void)
 		data[i].worker_id = i;
 		data[i].sock_fd = env.worker_socks[i];
 		rc = pthread_create(&dispatcher_threads[i], NULL, dispatch_thread, &data[i]);
-		if (rc) {
+		if (rc < 0) {
 			perror("Failed to launch dispatcher thread");
 			exit(EXIT_ERR_SETUP_INFRA);
 		}
@@ -1913,6 +1886,7 @@ static int worker_main_send_subtests(int sock, struct test_state *state)
 			worker_main_send_log(sock, subtest_state->log_buf, subtest_state->log_cnt);
 
 		free_subtest_state(subtest_state);
+		free(subtest_state->name);
 	}
 
 out:
@@ -2049,7 +2023,6 @@ int main(int argc, char **argv)
 
 	env.secs_till_notify = 10;
 	env.secs_till_kill = 120;
-	env.error_summary = true;
 	err = argp_parse(&argp, argc, argv, 0, NULL, &env);
 	if (err)
 		return err;

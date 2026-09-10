@@ -2273,7 +2273,11 @@ static int rcsi2_init_phtw_v3u(struct rcar_csi2 *priv,
 			return ret;
 	}
 
-	return rcsi2_phtw_write_array(priv, step4, ARRAY_SIZE(step4));
+	ret = rcsi2_phtw_write_array(priv, step4, ARRAY_SIZE(step4));
+	if (ret)
+		return ret;
+
+	return ret;
 }
 
 /* -----------------------------------------------------------------------------

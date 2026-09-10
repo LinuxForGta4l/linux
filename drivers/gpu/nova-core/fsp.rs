@@ -11,7 +11,6 @@ use kernel::{
     device,
     dma::Coherent,
     io::poll::read_poll_timeout,
-    num::TryIntoBounded,
     prelude::*,
     ptr::{
         Alignable,
@@ -31,17 +30,13 @@ use crate::{
         fsp::Fsp as FspEngine,
         Falcon, //
     },
-    fb::FbSizes,
+    fb::FbLayout,
     firmware::fsp::{
         FmcSignatures,
         FspFirmware, //
     },
     gpu::Chipset,
-    gsp::{
-        GspFmcBootParams,
-        GspFwWprMeta,
-        LibosMemoryRegionInitArgument, //
-    },
+    gsp::GspFmcBootParams,
     mctp::{
         MctpHeader,
         NvdmHeader,
@@ -53,56 +48,6 @@ use crate::{
 
 mod hal;
 
-/// PRC message sub-command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-enum PrcMessageSubcmd {
-    /// Read a PRC knob value.
-    Read = 0x0c,
-}
-
-impl From<PrcMessageSubcmd> for u8 {
-    fn from(value: PrcMessageSubcmd) -> Self {
-        value as u8
-    }
-}
-
-/// PRC object identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-enum PrcObjectId {
-    /// vGPU mode configuration knob.
-    VgpuMode = 0x29,
-}
-
-impl From<PrcObjectId> for u8 {
-    fn from(value: PrcObjectId) -> Self {
-        value as u8
-    }
-}
-
-kernel::impl_flags!(
-    /// PRC request flags.
-    #[derive(Clone, Copy, Default, PartialEq, Eq)]
-    struct PrcFlags(u8);
-
-    /// Individual PRC request flag.
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    enum PrcFlag {
-        /// Request the active knob value for the current boot.
-        Active = 1 << 1,
-    }
-);
-
-/// vGPU operating mode as reported by FSP via the PRC protocol.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum VgpuMode {
-    /// vGPU support is disabled on this GPU.
-    Disabled,
-    /// vGPU support is enabled on this GPU.
-    Enabled,
-}
-
 /// FSP command response payload (`NVDM_PAYLOAD_COMMAND_RESPONSE`).
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
@@ -112,107 +57,17 @@ struct NvdmPayloadCommandResponse {
     error_code: u32,
 }
 
-/// PRC message payload.
-///
-/// Sent to FSP to query or modify a device configuration knob.
+/// Complete FSP response structure with MCTP and NVDM headers.
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct NvdmPayloadPrc {
-    sub_message_id: u8,
-    flags: u8,
-    object_id: u8,
-    reserved: u8,
-}
-
-impl NvdmPayloadPrc {
-    /// Constructs a PRC payload from typed protocol fields.
-    fn new(subcmd: PrcMessageSubcmd, object_id: PrcObjectId, flags: PrcFlags) -> Self {
-        Self {
-            sub_message_id: subcmd.into(),
-            flags: flags.into(),
-            object_id: object_id.into(),
-            reserved: 0,
-        }
-    }
-}
-
-// SAFETY: NvdmPayloadPrc is a packed C struct with only integral fields.
-unsafe impl AsBytes for NvdmPayloadPrc {}
-
-/// PRC response payload containing the knob state value.
-#[repr(C, packed)]
-#[derive(Clone, Copy)]
-struct NvdmPayloadPrcResponse {
-    value_low: u8,
-    value_high: u8,
-    reserved1: u8,
-    reserved2: u8,
-}
-
-impl NvdmPayloadPrcResponse {
-    /// Returns the PRC knob value as a little-endian 16-bit integer.
-    fn value(self) -> u16 {
-        u16::from(self.value_low) | (u16::from(self.value_high) << 8)
-    }
-}
-
-impl TryFrom<NvdmPayloadPrcResponse> for VgpuMode {
-    type Error = kernel::error::Error;
-
-    fn try_from(value: NvdmPayloadPrcResponse) -> Result<Self> {
-        match value.value() {
-            0 => Ok(VgpuMode::Disabled),
-            1 => Ok(VgpuMode::Enabled),
-            _ => Err(EINVAL),
-        }
-    }
-}
-
-/// Common MCTP and NVDM headers shared by all FSP messages.
-#[repr(C, packed)]
-#[derive(Clone, Copy)]
-struct FspMessageHeader {
+struct FspResponse {
     mctp_header: MctpHeader,
     nvdm_header: NvdmHeader,
-}
-
-// SAFETY: FspMessageHeader is a packed C struct with only integral fields.
-unsafe impl AsBytes for FspMessageHeader {}
-
-// SAFETY: FspMessageHeader is a packed C struct with only integral fields.
-unsafe impl FromBytes for FspMessageHeader {}
-
-impl FspMessageHeader {
-    /// Construct a standard FSP message header for the given NVDM type.
-    fn new(nvdm_type: NvdmType) -> Self {
-        Self {
-            mctp_header: MctpHeader::single_packet(),
-            nvdm_header: NvdmHeader::new(nvdm_type),
-        }
-    }
-}
-
-/// Common FSP response header with MCTP, NVDM and command response payloads.
-#[repr(C, packed)]
-#[derive(Clone, Copy)]
-struct FspResponseHeader {
-    header: FspMessageHeader,
     response: NvdmPayloadCommandResponse,
 }
 
-// SAFETY: FspResponseHeader is a packed C struct with only integral fields.
-unsafe impl FromBytes for FspResponseHeader {}
-
-/// Complete FSP PRC response including the knob state payload.
-#[repr(C, packed)]
-#[derive(Clone, Copy)]
-struct FspPrcResponse {
-    header: FspResponseHeader,
-    prc_data: NvdmPayloadPrcResponse,
-}
-
-// SAFETY: FspPrcResponse is a packed C struct with only integral fields.
-unsafe impl FromBytes for FspPrcResponse {}
+// SAFETY: FspResponse is a packed C struct with only integral fields.
+unsafe impl FromBytes for FspResponse {}
 
 /// Trait implemented by types representing a message to send to FSP.
 ///
@@ -239,56 +94,45 @@ struct NvdmPayloadCot {
     gsp_boot_args_sysmem_offset: u64,
 }
 
-/// Complete FSP COT (Chain of Trust) message structure.
+/// Complete FSP message structure with MCTP and NVDM headers.
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct FspCotMessage {
-    header: FspMessageHeader,
+struct FspMessage {
+    mctp_header: MctpHeader,
+    nvdm_header: NvdmHeader,
     cot: NvdmPayloadCot,
 }
 
-impl FspCotMessage {
-    /// Computes the FRTS vidmem offset for the Chain-of-Trust message. It is measured backwards
-    /// from the end of the framebuffer.
-    fn frts_vidmem_offset(hal: &dyn hal::FspHal, fb_info: &FbSizes) -> Result<u64> {
-        let mut offset = hal.fb_end_reserved_size();
-
-        // As per OpenRM's `kfspPrepareBootCommands_GH100`.
-        if fb_info.pmu_reserved_size != 0 {
-            offset = (offset + u64::from(fb_info.pmu_reserved_size))
-                // The 2 MiB alignment is r570-specific.
-                .align_up(Alignment::new::<SZ_2M>())
-                .ok_or(EINVAL)?;
-        }
-
-        Ok(offset)
-    }
-
-    /// Returns an in-place initializer for [`FspCotMessage`].
+impl FspMessage {
+    /// Returns an in-place initializer for [`FspMessage`].
     fn new<'a>(
-        fb_info: &FbSizes,
+        fb_layout: &FbLayout,
         fsp_fw: &'a FspFirmware,
-        args: &'a FmcBootArgs<'_>,
+        args: &'a FmcBootArgs,
     ) -> Result<impl Init<Self> + 'a> {
-        let hal = hal::fsp_hal(args.chipset).ok_or(ENOTSUPP)?;
-
+        // frts_offset is relative to FB end: FRTS_location = FB_END - frts_offset
         let frts_vidmem_offset = if !args.resume {
-            Self::frts_vidmem_offset(hal, fb_info)?
+            let frts_reserved_size = fb_layout.heap.len() + u64::from(fb_layout.pmu_reserved_size);
+
+            frts_reserved_size
+                .align_up(Alignment::new::<SZ_2M>())
+                .ok_or(EINVAL)?
         } else {
             0
         };
 
         let frts_size: u32 = if !args.resume {
-            fb_info.frts_size.try_into()?
+            fb_layout.frts.len().try_into()?
         } else {
             0
         };
 
-        let version = hal.cot_version();
+        let version = hal::fsp_hal(args.chipset).ok_or(ENOTSUPP)?.cot_version();
         let size = num::usize_into_u16::<{ core::mem::size_of::<NvdmPayloadCot>() }>();
 
         Ok(init!(Self {
-            header: FspMessageHeader::new(NvdmType::Cot),
+            mctp_header: MctpHeader::single_packet(),
+            nvdm_header: NvdmHeader::new(NvdmType::Cot),
             // The payload is packed, so we cannot use `init!`. Initialize it member-by-member using
             // `chain`.
             cot <- pin_init::init_zeroed(),
@@ -296,12 +140,12 @@ impl FspCotMessage {
         .chain(move |msg| {
             msg.cot.version = version;
             msg.cot.size = size;
-            msg.cot.gsp_fmc_sysmem_offset = fsp_fw.fmc_image.dma_address();
+            msg.cot.gsp_fmc_sysmem_offset = fsp_fw.fmc_image.dma_handle();
             msg.cot.frts_vidmem_offset = frts_vidmem_offset;
             msg.cot.frts_vidmem_size = frts_size;
-            // frts_sysmem_* are left at zero because this path places FRTS in vidmem. The sysmem
-            // fields point to an FRTS buffer in sysmem instead, for systems without VRAM.
-            msg.cot.gsp_boot_args_sysmem_offset = args.fmc_boot_params.dma_address();
+            // frts_sysmem_* intentionally left at zero for now, but will be needed for e.g.
+            // systems without VRAM.
+            msg.cot.gsp_boot_args_sysmem_offset = args.fmc_boot_params.dma_handle();
             msg.cot.sigs = *fsp_fw.fmc_sigs;
 
             Ok(())
@@ -309,73 +153,44 @@ impl FspCotMessage {
     }
 }
 
-// SAFETY: `FspCotMessage` is `#[repr(C)]` with no padding, so all of its
+// SAFETY: `FspMessage` is `#[repr(C)]` with no padding, so all of its
 // bytes are initialized.
-unsafe impl AsBytes for FspCotMessage {}
+unsafe impl AsBytes for FspMessage {}
 
-/// Complete FSP PRC message.
-#[repr(C, packed)]
-#[derive(Clone, Copy)]
-struct FspPrcMessage {
-    header: FspMessageHeader,
-    prc: NvdmPayloadPrc,
-}
-
-impl FspPrcMessage {
-    /// Constructs a PRC message.
-    fn new(subcmd: PrcMessageSubcmd, object_id: PrcObjectId, flags: PrcFlags) -> Self {
-        Self {
-            header: FspMessageHeader::new(NvdmType::Prc),
-            prc: NvdmPayloadPrc::new(subcmd, object_id, flags),
-        }
-    }
-}
-
-// SAFETY: FspPrcMessage is a packed C struct with only integral fields.
-unsafe impl AsBytes for FspPrcMessage {}
-
-impl MessageToFsp for FspCotMessage {
+impl MessageToFsp for FspMessage {
     const NVDM_TYPE: NvdmType = NvdmType::Cot;
 }
 
-impl MessageToFsp for FspPrcMessage {
-    const NVDM_TYPE: NvdmType = NvdmType::Prc;
-}
-
 /// Bundled arguments for FMC boot via FSP Chain of Trust.
-pub(crate) struct FmcBootArgs<'a> {
+pub(crate) struct FmcBootArgs {
     chipset: Chipset,
     fmc_boot_params: Coherent<GspFmcBootParams>,
     resume: bool,
-    // Additional dependencies required to be kept alive for FMC boot.
-    _wpr_meta: Coherent<GspFwWprMeta>,
-    _libos: &'a Coherent<[LibosMemoryRegionInitArgument]>,
 }
 
-impl<'a> FmcBootArgs<'a> {
+impl FmcBootArgs {
     /// Builds FMC boot arguments, allocating the DMA-coherent boot parameter
     /// structure that FSP will read.
     pub(crate) fn new(
         dev: &device::Device<device::Bound>,
         chipset: Chipset,
-        wpr_meta: Coherent<GspFwWprMeta>,
-        libos: &'a Coherent<[LibosMemoryRegionInitArgument]>,
+        wpr_meta_addr: u64,
+        libos_addr: u64,
         resume: bool,
     ) -> Result<Self> {
-        let init = GspFmcBootParams::new(wpr_meta.dma_address(), libos.dma_address());
+        let init = GspFmcBootParams::new(wpr_meta_addr, libos_addr);
 
         Ok(Self {
             chipset,
             fmc_boot_params: Coherent::<GspFmcBootParams>::init(dev, GFP_KERNEL, init)?,
             resume,
-            _wpr_meta: wpr_meta,
-            _libos: libos,
         })
     }
 
-    /// Returns the FMC boot parameters allocation.
-    pub(crate) fn boot_params(&self) -> &Coherent<GspFmcBootParams> {
-        &self.fmc_boot_params
+    /// DMA address of the FMC boot parameters, needed after boot for lockdown
+    /// release polling.
+    pub(crate) fn boot_params_dma_handle(&self) -> u64 {
+        self.fmc_boot_params.dma_handle()
     }
 }
 
@@ -384,45 +199,28 @@ impl<'a> FmcBootArgs<'a> {
 /// An `Fsp` is produced by [`Fsp::wait_secure_boot`], which only returns once FSP secure boot
 /// has completed. It owns the FSP falcon and the FMC firmware, which are used for the subsequent
 /// Chain of Trust boot.
-pub(crate) struct Fsp<'a> {
-    falcon: Falcon<'a, FspEngine>,
+pub(crate) struct Fsp {
+    falcon: Falcon<FspEngine>,
     fsp_fw: FspFirmware,
 }
 
-impl<'a> Fsp<'a> {
-    /// Attempts to create a `Fsp` instance.
-    ///
-    /// This can involve waiting for FSP secure boot completion, but should be instantaneous in
-    /// practice.
-    ///
-    /// If `chipset` doesn't support FSP, `Ok(None)` is returned.
-    pub(crate) fn try_new(
-        dev: &'a device::Device<device::Bound>,
-        bar: Bar0<'a>,
-        chipset: Chipset,
-    ) -> Result<Option<Self>> {
-        match hal::fsp_hal(chipset) {
-            None => Ok(None),
-            Some(hal) => Self::wait_secure_boot(dev, bar, chipset, hal).map(Option::Some),
-        }
-    }
-
+impl Fsp {
     /// Waits for FSP secure boot completion, then returns the [`Fsp`] interface.
     ///
     /// Polls the thermal scratch register until FSP signals boot completion or the timeout
     /// elapses. Returning an [`Fsp`] only on success guarantees, at the API level, that the
     /// interface is not used before secure boot has completed.
-    fn wait_secure_boot(
-        dev: &'a device::Device<device::Bound>,
-        bar: Bar0<'a>,
+    pub(crate) fn wait_secure_boot(
+        dev: &device::Device<device::Bound>,
+        bar: Bar0<'_>,
         chipset: Chipset,
-        hal: &'static dyn hal::FspHal,
-    ) -> Result<Fsp<'a>> {
+        fsp_fw: FspFirmware,
+    ) -> Result<Fsp> {
         /// FSP secure boot completion timeout in milliseconds.
         const FSP_SECURE_BOOT_TIMEOUT_MS: i64 = 5000;
 
-        let falcon = Falcon::<FspEngine>::new(dev, chipset, bar)?;
-        let fsp_fw = FspFirmware::new(dev, chipset)?;
+        let hal = hal::fsp_hal(chipset).ok_or(ENOTSUPP)?;
+        let falcon = Falcon::<FspEngine>::new(dev, chipset)?;
 
         read_poll_timeout(
             || Ok(hal.fsp_boot_status(bar)),
@@ -438,25 +236,23 @@ impl<'a> Fsp<'a> {
     }
 
     /// Sends a message to FSP and waits for the response.
-    /// Returns the full response buffer on success.
-    fn send_sync_fsp<M>(&mut self, dev: &device::Device, msg: &M) -> Result<KVec<u8>>
+    fn send_sync_fsp<M>(&mut self, dev: &device::Device, bar: Bar0<'_>, msg: &M) -> Result
     where
         M: MessageToFsp,
     {
-        self.falcon.send_msg(msg.as_bytes())?;
+        self.falcon.send_msg(bar, msg.as_bytes())?;
 
-        let response_buf = self.falcon.recv_msg().inspect_err(|e| {
+        let response_buf = self.falcon.recv_msg(bar).inspect_err(|e| {
             dev_err!(dev, "FSP response error: {:?}\n", e);
         })?;
 
-        let (response, _) =
-            FspResponseHeader::from_bytes_prefix(&response_buf[..]).ok_or_else(|| {
-                dev_err!(dev, "FSP response too small: {}\n", response_buf.len());
-                EIO
-            })?;
+        let (response, _) = FspResponse::from_bytes_prefix(&response_buf[..]).ok_or_else(|| {
+            dev_err!(dev, "FSP response too small: {}\n", response_buf.len());
+            EIO
+        })?;
 
-        let mctp_header = response.header.mctp_header;
-        let nvdm_header = response.header.nvdm_header;
+        let mctp_header = response.mctp_header;
+        let nvdm_header = response.nvdm_header;
         let command_nvdm_type = response.response.command_nvdm_type;
         let error_code = response.response.error_code;
 
@@ -478,7 +274,7 @@ impl<'a> Fsp<'a> {
             return Err(EIO);
         }
 
-        if command_nvdm_type.try_into_bounded() != Some(M::NVDM_TYPE.into()) {
+        if command_nvdm_type != u8::from(M::NVDM_TYPE).into() {
             dev_err!(
                 dev,
                 "Expected NVDM type {:?} in reply, got {:#x}\n",
@@ -498,34 +294,7 @@ impl<'a> Fsp<'a> {
             return Err(EIO);
         }
 
-        Ok(response_buf)
-    }
-
-    /// Reads the active vGPU mode from FSP using the PRC protocol.
-    ///
-    /// Queries FSP's Management Partition for the active vGPU mode knob value.
-    pub(crate) fn read_vgpu_mode(
-        &mut self,
-        dev: &device::Device<device::Bound>,
-    ) -> Result<VgpuMode> {
-        let msg = FspPrcMessage::new(
-            PrcMessageSubcmd::Read,
-            PrcObjectId::VgpuMode,
-            PrcFlags::from(PrcFlag::Active),
-        );
-
-        let response_buf = self.send_sync_fsp(dev, &msg)?;
-        let (prc_response, _) =
-            FspPrcResponse::from_bytes_prefix(&response_buf[..]).ok_or_else(|| {
-                dev_err!(dev, "PRC response too small: {}\n", response_buf.len());
-                EIO
-            })?;
-
-        let prc_data = prc_response.prc_data;
-
-        VgpuMode::try_from(prc_data).inspect_err(|_| {
-            dev_err!(dev, "Unexpected vGPU mode value: {:#x}\n", prc_data.value());
-        })
+        Ok(())
     }
 
     /// Boots GSP FMC via FSP Chain of Trust.
@@ -535,14 +304,15 @@ impl<'a> Fsp<'a> {
     pub(crate) fn boot_fmc(
         &mut self,
         dev: &device::Device<device::Bound>,
-        fb_info: &FbSizes,
-        args: &FmcBootArgs<'_>,
+        bar: Bar0<'_>,
+        fb_layout: &FbLayout,
+        args: &FmcBootArgs,
     ) -> Result {
         dev_dbg!(dev, "Starting FSP boot sequence for {}\n", args.chipset);
 
-        let msg = KBox::init(FspCotMessage::new(fb_info, &self.fsp_fw, args)?, GFP_KERNEL)?;
+        let msg = KBox::init(FspMessage::new(fb_layout, &self.fsp_fw, args)?, GFP_KERNEL)?;
 
-        let _response_buf = self.send_sync_fsp(dev, &*msg)?;
+        self.send_sync_fsp(dev, bar, &*msg)?;
 
         dev_dbg!(dev, "FSP Chain of Trust completed successfully\n");
         Ok(())

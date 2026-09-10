@@ -102,7 +102,6 @@ static inline void __resctrl_sched_in(struct task_struct *tsk)
 	struct resctrl_pqr_state *state = this_cpu_ptr(&pqr_state);
 	u32 closid = READ_ONCE(state->default_closid);
 	u32 rmid = READ_ONCE(state->default_rmid);
-	struct msr val;
 	u32 tmp;
 
 	/*
@@ -124,9 +123,7 @@ static inline void __resctrl_sched_in(struct task_struct *tsk)
 	if (closid != state->cur_closid || rmid != state->cur_rmid) {
 		state->cur_closid = closid;
 		state->cur_rmid = rmid;
-		val.l = rmid;
-		val.h = closid;
-		wrmsrq(MSR_IA32_PQR_ASSOC, val.q);
+		wrmsr(MSR_IA32_PQR_ASSOC, rmid, closid);
 	}
 }
 

@@ -132,8 +132,7 @@ static int simple_bridge_attach(struct drm_bridge *bridge,
 	return 0;
 }
 
-static void simple_bridge_enable(struct drm_bridge *bridge,
-				 struct drm_atomic_commit *commit)
+static void simple_bridge_enable(struct drm_bridge *bridge)
 {
 	struct simple_bridge *sbridge = drm_bridge_to_simple_bridge(bridge);
 	int ret;
@@ -147,8 +146,7 @@ static void simple_bridge_enable(struct drm_bridge *bridge,
 	gpiod_set_value_cansleep(sbridge->enable, 1);
 }
 
-static void simple_bridge_disable(struct drm_bridge *bridge,
-				  struct drm_atomic_commit *commit)
+static void simple_bridge_disable(struct drm_bridge *bridge)
 {
 	struct simple_bridge *sbridge = drm_bridge_to_simple_bridge(bridge);
 
@@ -159,12 +157,9 @@ static void simple_bridge_disable(struct drm_bridge *bridge,
 }
 
 static const struct drm_bridge_funcs simple_bridge_bridge_funcs = {
-	.atomic_create_state = drm_atomic_helper_bridge_create_state,
-	.atomic_destroy_state = drm_atomic_helper_bridge_destroy_state,
-	.atomic_duplicate_state = drm_atomic_helper_bridge_duplicate_state,
 	.attach		= simple_bridge_attach,
-	.atomic_enable = simple_bridge_enable,
-	.atomic_disable = simple_bridge_disable,
+	.enable		= simple_bridge_enable,
+	.disable	= simple_bridge_disable,
 };
 
 static int simple_bridge_probe(struct platform_device *pdev)

@@ -959,14 +959,20 @@ static int pm860x_battery_probe(struct platform_device *pdev)
 	ret = devm_request_threaded_irq(chip->dev, info->irq_cc, NULL,
 					pm860x_coulomb_handler, IRQF_ONESHOT,
 					"coulomb", info);
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(chip->dev, "Failed to request IRQ: #%d: %d\n",
+			info->irq_cc, ret);
 		return ret;
+	}
 
 	ret = devm_request_threaded_irq(chip->dev, info->irq_batt, NULL,
 					pm860x_batt_handler,
 					IRQF_ONESHOT, "battery", info);
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(chip->dev, "Failed to request IRQ: #%d: %d\n",
+			info->irq_batt, ret);
 		return ret;
+	}
 
 
 	return 0;

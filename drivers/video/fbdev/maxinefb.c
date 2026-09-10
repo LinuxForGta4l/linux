@@ -61,7 +61,7 @@ static struct fb_fix_screeninfo maxinefb_fix __initdata = {
 
 /* Handle the funny Inmos RamDAC/video controller ... */
 
-static void maxinefb_ims332_write_register(int regno, register unsigned int val)
+void maxinefb_ims332_write_register(int regno, register unsigned int val)
 {
 	register unsigned char *regs = (char *) MAXINEFB_IMS332_ADDRESS;
 	unsigned char *wptr;
@@ -71,9 +71,7 @@ static void maxinefb_ims332_write_register(int regno, register unsigned int val)
 	*((volatile unsigned short *) (wptr)) = val;
 }
 
-#if 0
-/* dead code: leave here for hardware interface documentation */
-static unsigned int maxinefb_ims332_read_register(int regno)
+unsigned int maxinefb_ims332_read_register(int regno)
 {
 	register unsigned char *regs = (char *) MAXINEFB_IMS332_ADDRESS;
 	unsigned char *rptr;
@@ -85,7 +83,6 @@ static unsigned int maxinefb_ims332_read_register(int regno)
 
 	return (j & 0xffff) | ((k & 0xff00) << 8);
 }
-#endif
 
 /* Set the palette */
 static int maxinefb_setcolreg(unsigned regno, unsigned red, unsigned green,
@@ -114,7 +111,7 @@ static const struct fb_ops maxinefb_ops = {
 	.fb_setcolreg	= maxinefb_setcolreg,
 };
 
-static int __init maxinefb_init(void)
+int __init maxinefb_init(void)
 {
 	unsigned long fboff;
 	unsigned long fb_start;
@@ -160,7 +157,7 @@ static int __init maxinefb_init(void)
 	fb_alloc_cmap(&fb_info.cmap, 256, 0);
 
 	if (register_framebuffer(&fb_info) < 0)
-		return -ENODEV;
+		return 1;
 	return 0;
 }
 
@@ -169,7 +166,9 @@ static void __exit maxinefb_exit(void)
 	unregister_framebuffer(&fb_info);
 }
 
+#ifdef MODULE
+MODULE_LICENSE("GPL");
+#endif
 module_init(maxinefb_init);
 module_exit(maxinefb_exit);
 
-MODULE_LICENSE("GPL");

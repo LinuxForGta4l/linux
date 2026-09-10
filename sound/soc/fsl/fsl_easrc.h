@@ -584,7 +584,7 @@ struct fsl_easrc_slot {
 };
 
 /**
- * struct fsl_easrc_ctx_priv - EASRC context private data
+ * fsl_easrc_ctx_priv: EASRC context private data
  *
  * @in_params: input parameter
  * @out_params:  output parameter
@@ -625,7 +625,7 @@ struct fsl_easrc_ctx_priv {
 };
 
 /**
- * struct fsl_easrc_priv - EASRC private data
+ * fsl_easrc_priv: EASRC private data
  *
  * @slot: slot setting
  * @firmware_hdr:  the header of firmware

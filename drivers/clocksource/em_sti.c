@@ -300,8 +300,10 @@ static int em_sti_probe(struct platform_device *pdev)
 	ret = devm_request_irq(&pdev->dev, irq, em_sti_interrupt,
 			       IRQF_TIMER | IRQF_IRQPOLL | IRQF_NOBALANCING,
 			       dev_name(&pdev->dev), p);
-	if (ret)
+	if (ret) {
+		dev_err(&pdev->dev, "failed to request low IRQ\n");
 		return ret;
+	}
 
 	/* get hold of clock */
 	p->clk = devm_clk_get(&pdev->dev, "sclk");

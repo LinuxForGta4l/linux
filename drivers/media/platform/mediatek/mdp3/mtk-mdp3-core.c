@@ -294,11 +294,7 @@ static int mdp_probe(struct platform_device *pdev)
 			goto err_destroy_clock_wq;
 		}
 		mdp->scp = platform_get_drvdata(mm_pdev);
-	}
-
-	if (!mdp->scp) {
-		ret = -EPROBE_DEFER;
-		goto err_destroy_clock_wq;
+		put_device(&mm_pdev->dev);
 	}
 
 	mdp->rproc_handle = scp_get_rproc(mdp->scp);

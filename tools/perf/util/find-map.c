@@ -1,13 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 static int find_map(void **start, void **end, const char *name)
 {
 	FILE *maps;
-	char *line = NULL;
-	size_t len = 0;
+	char line[128];
 	int found = 0;
 
 	maps = fopen("/proc/self/maps", "r");
@@ -16,7 +11,7 @@ static int find_map(void **start, void **end, const char *name)
 		return -1;
 	}
 
-	while (!found && getline(&line, &len, maps) != -1) {
+	while (!found && fgets(line, sizeof(line), maps)) {
 		int m = -1;
 
 		/* We care only about private r-x mappings. */
@@ -30,7 +25,6 @@ static int find_map(void **start, void **end, const char *name)
 			found = 1;
 	}
 
-	free(line);
 	fclose(maps);
 	return !found;
 }

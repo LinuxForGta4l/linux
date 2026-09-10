@@ -21,7 +21,6 @@
 #include <linux/usb.h>
 
 #include "../internal.h"
-#include "../vmalloc.h"
 #include "../slab.h"
 #include "kmsan.h"
 

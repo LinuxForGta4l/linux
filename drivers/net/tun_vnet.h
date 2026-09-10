@@ -40,9 +40,9 @@ static inline long tun_set_vnet_be(unsigned int *flags, int __user *argp)
 		return -EFAULT;
 
 	if (be)
-		WRITE_ONCE(*flags, *flags | TUN_VNET_BE);
+		*flags |= TUN_VNET_BE;
 	else
-		WRITE_ONCE(*flags, *flags & ~TUN_VNET_BE);
+		*flags &= ~TUN_VNET_BE;
 
 	return 0;
 }
@@ -93,9 +93,9 @@ static inline long tun_vnet_ioctl(int *vnet_hdr_sz, unsigned int *flags,
 		if (get_user(s, sp))
 			return -EFAULT;
 		if (s)
-			WRITE_ONCE(*flags, *flags | TUN_VNET_LE);
+			*flags |= TUN_VNET_LE;
 		else
-			WRITE_ONCE(*flags, *flags & ~TUN_VNET_LE);
+			*flags &= ~TUN_VNET_LE;
 		return 0;
 
 	case TUNGETVNETBE:

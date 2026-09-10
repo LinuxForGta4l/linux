@@ -492,39 +492,37 @@ static void iris_fill_internal_buf_info(struct iris_inst *inst,
 	buffers->min_count = iris_vpu_buf_count(inst, buffer_type);
 }
 
-static void iris_get_int_buf_tbl(struct iris_inst *inst, u32 plane,
-				 const u32 **internal_buf_type, u32 *internal_buffer_count)
-{
-	const struct iris_firmware_data *firmware_data = inst->core->iris_firmware_data;
-
-	if (inst->domain == DECODER) {
-		if (V4L2_TYPE_IS_OUTPUT(plane)) {
-			*internal_buf_type = firmware_data->dec_ip_int_buf_tbl;
-			*internal_buffer_count = firmware_data->dec_ip_int_buf_tbl_size;
-		} else {
-			*internal_buf_type = firmware_data->dec_op_int_buf_tbl;
-			*internal_buffer_count = firmware_data->dec_op_int_buf_tbl_size;
-		}
-	} else {
-		if (V4L2_TYPE_IS_OUTPUT(plane)) {
-			*internal_buf_type = firmware_data->enc_ip_int_buf_tbl;
-			*internal_buffer_count = firmware_data->enc_ip_int_buf_tbl_size;
-		} else {
-			*internal_buf_type = firmware_data->enc_op_int_buf_tbl;
-			*internal_buffer_count = firmware_data->enc_op_int_buf_tbl_size;
-		}
-	}
-}
-
 void iris_get_internal_buffers(struct iris_inst *inst, u32 plane)
 {
+	const struct iris_firmware_data *firmware_data = inst->core->iris_firmware_data;
 	const u32 *internal_buf_type;
 	u32 internal_buffer_count, i;
 
-	iris_get_int_buf_tbl(inst, plane, &internal_buf_type, &internal_buffer_count);
-
-	for (i = 0; i < internal_buffer_count; i++)
-		iris_fill_internal_buf_info(inst, internal_buf_type[i]);
+	if (inst->domain == DECODER) {
+		if (V4L2_TYPE_IS_OUTPUT(plane)) {
+			internal_buf_type = firmware_data->dec_ip_int_buf_tbl;
+			internal_buffer_count = firmware_data->dec_ip_int_buf_tbl_size;
+			for (i = 0; i < internal_buffer_count; i++)
+				iris_fill_internal_buf_info(inst, internal_buf_type[i]);
+		} else {
+			internal_buf_type = firmware_data->dec_op_int_buf_tbl;
+			internal_buffer_count = firmware_data->dec_op_int_buf_tbl_size;
+			for (i = 0; i < internal_buffer_count; i++)
+				iris_fill_internal_buf_info(inst, internal_buf_type[i]);
+		}
+	} else {
+		if (V4L2_TYPE_IS_OUTPUT(plane)) {
+			internal_buf_type = firmware_data->enc_ip_int_buf_tbl;
+			internal_buffer_count = firmware_data->enc_ip_int_buf_tbl_size;
+			for (i = 0; i < internal_buffer_count; i++)
+				iris_fill_internal_buf_info(inst, internal_buf_type[i]);
+		} else {
+			internal_buf_type = firmware_data->enc_op_int_buf_tbl;
+			internal_buffer_count = firmware_data->enc_op_int_buf_tbl_size;
+			for (i = 0; i < internal_buffer_count; i++)
+				iris_fill_internal_buf_info(inst, internal_buf_type[i]);
+		}
+	}
 }
 
 static int iris_create_internal_buffer(struct iris_inst *inst,
@@ -561,12 +559,29 @@ static int iris_create_internal_buffer(struct iris_inst *inst,
 
 int iris_create_internal_buffers(struct iris_inst *inst, u32 plane)
 {
+	const struct iris_firmware_data *firmware_data = inst->core->iris_firmware_data;
 	u32 internal_buffer_count, i, j;
 	struct iris_buffers *buffers;
 	const u32 *internal_buf_type;
 	int ret;
 
-	iris_get_int_buf_tbl(inst, plane, &internal_buf_type, &internal_buffer_count);
+	if (inst->domain == DECODER) {
+		if (V4L2_TYPE_IS_OUTPUT(plane)) {
+			internal_buf_type = firmware_data->dec_ip_int_buf_tbl;
+			internal_buffer_count = firmware_data->dec_ip_int_buf_tbl_size;
+		} else {
+			internal_buf_type = firmware_data->dec_op_int_buf_tbl;
+			internal_buffer_count = firmware_data->dec_op_int_buf_tbl_size;
+		}
+	} else {
+		if (V4L2_TYPE_IS_OUTPUT(plane)) {
+			internal_buf_type = firmware_data->enc_ip_int_buf_tbl;
+			internal_buffer_count = firmware_data->enc_ip_int_buf_tbl_size;
+		} else {
+			internal_buf_type = firmware_data->enc_op_int_buf_tbl;
+			internal_buffer_count = firmware_data->enc_op_int_buf_tbl_size;
+		}
+	}
 
 	for (i = 0; i < internal_buffer_count; i++) {
 		buffers = &inst->buffers[internal_buf_type[i]];
@@ -620,13 +635,30 @@ int iris_queue_internal_deferred_buffers(struct iris_inst *inst, enum iris_buffe
 
 int iris_queue_internal_buffers(struct iris_inst *inst, u32 plane)
 {
+	const struct iris_firmware_data *firmware_data = inst->core->iris_firmware_data;
 	struct iris_buffer *buffer, *next;
 	struct iris_buffers *buffers;
 	const u32 *internal_buf_type;
 	u32 internal_buffer_count, i;
 	int ret;
 
-	iris_get_int_buf_tbl(inst, plane, &internal_buf_type, &internal_buffer_count);
+	if (inst->domain == DECODER) {
+		if (V4L2_TYPE_IS_OUTPUT(plane)) {
+			internal_buf_type = firmware_data->dec_ip_int_buf_tbl;
+			internal_buffer_count = firmware_data->dec_ip_int_buf_tbl_size;
+		} else {
+			internal_buf_type = firmware_data->dec_op_int_buf_tbl;
+			internal_buffer_count = firmware_data->dec_op_int_buf_tbl_size;
+		}
+	} else {
+		if (V4L2_TYPE_IS_OUTPUT(plane)) {
+			internal_buf_type = firmware_data->enc_ip_int_buf_tbl;
+			internal_buffer_count = firmware_data->enc_ip_int_buf_tbl_size;
+		} else {
+			internal_buf_type = firmware_data->enc_op_int_buf_tbl;
+			internal_buffer_count = firmware_data->enc_op_int_buf_tbl_size;
+		}
+	}
 
 	for (i = 0; i < internal_buffer_count; i++) {
 		buffers = &inst->buffers[internal_buf_type[i]];
@@ -648,7 +680,7 @@ int iris_queue_internal_buffers(struct iris_inst *inst, u32 plane)
 	return 0;
 }
 
-void iris_destroy_internal_buffer(struct iris_inst *inst, struct iris_buffer *buffer)
+int iris_destroy_internal_buffer(struct iris_inst *inst, struct iris_buffer *buffer)
 {
 	struct iris_core *core = inst->core;
 
@@ -656,16 +688,36 @@ void iris_destroy_internal_buffer(struct iris_inst *inst, struct iris_buffer *bu
 	dma_free_attrs(core->dev, buffer->buffer_size, buffer->kvaddr,
 		       buffer->device_addr, buffer->dma_attrs);
 	kfree(buffer);
+
+	return 0;
 }
 
 static int iris_destroy_internal_buffers(struct iris_inst *inst, u32 plane, bool force)
 {
+	const struct iris_firmware_data *firmware_data = inst->core->iris_firmware_data;
 	struct iris_buffer *buf, *next;
 	struct iris_buffers *buffers;
 	const u32 *internal_buf_type;
 	u32 i, len;
+	int ret;
 
-	iris_get_int_buf_tbl(inst, plane, &internal_buf_type, &len);
+	if (inst->domain == DECODER) {
+		if (V4L2_TYPE_IS_OUTPUT(plane)) {
+			internal_buf_type = firmware_data->dec_ip_int_buf_tbl;
+			len = firmware_data->dec_ip_int_buf_tbl_size;
+		} else {
+			internal_buf_type = firmware_data->dec_op_int_buf_tbl;
+			len = firmware_data->dec_op_int_buf_tbl_size;
+		}
+	} else {
+		if (V4L2_TYPE_IS_OUTPUT(plane)) {
+			internal_buf_type = firmware_data->enc_ip_int_buf_tbl;
+			len = firmware_data->enc_ip_int_buf_tbl_size;
+		} else {
+			internal_buf_type = firmware_data->enc_op_int_buf_tbl;
+			len = firmware_data->enc_op_int_buf_tbl_size;
+		}
+	}
 
 	for (i = 0; i < len; i++) {
 		buffers = &inst->buffers[internal_buf_type[i]];
@@ -678,7 +730,9 @@ static int iris_destroy_internal_buffers(struct iris_inst *inst, u32 plane, bool
 			if (!force && buf->attr & BUF_ATTR_QUEUED)
 				continue;
 
-			iris_destroy_internal_buffer(inst, buf);
+			ret = iris_destroy_internal_buffer(inst, buf);
+			if (ret)
+				return ret;
 		}
 	}
 
@@ -688,8 +742,11 @@ static int iris_destroy_internal_buffers(struct iris_inst *inst, u32 plane, bool
 		else
 			buffers = &inst->buffers[BUF_ARP];
 
-		list_for_each_entry_safe(buf, next, &buffers->list, list)
-			iris_destroy_internal_buffer(inst, buf);
+		list_for_each_entry_safe(buf, next, &buffers->list, list) {
+			ret = iris_destroy_internal_buffer(inst, buf);
+			if (ret)
+				return ret;
+		}
 	}
 
 	return 0;
@@ -731,12 +788,18 @@ static int iris_release_internal_buffers(struct iris_inst *inst,
 
 static int iris_release_input_internal_buffers(struct iris_inst *inst)
 {
+	const struct iris_firmware_data *firmware_data = inst->core->iris_firmware_data;
 	const u32 *internal_buf_type;
 	u32 internal_buffer_count, i;
 	int ret;
 
-	iris_get_int_buf_tbl(inst, V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE,
-			     &internal_buf_type, &internal_buffer_count);
+	if (inst->domain == DECODER) {
+		internal_buf_type = firmware_data->dec_ip_int_buf_tbl;
+		internal_buffer_count = firmware_data->dec_ip_int_buf_tbl_size;
+	} else {
+		internal_buf_type = firmware_data->enc_ip_int_buf_tbl;
+		internal_buffer_count = firmware_data->enc_ip_int_buf_tbl_size;
+	}
 
 	for (i = 0; i < internal_buffer_count; i++) {
 		ret = iris_release_internal_buffers(inst, internal_buf_type[i]);

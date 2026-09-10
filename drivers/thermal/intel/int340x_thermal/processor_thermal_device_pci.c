@@ -308,8 +308,10 @@ static int proc_thermal_setup_msi(struct pci_dev *pdev, struct proc_thermal_pci 
 		ret = devm_request_threaded_irq(&pdev->dev, irq, proc_thermal_irq_handler,
 						proc_thermal_irq_thread_handler,
 						0, KBUILD_MODNAME, pci_info);
-		if (ret)
+		if (ret) {
+			dev_err(&pdev->dev, "Request IRQ %d failed\n", irq);
 			goto err_free_msi_vectors;
+		}
 
 		proc_thermal_msi_map[i] = irq;
 	}
@@ -392,8 +394,10 @@ static int proc_thermal_pci_probe(struct pci_dev *pdev, const struct pci_device_
 		ret = devm_request_threaded_irq(&pdev->dev, irq, proc_thermal_irq_handler,
 						proc_thermal_irq_thread_handler, irq_flag,
 						KBUILD_MODNAME, pci_info);
-		if (ret)
+		if (ret) {
+			dev_err(&pdev->dev, "Request IRQ %d failed\n", pdev->irq);
 			goto err_ret_tzone;
+		}
 	}
 
 	ret = thermal_zone_device_enable(pci_info->tzone);

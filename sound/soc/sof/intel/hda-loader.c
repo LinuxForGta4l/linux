@@ -216,10 +216,9 @@ int hda_cl_trigger(struct device *dev, struct hdac_ext_stream *hext_stream, int 
 EXPORT_SYMBOL_NS(hda_cl_trigger, "SND_SOC_SOF_INTEL_HDA_COMMON");
 
 int hda_cl_cleanup(struct device *dev, struct snd_dma_buffer *dmab,
-		   bool persistent_buffer, struct hdac_ext_stream *hext_stream, bool is_iccmax)
+			  bool persistent_buffer, struct hdac_ext_stream *hext_stream)
 {
-	return hda_data_stream_cleanup(dev, dmab, persistent_buffer, hext_stream,
-				       is_iccmax, false);
+	return hda_data_stream_cleanup(dev, dmab, persistent_buffer, hext_stream, false);
 }
 EXPORT_SYMBOL_NS(hda_cl_cleanup, "SND_SOC_SOF_INTEL_HDA_COMMON");
 
@@ -303,7 +302,7 @@ int hda_dsp_cl_boot_firmware_iccmax(struct snd_sof_dev *sdev)
 	 * If the cleanup also fails, we return the initial error
 	 */
 	ret1 = hda_cl_cleanup(sdev->dev, &hda->iccmax_dmab,
-			      persistent_cl_buffer, iccmax_stream, true);
+			      persistent_cl_buffer, iccmax_stream);
 	if (ret1 < 0) {
 		dev_err(sdev->dev, "error: ICCMAX stream cleanup failed\n");
 
@@ -459,7 +458,7 @@ cleanup:
 	 * If the cleanup also fails, we return the initial error
 	 */
 	ret1 = hda_cl_cleanup(sdev->dev, &hda->cl_dmab,
-			      persistent_cl_buffer, hext_stream, false);
+			      persistent_cl_buffer, hext_stream);
 	if (ret1 < 0) {
 		dev_err(sdev->dev, "error: Code loader DSP cleanup failed\n");
 
@@ -588,7 +587,7 @@ int hda_dsp_ipc4_load_library(struct snd_sof_dev *sdev,
 cleanup:
 	/* clean up even in case of error and return the first error */
 	ret1 = hda_cl_cleanup(sdev->dev, &hda->cl_dmab, persistent_cl_buffer,
-			      hext_stream, false);
+			      hext_stream);
 	if (ret1 < 0) {
 		dev_err(sdev->dev, "%s: Code loader DSP cleanup failed\n", __func__);
 

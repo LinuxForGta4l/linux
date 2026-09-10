@@ -414,10 +414,7 @@ static int intel_rapl_tpmi_probe(struct auxiliary_device *auxdev,
 		goto err;
 	}
 
-	ret = rapl_package_add_pmu(trp->rp);
-	if (ret)
-		dev_info(&auxdev->dev, "Failed to add RAPL PMU for Package%d, %d\n",
-			info->package_id, ret);
+	rapl_package_add_pmu(trp->rp);
 
 	auxiliary_set_drvdata(auxdev, trp);
 

@@ -149,8 +149,7 @@ v3d_reset(struct v3d_dev *v3d)
 	v3d_mmu_set_page_table(v3d);
 	v3d_irq_reset(v3d);
 
-	/* Re-arm the global perfmon HW counters that the reset zeroed. */
-	v3d_perfmon_resume(v3d);
+	v3d_perfmon_stop(v3d, v3d->active_perfmon, false);
 
 	trace_v3d_reset_end(dev);
 }
@@ -320,7 +319,6 @@ v3d_gem_init(struct drm_device *dev)
 	}
 
 	spin_lock_init(&v3d->mm_lock);
-	spin_lock_init(&v3d->perfmon_state.lock);
 	ret = drmm_mutex_init(dev, &v3d->bo_lock);
 	if (ret)
 		goto err_stats;
@@ -383,10 +381,7 @@ v3d_gem_destroy(struct drm_device *dev)
 	for (q = 0; q < V3D_MAX_QUEUES; q++) {
 		WARN_ON(v3d->queue[q].active_job);
 		v3d_stats_put(v3d->queue[q].stats);
-		dma_fence_put(v3d->perfmon_state.last_hw_fence[q]);
 	}
-
-	dma_fence_put(v3d->perfmon_state.fence);
 
 	drm_mm_takedown(&v3d->mm);
 

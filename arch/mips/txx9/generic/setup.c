@@ -19,7 +19,6 @@
 #include <linux/clkdev.h>
 #include <linux/err.h>
 #include <linux/gpio/driver.h>
-#include <linux/gpio/machine.h>
 #include <linux/platform_device.h>
 #include <linux/platform_data/txx9/ndfmc.h>
 #include <linux/serial_core.h>
@@ -342,6 +341,23 @@ void txx9_wdt_now(unsigned long base)
 		     &tmrptr->tcr);
 }
 
+/* SPI support */
+void __init txx9_spi_init(int busid, unsigned long base, int irq)
+{
+	struct resource res[] = {
+		{
+			.start	= base,
+			.end	= base + 0x20 - 1,
+			.flags	= IORESOURCE_MEM,
+		}, {
+			.start	= irq,
+			.flags	= IORESOURCE_IRQ,
+		},
+	};
+	platform_device_register_simple("spi_txx9", busid,
+					res, ARRAY_SIZE(res));
+}
+
 void __init txx9_ethaddr_init(unsigned int id, unsigned char *ethaddr)
 {
 	struct platform_device *pdev =
@@ -570,7 +586,7 @@ void __init txx9_ndfmc_init(unsigned long baseaddr,
 #if IS_ENABLED(CONFIG_LEDS_GPIO)
 static DEFINE_SPINLOCK(txx9_iocled_lock);
 
-#define TXX9_IOCLED_MAXLEDS 3	/* rbtx4927 */
+#define TXX9_IOCLED_MAXLEDS 8
 
 struct txx9_iocled_data {
 	struct gpio_chip chip;
@@ -616,16 +632,8 @@ static int txx9_iocled_dir_out(struct gpio_chip *chip, unsigned int offset,
 	return 0;
 }
 
-static struct gpiod_lookup_table txx9_iocled_table = {
-	.table = {
-		GPIO_LOOKUP_IDX("iocled", 0, NULL, 0, GPIO_ACTIVE_LOW),
-		GPIO_LOOKUP_IDX("iocled", 1, NULL, 1, GPIO_ACTIVE_LOW),
-		GPIO_LOOKUP_IDX("iocled", 2, NULL, 2, GPIO_ACTIVE_LOW),
-		{ },
-	},
-};
-
-void __init txx9_iocled_init(unsigned long baseaddr, unsigned int num,
+void __init txx9_iocled_init(unsigned long baseaddr,
+			     int basenum, unsigned int num, int lowactive,
 			     const char *color, char **deftriggers)
 {
 	struct txx9_iocled_data *iocled;
@@ -651,12 +659,14 @@ void __init txx9_iocled_init(unsigned long baseaddr, unsigned int num,
 	iocled->chip.direction_input = txx9_iocled_dir_in;
 	iocled->chip.direction_output = txx9_iocled_dir_out;
 	iocled->chip.label = "iocled";
-	iocled->chip.base = -1;
+	iocled->chip.base = basenum;
 	iocled->chip.ngpio = num;
 	if (gpiochip_add_data(&iocled->chip, iocled))
 		goto out_unmap;
+	if (basenum < 0)
+		basenum = iocled->chip.base;
 
-	pdev = platform_device_alloc("leds-gpio", iocled->chip.base);
+	pdev = platform_device_alloc("leds-gpio", basenum);
 	if (!pdev)
 		goto out_gpio;
 	iocled->pdata.num_leds = num;
@@ -666,14 +676,14 @@ void __init txx9_iocled_init(unsigned long baseaddr, unsigned int num,
 		snprintf(iocled->names[i], sizeof(iocled->names[i]),
 			 "iocled:%s:%u", color, i);
 		led->name = iocled->names[i];
+		led->gpio = basenum + i;
+		led->active_low = lowactive;
 		if (deftriggers && *deftriggers)
 			led->default_trigger = *deftriggers++;
 	}
 	pdev->dev.platform_data = &iocled->pdata;
 	if (platform_device_add(pdev))
 		goto out_pdev;
-	txx9_iocled_table.dev_id = dev_name(&pdev->dev);
-	gpiod_add_lookup_table(&txx9_iocled_table);
 	return;
 
 out_pdev:
@@ -686,7 +696,8 @@ out_free:
 	kfree(iocled);
 }
 #else /* CONFIG_LEDS_GPIO */
-void __init txx9_iocled_init(unsigned long baseaddr, unsigned int num,
+void __init txx9_iocled_init(unsigned long baseaddr,
+			     int basenum, unsigned int num, int lowactive,
 			     const char *color, char **deftriggers)
 {
 }

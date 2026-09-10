@@ -37,7 +37,6 @@
 #include <linux/bitmap.h>
 #include <linux/bitops.h>
 #include <linux/iommu-debug-pagealloc.h>
-#include <linux/kcsan-checks.h>
 
 struct mempolicy;
 struct anon_vma;
@@ -354,7 +353,6 @@ enum {
 #endif
 	DECLARE_VMA_BIT(UFFD_MINOR, 41),
 	DECLARE_VMA_BIT(SEALED, 42),
-	DECLARE_VMA_BIT(UFFD_RWP, 43),
 	/* Flags that reuse flags above. */
 	DECLARE_VMA_BIT_ALIAS(PKEY_BIT0, HIGH_ARCH_0),
 	DECLARE_VMA_BIT_ALIAS(PKEY_BIT1, HIGH_ARCH_1),
@@ -442,10 +440,8 @@ enum {
 #define VM_STACK	INIT_VM_FLAG(STACK)
 #ifdef CONFIG_STACK_GROWSUP
 #define VM_STACK_EARLY	INIT_VM_FLAG(STACK_EARLY)
-#define VMA_STACK_EARLY mk_vma_flags(VMA_STACK_EARLY_BIT)
 #else
 #define VM_STACK_EARLY	VM_NONE
-#define VMA_STACK_EARLY EMPTY_VMA_FLAGS
 #endif
 #ifdef CONFIG_ARCH_HAS_PKEYS
 #define VM_PKEY_SHIFT ((__force int)VMA_HIGH_ARCH_0_BIT)
@@ -467,18 +463,15 @@ enum {
 #if defined(CONFIG_X86_USER_SHADOW_STACK) || defined(CONFIG_ARM64_GCS) || \
 	defined(CONFIG_RISCV_USER_CFI)
 #define VM_SHADOW_STACK	INIT_VM_FLAG(SHADOW_STACK)
-#define VMA_SHADOW_STACK mk_vma_flags(VMA_SHADOW_STACK_BIT)
 #define VMA_STARTGAP_FLAGS mk_vma_flags(VMA_GROWSDOWN_BIT, VMA_SHADOW_STACK_BIT)
 #else
 #define VM_SHADOW_STACK	VM_NONE
-#define VMA_SHADOW_STACK EMPTY_VMA_FLAGS
 #define VMA_STARTGAP_FLAGS mk_vma_flags(VMA_GROWSDOWN_BIT)
 #endif
 #if defined(CONFIG_PPC64)
 #define VM_SAO		INIT_VM_FLAG(SAO)
 #elif defined(CONFIG_PARISC)
 #define VM_GROWSUP	INIT_VM_FLAG(GROWSUP)
-#define VMA_GROWSUP	mk_vma_flags(VMA_GROWSUP_BIT)
 #elif defined(CONFIG_SPARC64)
 #define VM_SPARC_ADI	INIT_VM_FLAG(SPARC_ADI)
 #define VM_ARCH_CLEAR	INIT_VM_FLAG(ARCH_CLEAR)
@@ -490,7 +483,6 @@ enum {
 #endif
 #ifndef VM_GROWSUP
 #define VM_GROWSUP	VM_NONE
-#define VMA_GROWSUP	EMPTY_VMA_FLAGS
 #endif
 #ifdef CONFIG_ARM64_MTE
 #define VM_MTE		INIT_VM_FLAG(MTE)
@@ -504,17 +496,12 @@ enum {
 #else
 #define VM_UFFD_MINOR	VM_NONE
 #endif
-#ifdef CONFIG_USERFAULTFD_RWP
-#define VM_UFFD_RWP		INIT_VM_FLAG(UFFD_RWP)
-#else
-#define VM_UFFD_RWP		VM_NONE
-#endif
 
 /*
- * vma_flags_t masks for the userfaultfd VMA flags. The two high-bit modes are
- * gated on the same configs as their VM_* flags above -- both of which imply
- * 64BIT -- so an out-of-range bit is never fed to mk_vma_flags() on a build
- * whose bitmap cannot hold it.
+ * vma_flags_t masks for the userfaultfd VMA flags. VMA_UFFD_MINOR is gated on
+ * the same config as VM_UFFD_MINOR -- which implies 64BIT, where the bit fits
+ * -- so an out-of-range bit is never fed to mk_vma_flags() on a build whose
+ * bitmap cannot hold it.
  */
 #define VMA_UFFD_MISSING	mk_vma_flags(VMA_UFFD_MISSING_BIT)
 #define VMA_UFFD_WP		mk_vma_flags(VMA_UFFD_WP_BIT)
@@ -522,11 +509,6 @@ enum {
 #define VMA_UFFD_MINOR		mk_vma_flags(VMA_UFFD_MINOR_BIT)
 #else
 #define VMA_UFFD_MINOR		EMPTY_VMA_FLAGS
-#endif
-#ifdef CONFIG_USERFAULTFD_RWP
-#define VMA_UFFD_RWP		mk_vma_flags(VMA_UFFD_RWP_BIT)
-#else
-#define VMA_UFFD_RWP		EMPTY_VMA_FLAGS
 #endif
 
 #ifdef CONFIG_64BIT
@@ -546,8 +528,6 @@ enum {
 
 /* Bits set in the VMA until the stack is in its final location */
 #define VM_STACK_INCOMPLETE_SETUP (VM_RAND_READ | VM_SEQ_READ | VM_STACK_EARLY)
-#define VMA_STACK_INCOMPLETE_SETUP append_vma_flags(		\
-	VMA_STACK_EARLY, VMA_RAND_READ_BIT, VMA_SEQ_READ_BIT)
 
 #define TASK_EXEC_BIT ((current->personality & READ_IMPLIES_EXEC) ? \
 		       VMA_EXEC_BIT : VMA_READ_BIT)
@@ -668,32 +648,29 @@ enum {
  * reconsistuted upon page fault, so necessitate page table copying upon fork.
  *
  * Note that these flags should be compared with the DESTINATION VMA not the
- * source: VM_UFFD_WP and VM_UFFD_RWP may be cleared on the destination
- * (dup_userfaultfd() -> userfaultfd_reset_ctx() when the parent context did
- * not negotiate UFFD_FEATURE_EVENT_FORK), while all other flags propagate.
+ * source, as VM_UFFD_WP may not be propagated to destination, while all other
+ * flags will be.
  *
  * VM_PFNMAP / VM_MIXEDMAP - These contain kernel-mapped data which cannot be
  *                           reasonably reconstructed on page fault.
  *
  *              VM_UFFD_WP - Encodes metadata about an installed uffd
- *              VM_UFFD_RWP  write- or read-write-protect handler, which
- *                           cannot be reconstructed on page fault.
+ *                           write protect handler, which cannot be
+ *                           reconstructed on page fault.
  *
- *                           We always copy pgtables when dst_vma has the
- *                           uffd PTE bit in use even if it's file-backed
- *                           (e.g. shmem). Because when the uffd bit is
- *                           in use, the pgtable contains the protection
- *                           information, that's something we can't
- *                           retrieve from page cache, and skip copying
- *                           will lose those info.
+ *                           We always copy pgtables when dst_vma has uffd-wp
+ *                           enabled even if it's file-backed
+ *                           (e.g. shmem). Because when uffd-wp is enabled,
+ *                           pgtable contains uffd-wp protection information,
+ *                           that's something we can't retrieve from page cache,
+ *                           and skip copying will lose those info.
  *
  *          VM_MAYBE_GUARD - Could contain page guard region markers which
  *                           by design are a property of the page tables
  *                           only and thus cannot be reconstructed on page
  *                           fault.
  */
-#define VM_COPY_ON_FORK (VM_PFNMAP | VM_MIXEDMAP | VM_UFFD_WP | VM_UFFD_RWP | \
-			 VM_MAYBE_GUARD)
+#define VM_COPY_ON_FORK (VM_PFNMAP | VM_MIXEDMAP | VM_UFFD_WP | VM_MAYBE_GUARD)
 
 /*
  * mapping from the currently active vm_flags protection bits (the
@@ -1586,24 +1563,11 @@ static inline bool vma_is_initial_stack(const struct vm_area_struct *vma)
 		vma->vm_end >= vma->vm_mm->start_stack;
 }
 
-static inline bool vma_flags_can_grow(const vma_flags_t *flags)
-{
-	if (vma_flags_test_single_mask(flags, VMA_GROWSUP))
-		return true;
-	if (vma_flags_test(flags, VMA_GROWSDOWN_BIT))
-		return true;
-
-	return false;
-}
-
-static inline bool vma_can_grow(const struct vm_area_struct *vma)
-{
-	return vma_flags_can_grow(&vma->flags);
-}
-
 static inline bool vma_is_temporary_stack(const struct vm_area_struct *vma)
 {
-	if (!vma_can_grow(vma))
+	int maybe_stack = vma->vm_flags & (VM_GROWSDOWN | VM_GROWSUP);
+
+	if (!maybe_stack)
 		return false;
 
 	if ((vma->vm_flags & VM_STACK_INCOMPLETE_SETUP) ==
@@ -2322,30 +2286,22 @@ static inline int page_zone_id(struct page *page)
 }
 
 #ifdef NODE_NOT_IN_PAGE_FLAGS
-int memdesc_nid(const memdesc_flags_t *mdf);
+int memdesc_nid(memdesc_flags_t mdf);
 #else
-#ifdef CONFIG_NUMA
-static inline int memdesc_nid(const memdesc_flags_t *mdf)
+static inline int memdesc_nid(memdesc_flags_t mdf)
 {
-	ASSERT_EXCLUSIVE_BITS(mdf->f, NODES_MASK << NODES_PGSHIFT);
-	return (mdf->f >> NODES_PGSHIFT) & NODES_MASK;
+	return (mdf.f >> NODES_PGSHIFT) & NODES_MASK;
 }
-#else
-static inline int memdesc_nid(const memdesc_flags_t *mdf)
-{
-	return 0;
-}
-#endif
 #endif
 
 static inline int page_to_nid(const struct page *page)
 {
-	return memdesc_nid(&(PF_POISONED_CHECK(page)->flags));
+	return memdesc_nid(PF_POISONED_CHECK(page)->flags);
 }
 
 static inline int folio_nid(const struct folio *folio)
 {
-	return memdesc_nid(&folio->flags);
+	return memdesc_nid(folio->flags);
 }
 
 #ifdef CONFIG_NUMA_BALANCING
@@ -2585,13 +2541,12 @@ static inline void set_page_section(struct page *page, unsigned long section)
 	page->flags.f |= (section & SECTIONS_MASK) << SECTIONS_PGSHIFT;
 }
 
-static inline unsigned long memdesc_section(const memdesc_flags_t *mdf)
+static inline unsigned long memdesc_section(memdesc_flags_t mdf)
 {
-	ASSERT_EXCLUSIVE_BITS(mdf->f, SECTIONS_MASK << SECTIONS_PGSHIFT);
-	return (mdf->f >> SECTIONS_PGSHIFT) & SECTIONS_MASK;
+	return (mdf.f >> SECTIONS_PGSHIFT) & SECTIONS_MASK;
 }
 #else /* !SECTION_IN_PAGE_FLAGS */
-static inline unsigned long memdesc_section(const memdesc_flags_t *mdf)
+static inline unsigned long memdesc_section(memdesc_flags_t mdf)
 {
 	return 0;
 }
@@ -3362,11 +3317,6 @@ int get_cmdline(struct task_struct *task, char *buffer, int buflen);
 #define  MM_CP_UFFD_WP_RESOLVE             (1UL << 3) /* Resolve wp */
 #define  MM_CP_UFFD_WP_ALL                 (MM_CP_UFFD_WP | \
 					    MM_CP_UFFD_WP_RESOLVE)
-/* Whether this change is for uffd RWP */
-#define  MM_CP_UFFD_RWP                    (1UL << 4) /* do rwp */
-#define  MM_CP_UFFD_RWP_RESOLVE            (1UL << 5) /* resolve rwp */
-#define  MM_CP_UFFD_RWP_ALL                (MM_CP_UFFD_RWP | \
-					    MM_CP_UFFD_RWP_RESOLVE)
 
 bool can_change_pte_writable(struct vm_area_struct *vma, unsigned long addr,
 			     pte_t pte);
@@ -4017,12 +3967,8 @@ extern unsigned long free_reserved_area(void *start, void *end,
 
 extern void adjust_managed_page_count(struct page *page, long count);
 
-void free_reserved_pages(struct page *page, unsigned int order);
-
-static inline void free_reserved_page(struct page *page)
-{
-	free_reserved_pages(page, 0);
-}
+/* Free the reserved page into the buddy system, so it gets managed. */
+void free_reserved_page(struct page *page);
 
 static inline void mark_page_reserved(struct page *page)
 {
@@ -4096,7 +4042,7 @@ extern int __meminit early_pfn_to_nid(unsigned long pfn);
 extern void mem_init(void);
 extern void __init mmap_init(void);
 
-extern void __show_mem(unsigned int flags, const nodemask_t *nodemask, int max_zone_idx);
+extern void __show_mem(unsigned int flags, nodemask_t *nodemask, int max_zone_idx);
 static inline void show_mem(void)
 {
 	__show_mem(0, NULL, MAX_NR_ZONES - 1);
@@ -4106,7 +4052,7 @@ extern void si_meminfo(struct sysinfo * val);
 extern void si_meminfo_node(struct sysinfo *val, int nid);
 
 extern __printf(3, 4)
-void warn_alloc(gfp_t gfp_mask, const nodemask_t *nodemask, const char *fmt, ...);
+void warn_alloc(gfp_t gfp_mask, nodemask_t *nodemask, const char *fmt, ...);
 
 extern void setup_per_cpu_pageset(void);
 
@@ -4115,46 +4061,44 @@ extern atomic_long_t mmap_pages_allocated;
 extern int nommu_shrink_inode_mappings(struct inode *, size_t, size_t);
 
 /* interval_tree.c */
-void mapping_rmap_tree_insert(struct vm_area_struct *vma,
-			      struct address_space *mapping);
-void mapping_rmap_tree_insert_after(struct vm_area_struct *vma,
+void vma_interval_tree_insert(struct vm_area_struct *node,
+			      struct rb_root_cached *root);
+void vma_interval_tree_insert_after(struct vm_area_struct *node,
 				    struct vm_area_struct *prev,
-				    struct address_space *mapping);
-void mapping_rmap_tree_remove(struct vm_area_struct *vma,
-			      struct address_space *mapping);
-struct vm_area_struct *
-mapping_rmap_tree_iter_first(struct address_space *mapping,
-			     pgoff_t pgoff_start, pgoff_t pgoff_last);
-struct vm_area_struct *
-mapping_rmap_tree_iter_next(struct vm_area_struct *vma,
-			    pgoff_t pgoff_start, pgoff_t pgoff_last);
+				    struct rb_root_cached *root);
+void vma_interval_tree_remove(struct vm_area_struct *node,
+			      struct rb_root_cached *root);
+struct vm_area_struct *vma_interval_tree_subtree_search(struct vm_area_struct *node,
+				unsigned long start, unsigned long last);
+struct vm_area_struct *vma_interval_tree_iter_first(struct rb_root_cached *root,
+				unsigned long start, unsigned long last);
+struct vm_area_struct *vma_interval_tree_iter_next(struct vm_area_struct *node,
+				unsigned long start, unsigned long last);
 
-#define mapping_rmap_tree_foreach(vma, mapping, pgoff_start, pgoff_last) \
-	for (vma = mapping_rmap_tree_iter_first(mapping, pgoff_start,	 \
-						pgoff_last);		 \
-	     vma; vma = mapping_rmap_tree_iter_next(vma, pgoff_start,	 \
-						    pgoff_last))
+#define vma_interval_tree_foreach(vma, root, start, last)		\
+	for (vma = vma_interval_tree_iter_first(root, start, last);	\
+	     vma; vma = vma_interval_tree_iter_next(vma, start, last))
 
-void anon_rmap_tree_insert(struct anon_vma_chain *avc,
-			   struct anon_vma *anon_vma);
-void anon_rmap_tree_remove(struct anon_vma_chain *avc,
-			   struct anon_vma *anon_vma);
+void anon_vma_interval_tree_insert(struct anon_vma_chain *node,
+				   struct rb_root_cached *root);
+void anon_vma_interval_tree_remove(struct anon_vma_chain *node,
+				   struct rb_root_cached *root);
 struct anon_vma_chain *
-anon_rmap_tree_iter_first(struct anon_vma *anon_vma,
-			  pgoff_t pgoff_start, pgoff_t pgoff_last);
-struct anon_vma_chain *
-anon_rmap_tree_iter_next(struct anon_vma_chain *avc,
-			 pgoff_t pgoff_start, pgoff_t pgoff_last);
+anon_vma_interval_tree_iter_first(struct rb_root_cached *root,
+				  unsigned long start, unsigned long last);
+struct anon_vma_chain *anon_vma_interval_tree_iter_next(
+	struct anon_vma_chain *node, unsigned long start, unsigned long last);
 #ifdef CONFIG_DEBUG_VM_RB
-void anon_rmap_tree_verify(struct anon_vma_chain *avc);
+void anon_vma_interval_tree_verify(struct anon_vma_chain *node);
 #endif
 
-#define anon_rmap_tree_foreach(avc, anon_vma, pgoff_start, pgoff_last)		 \
-	for (avc = anon_rmap_tree_iter_first(anon_vma, pgoff_start, pgoff_last); \
-	     avc; avc = anon_rmap_tree_iter_next(avc, pgoff_start, pgoff_last))
+#define anon_vma_interval_tree_foreach(avc, root, start, last)		 \
+	for (avc = anon_vma_interval_tree_iter_first(root, start, last); \
+	     avc; avc = anon_vma_interval_tree_iter_next(avc, start, last))
 
 /* mmap.c */
 extern int __vm_enough_memory(const struct mm_struct *mm, long pages, int cap_sys_admin);
+extern int insert_vm_struct(struct mm_struct *, struct vm_area_struct *);
 extern void exit_mmap(struct mm_struct *);
 bool mmap_read_lock_maybe_expand(struct mm_struct *mm, struct vm_area_struct *vma,
 				 unsigned long addr, bool write);
@@ -4195,20 +4139,18 @@ unsigned long randomize_page(unsigned long start, unsigned long range);
 
 unsigned long
 __get_unmapped_area(struct file *file, unsigned long addr, unsigned long len,
-		    unsigned long pgoff, unsigned long flags,
-		    vma_flags_t vma_flags);
+		    unsigned long pgoff, unsigned long flags, vm_flags_t vm_flags);
 
 static inline unsigned long
 get_unmapped_area(struct file *file, unsigned long addr, unsigned long len,
 		  unsigned long pgoff, unsigned long flags)
 {
-	return __get_unmapped_area(file, addr, len, pgoff, flags,
-				   EMPTY_VMA_FLAGS);
+	return __get_unmapped_area(file, addr, len, pgoff, flags, 0);
 }
 
-unsigned long do_mmap(struct file *file, unsigned long addr,
+extern unsigned long do_mmap(struct file *file, unsigned long addr,
 	unsigned long len, unsigned long prot, unsigned long flags,
-	vma_flags_t vma_flags, unsigned long pgoff, unsigned long *populate,
+	vm_flags_t vm_flags, unsigned long pgoff, unsigned long *populate,
 	struct list_head *uf);
 extern int do_vmi_munmap(struct vma_iterator *vmi, struct mm_struct *mm,
 			 unsigned long start, size_t len, struct list_head *uf,
@@ -4336,61 +4278,9 @@ static inline unsigned long vma_pages(const struct vm_area_struct *vma)
 	return (vma->vm_end - vma->vm_start) >> PAGE_SHIFT;
 }
 
-/**
- * vma_start_pgoff() - Get the page offset of the start of @vma
- * @vma: The VMA whose page offset is required.
- *
- * If the VMA is file-backed, this is the page offset into the file.
- *
- * If @vma is anonymous, this is the virtual page offset of the start of the
- * VMA - if unfaulted, then vma->vm_start >> PAGE_SHIFT, if faulted then the
- * virtual page offset at the time of first fault.
- *
- * If @vma is a MAP_PRIVATE file-backed mapping, then this returns the
- * page offset within the file.
- *
- * Edge cases: nommu does not abide by these, MAP_PRIVATE-/dev/zero satisfies
- * vma_is_anonymous() but has file-backed page offset, and MAP_PRIVATE-pfnmap
- * regions have their page offset set to the first PFN in the range.
- *
- * Returns: The page offset of the start of @vma.
- */
-static inline pgoff_t vma_start_pgoff(const struct vm_area_struct *vma)
+static inline unsigned long vma_last_pgoff(struct vm_area_struct *vma)
 {
-	return vma->vm_pgoff;
-}
-
-/**
- * vma_end_pgoff() - Get the page offset of the exclusive end of @vma
- * @vma: The VMA whose end page offset is required.
- *
- * This returns the exclusive end page offset of @vma, which is useful for
- * expressing page offset ranges.
- *
- * See the description of vma_start_pgoff() for a description of VMA page
- * offsets.
- *
- * Returns: The exclusive end page offset of @vma.
- */
-static inline pgoff_t vma_end_pgoff(const struct vm_area_struct *vma)
-{
-	return vma_start_pgoff(vma) + vma_pages(vma);
-}
-
-/**
- * vma_last_pgoff() - Get the page offset of the last page in @vma
- * @vma: The VMA whose last page offset is required.
- *
- * This returns the last page offset contained within @vma.
- *
- * See the description of vma_start_pgoff() for a description of VMA page
- * offsets.
- *
- * Returns: The last page offset of @vma.
- */
-static inline pgoff_t vma_last_pgoff(const struct vm_area_struct *vma)
-{
-	return vma_end_pgoff(vma) - 1;
+	return vma->vm_pgoff + vma_pages(vma) - 1;
 }
 
 static inline unsigned long vma_desc_size(const struct vm_area_desc *desc)
@@ -4607,16 +4497,11 @@ static inline bool range_in_vma_desc(const struct vm_area_desc *desc,
 #ifdef CONFIG_MMU
 pgprot_t vm_get_page_prot(vm_flags_t vm_flags);
 
-static inline pgprot_t vma_flags_to_page_prot(vma_flags_t vma_flags)
+static inline pgprot_t vma_get_page_prot(vma_flags_t vma_flags)
 {
 	const vm_flags_t vm_flags = vma_flags_to_legacy(vma_flags);
 
 	return vm_get_page_prot(vm_flags);
-}
-
-static inline pgprot_t vma_get_page_prot(const struct vm_area_struct *vma)
-{
-	return vma_flags_to_page_prot(vma->flags);
 }
 
 void vma_set_page_prot(struct vm_area_struct *vma);
@@ -4625,17 +4510,13 @@ static inline pgprot_t vm_get_page_prot(vm_flags_t vm_flags)
 {
 	return __pgprot(0);
 }
-static inline pgprot_t vma_flags_to_page_prot(vma_flags_t vma_flags)
-{
-	return __pgprot(0);
-}
-static inline pgprot_t vma_get_page_prot(const struct vm_area_struct *vma)
+static inline pgprot_t vma_get_page_prot(vma_flags_t vma_flags)
 {
 	return __pgprot(0);
 }
 static inline void vma_set_page_prot(struct vm_area_struct *vma)
 {
-	vma->vm_page_prot = vma_get_page_prot(vma);
+	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
 }
 #endif
 
@@ -4744,25 +4625,11 @@ static inline int vm_fault_to_errno(vm_fault_t vm_fault, int foll_flags)
 
 /*
  * Indicates whether GUP can follow a PROT_NONE mapped page, or whether
- * a (NUMA hinting or userfaultfd RWP) fault is required.
+ * a (NUMA hinting) fault is required.
  */
 static inline bool gup_can_follow_protnone(const struct vm_area_struct *vma,
 					   unsigned int flags)
 {
-	/*
-	 * VM_UFFD_RWP uses protnone as an access-tracking marker, not for
-	 * NUMA hinting. GUP must always take a fault so the access is
-	 * delivered to userfaultfd, regardless of FOLL_HONOR_NUMA_FAULT.
-	 *
-	 * Only do so while the VMA is accessible. If it has been made
-	 * inaccessible (e.g. mprotect(PROT_NONE)), fall through to the guard
-	 * below: forcing a fault there would loop, as handle_mm_fault() makes
-	 * no progress on protnone in an inaccessible VMA, and the access is
-	 * denied regardless of RWP anyway.
-	 */
-	if (vma_test_single_mask(vma, VMA_UFFD_RWP) && vma_is_accessible(vma))
-		return false;
-
 	/*
 	 * If callers don't want to honor NUMA hinting faults, no need to
 	 * determine if we would actually have to trigger a NUMA hinting fault.
@@ -5291,9 +5158,13 @@ int reserve_mem_find_by_name(const char *name, phys_addr_t *start, phys_addr_t *
 int reserve_mem_release_by_name(const char *name);
 
 #ifdef CONFIG_64BIT
-void mseal_mmap_page_zero(void);
+int do_mseal(unsigned long start, size_t len_in, unsigned long flags);
 #else
-static inline void mseal_mmap_page_zero(void) {}
+static inline int do_mseal(unsigned long start, size_t len_in, unsigned long flags)
+{
+	/* noop on 32 bit */
+	return 0;
+}
 #endif
 
 /*

@@ -23,6 +23,7 @@
 #include <linux/irq_work.h>
 #include <linux/jhash.h>
 #include <linux/list_nulls.h>
+#include <linux/workqueue.h>
 #include <linux/rculist.h>
 #include <linux/bit_spinlock.h>
 

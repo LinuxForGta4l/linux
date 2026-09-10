@@ -771,10 +771,8 @@ static int hantro_register_entity(struct media_device *mdev,
 		return ret;
 
 	ret = media_device_register_entity(mdev, entity);
-	if (ret) {
-		media_entity_cleanup(entity);
+	if (ret)
 		return ret;
-	}
 
 	return 0;
 }
@@ -862,13 +860,12 @@ err_rm_links0:
 
 err_rel_entity2:
 	media_device_unregister_entity(&func->sink);
-	media_entity_cleanup(&func->sink);
+
 err_rel_entity1:
 	media_device_unregister_entity(&func->proc);
-	media_entity_cleanup(&func->proc);
+
 err_rel_entity0:
 	media_device_unregister_entity(&func->vdev.entity);
-	media_entity_cleanup(&func->vdev.entity);
 	return ret;
 }
 
@@ -881,9 +878,6 @@ static void hantro_detach_func(struct hantro_func *func)
 	media_device_unregister_entity(&func->sink);
 	media_device_unregister_entity(&func->proc);
 	media_device_unregister_entity(&func->vdev.entity);
-	media_entity_cleanup(&func->sink);
-	media_entity_cleanup(&func->proc);
-	media_entity_cleanup(&func->vdev.entity);
 }
 
 static int hantro_add_func(struct hantro_dev *vpu, unsigned int funcid)

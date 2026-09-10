@@ -351,31 +351,7 @@ static int scm_max_fds(struct msghdr *msg)
 	return (msg->msg_controllen - sizeof(struct cmsghdr)) / sizeof(int);
 }
 
-int scm_recv_one_fd(struct file *f, int __user *ufd, unsigned int flags,
-		    bool notrunc)
-{
-	int error;
-
-	if (!ufd)
-		return -EFAULT;
-
-	error = security_file_receive(f);
-	if (error)
-		return notrunc ? put_user(error, ufd) : error;
-
-	FD_PREPARE(fdf, flags, get_file(f));
-	if (fdf.err)
-		return fdf.err;
-
-	error = put_user(fd_prepare_fd(fdf), ufd);
-	if (error)
-		return error;
-
-	__receive_sock(fd_prepare_file(fdf));
-	return fd_publish(fdf);
-}
-
-void scm_detach_fds(struct msghdr *msg, struct scm_cookie *scm, bool notrunc)
+void scm_detach_fds(struct msghdr *msg, struct scm_cookie *scm)
 {
 	struct cmsghdr __user *cm =
 		(__force struct cmsghdr __user *)msg->msg_control_user;
@@ -389,12 +365,12 @@ void scm_detach_fds(struct msghdr *msg, struct scm_cookie *scm, bool notrunc)
 		return;
 
 	if (msg->msg_flags & MSG_CMSG_COMPAT) {
-		scm_detach_fds_compat(msg, scm, notrunc);
+		scm_detach_fds_compat(msg, scm);
 		return;
 	}
 
 	for (i = 0; i < fdmax; i++) {
-		err = scm_recv_one_fd(scm->fp->fp[i], cmsg_data + i, o_flags, notrunc);
+		err = scm_recv_one_fd(scm->fp->fp[i], cmsg_data + i, o_flags);
 		if (err < 0)
 			break;
 	}
@@ -547,6 +523,9 @@ static bool __scm_recv_common(struct sock *sk, struct msghdr *msg,
 
 	scm_passec(sk, msg, scm);
 
+	if (scm->fp)
+		scm_detach_fds(msg, scm);
+
 	return true;
 }
 
@@ -565,13 +544,6 @@ void scm_recv_unix(struct socket *sock, struct msghdr *msg,
 {
 	if (!__scm_recv_common(sock->sk, msg, scm, flags))
 		return;
-
-	if (scm->fp) {
-		struct unix_sock *u;
-
-		u = unix_sk(sock->sk);
-		scm_detach_fds(msg, scm, READ_ONCE(u->scm_rights_notrunc));
-	}
 
 	if (sock->sk->sk_scm_pidfd)
 		scm_pidfd_recv(msg, scm);

@@ -7,7 +7,6 @@
 // Author: Weidong Wang <wangweidong.a@awinic.com>
 //
 
-#include <linux/cleanup.h>
 #include <linux/crc32.h>
 #include <linux/firmware.h>
 #include <linux/gpio/consumer.h>
@@ -1174,8 +1173,9 @@ static void aw88166_startup_work(struct work_struct *work)
 	struct aw88166 *aw88166 =
 		container_of(work, struct aw88166, start_work.work);
 
-	guard(mutex)(&aw88166->lock);
+	mutex_lock(&aw88166->lock);
 	aw88166_start_pa(aw88166);
+	mutex_unlock(&aw88166->lock);
 }
 
 static void aw88166_start(struct aw88166 *aw88166, bool sync_start)
@@ -1413,10 +1413,11 @@ static int aw88166_profile_set(struct snd_kcontrol *kcontrol,
 	struct aw88166 *aw88166 = snd_soc_component_get_drvdata(codec);
 	int ret;
 
-	guard(mutex)(&aw88166->lock);
+	mutex_lock(&aw88166->lock);
 	ret = aw88166_dev_set_profile_index(aw88166->aw_pa, ucontrol->value.integer.value[0]);
 	if (ret) {
 		dev_dbg(codec->dev, "profile index does not change");
+		mutex_unlock(&aw88166->lock);
 		return 0;
 	}
 
@@ -1424,6 +1425,8 @@ static int aw88166_profile_set(struct snd_kcontrol *kcontrol,
 		aw88166_stop(aw88166->aw_pa);
 		aw88166_start(aw88166, AW88166_SYNC_START);
 	}
+
+	mutex_unlock(&aw88166->lock);
 
 	return 1;
 }
@@ -1570,7 +1573,7 @@ static int aw88166_dev_init(struct aw88166 *aw88166, struct aw_container *aw_cfg
 
 static int aw88166_request_firmware_file(struct aw88166 *aw88166)
 {
-	const struct firmware *cont __free(firmware) = NULL;
+	const struct firmware *cont = NULL;
 	const char *fw_name;
 	int ret;
 
@@ -1590,11 +1593,13 @@ static int aw88166_request_firmware_file(struct aw88166 *aw88166)
 
 	aw88166->aw_cfg = devm_kzalloc(aw88166->aw_pa->dev,
 			struct_size(aw88166->aw_cfg, data, cont->size), GFP_KERNEL);
-	if (!aw88166->aw_cfg)
+	if (!aw88166->aw_cfg) {
+		release_firmware(cont);
 		return -ENOMEM;
-
+	}
 	aw88166->aw_cfg->len = (int)cont->size;
 	memcpy(aw88166->aw_cfg->data, cont->data, cont->size);
+	release_firmware(cont);
 
 	ret = aw88395_dev_load_acf_check(aw88166->aw_pa, aw88166->aw_cfg);
 	if (ret) {
@@ -1602,12 +1607,12 @@ static int aw88166_request_firmware_file(struct aw88166 *aw88166)
 		return ret;
 	}
 
-	scoped_guard(mutex, &aw88166->lock) {
-		/* aw device init */
-		ret = aw88166_dev_init(aw88166, aw88166->aw_cfg);
-		if (ret)
-			dev_err(aw88166->aw_pa->dev, "dev init failed\n");
-	}
+	mutex_lock(&aw88166->lock);
+	/* aw device init */
+	ret = aw88166_dev_init(aw88166, aw88166->aw_cfg);
+	if (ret)
+		dev_err(aw88166->aw_pa->dev, "dev init failed\n");
+	mutex_unlock(&aw88166->lock);
 
 	return ret;
 }
@@ -1634,7 +1639,7 @@ static int aw88166_playback_event(struct snd_soc_dapm_widget *w,
 	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
 	struct aw88166 *aw88166 = snd_soc_component_get_drvdata(component);
 
-	guard(mutex)(&aw88166->lock);
+	mutex_lock(&aw88166->lock);
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
 		aw88166_start(aw88166, AW88166_ASYNC_START);
@@ -1645,6 +1650,7 @@ static int aw88166_playback_event(struct snd_soc_dapm_widget *w,
 	default:
 		break;
 	}
+	mutex_unlock(&aw88166->lock);
 
 	return 0;
 }

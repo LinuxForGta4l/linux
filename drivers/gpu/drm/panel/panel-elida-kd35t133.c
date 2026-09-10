@@ -21,7 +21,6 @@
 
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_modes.h>
-#include <drm/drm_of.h>
 #include <drm/drm_panel.h>
 
 /* Manufacturer specific Commands send via DSI */
@@ -234,7 +233,7 @@ static int kd35t133_probe(struct mipi_dsi_device *dsi)
 		return ret;
 	}
 
-	ret = drm_of_get_panel_orientation(dev->of_node, &ctx->orientation);
+	ret = of_drm_get_panel_orientation(dev->of_node, &ctx->orientation);
 	if (ret < 0) {
 		dev_err(dev, "%pOF: failed to get orientation %d\n", dev->of_node, ret);
 		return ret;

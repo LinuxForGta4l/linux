@@ -24,5 +24,3 @@
 &bluetooth0 {
 	brcm,board-type = "apple,okinawa";
 };
-
-#include "hwmon-fan-dual.dtsi"

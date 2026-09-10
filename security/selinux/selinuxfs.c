@@ -1984,15 +1984,17 @@ int __init init_sel_fs(void)
 		return err;
 
 	err = register_filesystem(&sel_fs_type);
-	if (err)
-		goto err_remove_mount_point;
+	if (err) {
+		sysfs_remove_mount_point(fs_kobj, "selinux");
+		return err;
+	}
 
 	selinux_null.mnt = kern_mount(&sel_fs_type);
 	if (IS_ERR(selinux_null.mnt)) {
 		pr_err("selinuxfs:  could not mount!\n");
 		err = PTR_ERR(selinux_null.mnt);
 		selinux_null.mnt = NULL;
-		goto err_unregister_fs;
+		return err;
 	}
 
 	selinux_null.dentry = try_lookup_noperm(&null_name,
@@ -2001,7 +2003,7 @@ int __init init_sel_fs(void)
 		pr_err("selinuxfs:  could not lookup null!\n");
 		err = PTR_ERR(selinux_null.dentry);
 		selinux_null.dentry = NULL;
-		goto err_unmount;
+		return err;
 	}
 
 	/*
@@ -2010,14 +2012,5 @@ int __init init_sel_fs(void)
 	 */
 	(void) selinux_kernel_status_page();
 
-	return 0;
-
-err_unmount:
-	kern_unmount(selinux_null.mnt);
-	selinux_null.mnt = NULL;
-err_unregister_fs:
-	unregister_filesystem(&sel_fs_type);
-err_remove_mount_point:
-	sysfs_remove_mount_point(fs_kobj, "selinux");
 	return err;
 }

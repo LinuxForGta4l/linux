@@ -16,7 +16,7 @@
  * |                              |                    | 0x2127-0x2128  |
  * | Queue Command and IO tracing |       0x3074       | 0x300b         |
  * |                              |                    | 0x3027-0x3028  |
- * |                              |                    | 0x303e-0x3041  |
+ * |                              |                    | 0x303d-0x3041  |
  * |                              |                    | 0x302e,0x3033  |
  * |                              |                    | 0x3036,0x3038  |
  * |                              |                    | 0x303a		|
@@ -89,17 +89,16 @@ qla2xxx_copy_queues(struct qla_hw_data *ha, void *ptr)
 {
 	struct req_que *req = ha->req_q_map[0];
 	struct rsp_que *rsp = ha->rsp_q_map[0];
-	size_t req_entry_size = qla_req_entry_size(ha);
-	size_t rsp_entry_size = qla_rsp_entry_size(ha);
-
 	/* Request queue. */
-	memcpy(ptr, req->ring, req->length * req_entry_size);
+	memcpy(ptr, req->ring, req->length *
+	    sizeof(request_t));
 
 	/* Response queue. */
-	ptr += req->length * req_entry_size;
-	memcpy(ptr, rsp->ring, rsp->length * rsp_entry_size);
+	ptr += req->length * sizeof(request_t);
+	memcpy(ptr, rsp->ring, rsp->length  *
+	    sizeof(response_t));
 
-	return ptr + (rsp->length * rsp_entry_size);
+	return ptr + (rsp->length * sizeof(response_t));
 }
 
 int
@@ -172,7 +171,7 @@ qla27xx_dump_mpi_ram(struct qla_hw_data *ha, uint32_t addr, uint32_t *ram,
 
 		if (!test_and_clear_bit(MBX_INTERRUPT, &ha->mbx_cmd_flags)) {
 			/* no interrupt, timed out*/
-			return QLA_FUNCTION_TIMEOUT;
+			return rval;
 		}
 		if (rval) {
 			/* error completion status */
@@ -255,7 +254,7 @@ qla24xx_dump_ram(struct qla_hw_data *ha, uint32_t addr, __be32 *ram,
 
 		if (!test_and_clear_bit(MBX_INTERRUPT, &ha->mbx_cmd_flags)) {
 			/* no interrupt, timed out*/
-			return QLA_FUNCTION_TIMEOUT;
+			return rval;
 		}
 		if (rval) {
 			/* error completion status */
@@ -607,8 +606,6 @@ qla25xx_copy_mqueues(struct qla_hw_data *ha, void *ptr, __be32 **last_chain)
 	struct req_que *req;
 	struct rsp_que *rsp;
 	int que;
-	size_t req_entry_size = qla_req_entry_size(ha);
-	size_t rsp_entry_size = qla_rsp_entry_size(ha);
 
 	if (!ha->mqenable)
 		return ptr;
@@ -626,19 +623,19 @@ qla25xx_copy_mqueues(struct qla_hw_data *ha, void *ptr, __be32 **last_chain)
 		q->chain_size = htonl(
 		    sizeof(struct qla2xxx_mqueue_chain) +
 		    sizeof(struct qla2xxx_mqueue_header) +
-		    (req->length * req_entry_size));
+		    (req->length * sizeof(request_t)));
 		ptr += sizeof(struct qla2xxx_mqueue_chain);
 
 		/* Add header. */
 		qh = ptr;
 		qh->queue = htonl(TYPE_REQUEST_QUEUE);
 		qh->number = htonl(que);
-		qh->size = htonl(req->length * req_entry_size);
+		qh->size = htonl(req->length * sizeof(request_t));
 		ptr += sizeof(struct qla2xxx_mqueue_header);
 
 		/* Add data. */
-		memcpy(ptr, req->ring, req->length * req_entry_size);
-		ptr += req->length * req_entry_size;
+		memcpy(ptr, req->ring, req->length * sizeof(request_t));
+		ptr += req->length * sizeof(request_t);
 	}
 
 	/* Response queues */
@@ -654,19 +651,19 @@ qla25xx_copy_mqueues(struct qla_hw_data *ha, void *ptr, __be32 **last_chain)
 		q->chain_size = htonl(
 		    sizeof(struct qla2xxx_mqueue_chain) +
 		    sizeof(struct qla2xxx_mqueue_header) +
-		    (rsp->length * rsp_entry_size));
+		    (rsp->length * sizeof(response_t)));
 		ptr += sizeof(struct qla2xxx_mqueue_chain);
 
 		/* Add header. */
 		qh = ptr;
 		qh->queue = htonl(TYPE_RESPONSE_QUEUE);
 		qh->number = htonl(que);
-		qh->size = htonl(rsp->length * rsp_entry_size);
+		qh->size = htonl(rsp->length * sizeof(response_t));
 		ptr += sizeof(struct qla2xxx_mqueue_header);
 
 		/* Add data. */
-		memcpy(ptr, rsp->ring, rsp->length * rsp_entry_size);
-		ptr += rsp->length * rsp_entry_size;
+		memcpy(ptr, rsp->ring, rsp->length * sizeof(response_t));
+		ptr += rsp->length * sizeof(response_t);
 	}
 
 	return ptr;

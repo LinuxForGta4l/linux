@@ -11,8 +11,7 @@ endif
 
 LOCAL_HDRS := \
 	../include/futextest.h \
-	../include/atomic.h \
-	../include/futex_thread.h
+	../include/atomic.h
 TEST_GEN_PROGS := \
 	futex_wait_timeout \
 	futex_wait_wouldblock \
@@ -27,8 +26,7 @@ TEST_GEN_PROGS := \
 	futex_numa_mpol \
 	futex_waitv \
 	futex_numa \
-	robust_list \
-	futex_lock_pi_exiting
+	robust_list
 
 TEST_PROGS := run.sh
 

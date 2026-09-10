@@ -66,9 +66,9 @@ static const struct of_device_id tegra114_dt_gic_match[] __initconst = {
 
 static void __init tegra114_gic_cpu_pm_registration(void)
 {
-	struct device_node *dn __free(device_node) =
-		of_find_matching_node(NULL, tegra114_dt_gic_match);
+	struct device_node *dn;
 
+	dn = of_find_matching_node(NULL, tegra114_dt_gic_match);
 	if (!dn)
 		return;
 
@@ -88,10 +88,7 @@ static const struct of_device_id tegra_ictlr_match[] __initconst = {
 
 void __init tegra_init_irq(void)
 {
-	struct device_node *dn __free(device_node) =
-		of_find_matching_node(NULL, tegra_ictlr_match);
-
-	if (WARN_ON(!dn))
+	if (WARN_ON(!of_find_matching_node(NULL, tegra_ictlr_match)))
 		pr_warn("Outdated DT detected, suspend/resume will NOT work\n");
 
 	tegra114_gic_cpu_pm_registration();

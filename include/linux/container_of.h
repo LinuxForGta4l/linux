@@ -17,10 +17,11 @@
  * Do not use container_of() in new code.
  */
 #define container_of(ptr, type, member) ({				\
-	static_assert(__same_type(*(ptr), typeof_member(type, member)) || \
+	void *__mptr = (void *)(ptr);					\
+	static_assert(__same_type(*(ptr), ((type *)0)->member) ||	\
 		      __same_type(*(ptr), void),			\
 		      "pointer type mismatch in container_of()");	\
-	(type *)((void *)(ptr) - offsetof(type, member)); })
+	((type *)(__mptr - offsetof(type, member))); })
 
 /**
  * container_of_const - cast a member of a structure out to the containing

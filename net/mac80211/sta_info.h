@@ -147,8 +147,7 @@ struct airtime_info {
 
 void ieee80211_sta_update_pending_airtime(struct ieee80211_local *local,
 					  struct sta_info *sta, u8 ac,
-					  u16 tx_airtime, bool tx_completed,
-					  bool mcast);
+					  u16 tx_airtime, bool tx_completed);
 
 struct sta_info;
 

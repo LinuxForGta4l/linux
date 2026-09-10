@@ -636,8 +636,10 @@ static int meson_ao_cec_probe(struct platform_device *pdev)
 					meson_ao_cec_irq,
 					meson_ao_cec_irq_thread,
 					0, NULL, ao_cec);
-	if (ret)
+	if (ret) {
+		dev_err(&pdev->dev, "irq request failed\n");
 		goto out_probe_adapter;
+	}
 
 	ao_cec->core = devm_clk_get(&pdev->dev, "core");
 	if (IS_ERR(ao_cec->core)) {

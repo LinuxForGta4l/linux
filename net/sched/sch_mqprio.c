@@ -679,13 +679,11 @@ static int mqprio_dump_class_stats(struct Qdisc *sch, unsigned long cl,
 	rcu_read_lock();
 	if (cl >= TC_H_MIN_PRIORITY) {
 		struct net_device *dev = qdisc_dev(sch);
-		struct netdev_tc_txq tc;
+		struct netdev_tc_txq tc = dev->tc_to_txq[cl & TC_BITMASK];
 		struct gnet_stats_queue qstats = {0};
 		struct gnet_stats_basic_sync bstats;
 		u32 qlen = 0;
 		int i;
-
-		tc.combined = READ_ONCE(dev->tc_to_txq[cl & TC_BITMASK].combined);
 
 		gnet_stats_basic_sync_init(&bstats);
 

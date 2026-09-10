@@ -981,8 +981,10 @@ static int sht15_probe(struct platform_device *pdev)
 			       IRQF_TRIGGER_FALLING,
 			       "sht15 data",
 			       data);
-	if (ret)
+	if (ret) {
+		dev_err(&pdev->dev, "failed to get irq for data line\n");
 		goto err_release_reg;
+	}
 	disable_irq_nosync(gpiod_to_irq(data->data));
 	ret = sht15_connection_reset(data);
 	if (ret)

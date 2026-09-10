@@ -15,7 +15,6 @@
 #ifdef HAVE_LIBBPF_SUPPORT
 #include <bpf/bpf.h>
 #include <bpf/btf.h>
-#include <bpf/libbpf.h>
 #endif
 #include <fcntl.h>
 #include <stdio.h>
@@ -92,7 +91,7 @@ static int slurp_symtab(bfd *abfd, struct a2l_data *a2l)
 	long storage;
 	long symcount;
 	asymbol **syms;
-	bool dynamic = false;
+	bfd_boolean dynamic = FALSE;
 
 	if ((bfd_get_file_flags(abfd) & HAS_SYMS) == 0)
 		return bfd_error(bfd_get_filename(abfd));
@@ -100,7 +99,7 @@ static int slurp_symtab(bfd *abfd, struct a2l_data *a2l)
 	storage = bfd_get_symtab_upper_bound(abfd);
 	if (storage == 0L) {
 		storage = bfd_get_dynamic_symtab_upper_bound(abfd);
-		dynamic = true;
+		dynamic = TRUE;
 	}
 	if (storage < 0L)
 		return bfd_error(bfd_get_filename(abfd));
@@ -511,7 +510,7 @@ int symbol__disassemble_bpf_libbfd(struct symbol *sym __maybe_unused,
 	char tpath[PATH_MAX];
 	size_t buf_size;
 	int nr_skip = 0;
-	char *buf = NULL;
+	char *buf;
 	bfd *bfdf;
 	int ret;
 	FILE *s;
@@ -553,11 +552,6 @@ int symbol__disassemble_bpf_libbfd(struct symbol *sym __maybe_unused,
 	info_linear = info_node->info_linear;
 	sub_id = dso__bpf_prog(dso)->sub_id;
 
-	/* jited_prog_insns is only valid if bpil_offs_to_addr() converted it */
-	if (!(info_linear->arrays & (1UL << PERF_BPIL_JITED_INSNS))) {
-		ret = SYMBOL_ANNOTATE_ERRNO__BPF_MISSING_BTF;
-		goto out;
-	}
 	info.buffer = (void *)(uintptr_t)(info_linear->info.jited_prog_insns);
 	info.buffer_length = info_linear->info.jited_prog_len;
 
@@ -587,12 +581,6 @@ int symbol__disassemble_bpf_libbfd(struct symbol *sym __maybe_unused,
 	if (disassemble == NULL)
 		abort();
 
-	/* jited_ksyms is only valid if bpil_offs_to_addr() converted it */
-	if (!(info_linear->arrays & (1UL << PERF_BPIL_JITED_KSYMS))) {
-		ret = SYMBOL_ANNOTATE_ERRNO__BPF_MISSING_BTF;
-		goto out;
-	}
-
 	fflush(s);
 	do {
 		const struct bpf_line_info *linfo = NULL;
@@ -621,7 +609,7 @@ int symbol__disassemble_bpf_libbfd(struct symbol *sym __maybe_unused,
 
 		if (!annotate_opts.hide_src_code && srcline) {
 			args->offset = -1;
-			args->line = (char *)srcline;
+			args->line = strdup(srcline);
 			args->line_nr = 0;
 			args->fileloc = NULL;
 			args->ms->sym = sym;
@@ -646,12 +634,9 @@ int symbol__disassemble_bpf_libbfd(struct symbol *sym __maybe_unused,
 
 	ret = 0;
 out:
-	bpf_prog_linfo__free(prog_linfo);
+	free(prog_linfo);
 	btf__free(btf);
-	if (s) {
-		fclose(s);
-		free(buf);
-	}
+	fclose(s);
 	bfd_close(bfdf);
 	return ret;
 #else

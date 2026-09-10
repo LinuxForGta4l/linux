@@ -11,7 +11,6 @@
  */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/cleanup.h>
 #include <linux/slab.h>
 #include <linux/io.h>
 #include <linux/module.h>
@@ -33,7 +32,7 @@ int sst_register_dsp(struct sst_device *dev)
 		return -EINVAL;
 	if (!try_module_get(dev->dev->driver->owner))
 		return -ENODEV;
-	guard(mutex)(&sst_lock);
+	mutex_lock(&sst_lock);
 	if (sst) {
 		dev_err(dev->dev, "we already have a device %s\n", sst->name);
 		module_put(dev->dev->driver->owner);
@@ -42,7 +41,7 @@ int sst_register_dsp(struct sst_device *dev)
 	}
 	dev_dbg(dev->dev, "registering device %s\n", dev->name);
 	sst = dev;
-
+	mutex_unlock(&sst_lock);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(sst_register_dsp);
@@ -54,15 +53,17 @@ int sst_unregister_dsp(struct sst_device *dev)
 	if (dev != sst)
 		return -EINVAL;
 
-	guard(mutex)(&sst_lock);
+	mutex_lock(&sst_lock);
 
-	if (!sst)
+	if (!sst) {
+		mutex_unlock(&sst_lock);
 		return -EIO;
+	}
 
 	module_put(sst->dev->driver->owner);
 	dev_dbg(dev->dev, "unreg %s\n", sst->name);
 	sst = NULL;
-
+	mutex_unlock(&sst_lock);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(sst_unregister_dsp);
@@ -102,14 +103,21 @@ static int sst_media_digital_mute(struct snd_soc_dai *dai, int mute, int stream)
 void sst_set_stream_status(struct sst_runtime_stream *stream,
 					int state)
 {
-	guard(spinlock_irqsave)(&stream->status_lock);
+	unsigned long flags;
+	spin_lock_irqsave(&stream->status_lock, flags);
 	stream->stream_status = state;
+	spin_unlock_irqrestore(&stream->status_lock, flags);
 }
 
 static inline int sst_get_stream_status(struct sst_runtime_stream *stream)
 {
-	guard(spinlock_irqsave)(&stream->status_lock);
-	return stream->stream_status;
+	int state;
+	unsigned long flags;
+
+	spin_lock_irqsave(&stream->status_lock, flags);
+	state = stream->stream_status;
+	spin_unlock_irqrestore(&stream->status_lock, flags);
+	return state;
 }
 
 static void sst_fill_alloc_params(struct snd_pcm_substream *substream,
@@ -236,7 +244,12 @@ static int sst_platform_alloc_stream(struct snd_pcm_substream *substream,
 
 	stream->stream_info.str_id = str_params.stream_id;
 
-	return stream->ops->open(sst->dev, &str_params);
+	ret_val = stream->ops->open(sst->dev, &str_params);
+	if (ret_val <= 0)
+		return ret_val;
+
+
+	return ret_val;
 }
 
 static void sst_period_elapsed(void *arg)
@@ -291,7 +304,7 @@ static int sst_media_open(struct snd_pcm_substream *substream,
 {
 	int ret_val = 0;
 	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct sst_runtime_stream *stream __free(kfree) = NULL;
+	struct sst_runtime_stream *stream;
 
 	stream = kzalloc_obj(*stream);
 	if (!stream)
@@ -299,14 +312,15 @@ static int sst_media_open(struct snd_pcm_substream *substream,
 	spin_lock_init(&stream->status_lock);
 
 	/* get the sst ops */
-	scoped_guard(mutex, &sst_lock) {
-		if (!sst ||
-		    !try_module_get(sst->dev->driver->owner)) {
-			dev_err(dai->dev, "no device available to run\n");
-			return -ENODEV;
-		}
-		stream->ops = sst->ops;
+	mutex_lock(&sst_lock);
+	if (!sst ||
+	    !try_module_get(sst->dev->driver->owner)) {
+		dev_err(dai->dev, "no device available to run\n");
+		ret_val = -ENODEV;
+		goto out_ops;
 	}
+	stream->ops = sst->ops;
+	mutex_unlock(&sst_lock);
 
 	stream->stream_info.str_id = 0;
 
@@ -316,7 +330,7 @@ static int sst_media_open(struct snd_pcm_substream *substream,
 
 	ret_val = power_up_sst(stream);
 	if (ret_val < 0)
-		return ret_val;
+		goto out_power_up;
 
 	/*
 	 * Make sure the period to be multiple of 1ms to align the
@@ -333,14 +347,12 @@ static int sst_media_open(struct snd_pcm_substream *substream,
 	snd_pcm_hw_constraint_step(substream->runtime, 0,
 			   SNDRV_PCM_HW_PARAM_PERIODS, 2);
 
-	ret_val = snd_pcm_hw_constraint_integer(runtime,
-						SNDRV_PCM_HW_PARAM_PERIODS);
-
-	if (ret_val < 0)
-		return ret_val;
-
-	stream = NULL;
-
+	return snd_pcm_hw_constraint_integer(runtime,
+			 SNDRV_PCM_HW_PARAM_PERIODS);
+out_ops:
+	mutex_unlock(&sst_lock);
+out_power_up:
+	kfree(stream);
 	return ret_val;
 }
 

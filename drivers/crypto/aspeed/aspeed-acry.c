@@ -728,12 +728,14 @@ static int aspeed_acry_probe(struct platform_device *pdev)
 	/* Get irq number and register it */
 	acry_dev->irq = platform_get_irq(pdev, 0);
 	if (acry_dev->irq < 0)
-		return acry_dev->irq;
+		return -ENXIO;
 
 	rc = devm_request_irq(dev, acry_dev->irq, aspeed_acry_irq, 0,
 			      dev_name(dev), acry_dev);
-	if (rc)
+	if (rc) {
+		dev_err(dev, "Failed to request irq.\n");
 		return rc;
+	}
 
 	acry_dev->clk = devm_clk_get_enabled(dev, NULL);
 	if (IS_ERR(acry_dev->clk)) {

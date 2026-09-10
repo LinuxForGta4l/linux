@@ -9,11 +9,11 @@
 
 #include "intel_de.h"
 
-static int intel_de_wait_for_register(struct intel_display *display,
-				      intel_reg_t reg, u32 mask, u32 value,
-				      unsigned int timeout_us,
-				      u32 (*read)(struct intel_display *display, intel_reg_t reg),
-				      u32 *out_val, bool is_atomic)
+static int __intel_de_wait_for_register(struct intel_display *display,
+					intel_reg_t reg, u32 mask, u32 value,
+					unsigned int timeout_us,
+					u32 (*read)(struct intel_display *display, intel_reg_t reg),
+					u32 *out_val, bool is_atomic)
 {
 	const ktime_t end = ktime_add_us(ktime_get_raw(), timeout_us);
 	int wait_max = 1000;
@@ -60,6 +60,28 @@ static int intel_de_wait_for_register(struct intel_display *display,
 	return ret;
 }
 
+static int intel_de_wait_for_register(struct intel_display *display,
+				      intel_reg_t reg, u32 mask, u32 value,
+				      unsigned int fast_timeout_us,
+				      unsigned int slow_timeout_us,
+				      u32 (*read)(struct intel_display *display, intel_reg_t reg),
+				      u32 *out_value, bool is_atomic)
+{
+	int ret = -EINVAL;
+
+	if (fast_timeout_us)
+		ret = __intel_de_wait_for_register(display, reg, mask, value,
+						   fast_timeout_us, read,
+						   out_value, is_atomic);
+
+	if (ret && slow_timeout_us)
+		ret = __intel_de_wait_for_register(display, reg, mask, value,
+						   slow_timeout_us, read,
+						   out_value, is_atomic);
+
+	return ret;
+}
+
 int intel_de_wait_us(struct intel_display *display, intel_reg_t reg,
 		     u32 mask, u32 value, unsigned int timeout_us,
 		     u32 *out_value)
@@ -69,7 +91,7 @@ int intel_de_wait_us(struct intel_display *display, intel_reg_t reg,
 	intel_dmc_wl_get(display, reg);
 
 	ret = intel_de_wait_for_register(display, reg, mask, value,
-					 timeout_us,
+					 timeout_us, 0,
 					 intel_de_read,
 					 out_value, false);
 
@@ -87,7 +109,7 @@ int intel_de_wait_ms(struct intel_display *display, intel_reg_t reg,
 	intel_dmc_wl_get(display, reg);
 
 	ret = intel_de_wait_for_register(display, reg, mask, value,
-					 timeout_ms * 1000,
+					 2, timeout_ms * 1000,
 					 intel_de_read,
 					 out_value, false);
 
@@ -101,7 +123,7 @@ int intel_de_wait_fw_ms(struct intel_display *display, intel_reg_t reg,
 			u32 *out_value)
 {
 	return intel_de_wait_for_register(display, reg, mask, value,
-					  timeout_ms * 1000,
+					  2, timeout_ms * 1000,
 					  intel_de_read_fw,
 					  out_value, false);
 }
@@ -111,7 +133,7 @@ int intel_de_wait_fw_us_atomic(struct intel_display *display, intel_reg_t reg,
 			       u32 *out_value)
 {
 	return intel_de_wait_for_register(display, reg, mask, value,
-					  timeout_us,
+					  timeout_us, 0,
 					  intel_de_read_fw,
 					  out_value, true);
 }

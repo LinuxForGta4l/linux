@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <signal.h>
+#include <assert.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/types.h>
@@ -206,25 +207,22 @@ static void test_sigsegv_handler_with_pkey0_disabled(void)
 	struct sigaction sa;
 	pthread_attr_t attr;
 	pthread_t thr;
-	int ret;
 
 	sa.sa_flags = SA_SIGINFO;
 
 	sa.sa_sigaction = sigsegv_handler;
 	sigemptyset(&sa.sa_mask);
-	ret = sigaction(SIGSEGV, &sa, NULL);
-	pkey_assert(ret == 0);
+	if (sigaction(SIGSEGV, &sa, NULL) == -1) {
+		perror("sigaction");
+		exit(EXIT_FAILURE);
+	}
 
 	memset(&siginfo, 0, sizeof(siginfo));
 
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
-	ret = pthread_create(&thr, &attr, thread_segv_with_pkey0_disabled, NULL);
-	if (ret) {
-		errno = ret;
-		pkey_assert(0);
-	}
+	pthread_create(&thr, &attr, thread_segv_with_pkey0_disabled, NULL);
 
 	pthread_mutex_lock(&mutex);
 	while (siginfo.si_signo == 0)
@@ -249,25 +247,22 @@ static void test_sigsegv_handler_cannot_access_stack(void)
 	struct sigaction sa;
 	pthread_attr_t attr;
 	pthread_t thr;
-	int ret;
 
 	sa.sa_flags = SA_SIGINFO;
 
 	sa.sa_sigaction = sigsegv_handler;
 	sigemptyset(&sa.sa_mask);
-	ret = sigaction(SIGSEGV, &sa, NULL);
-	pkey_assert(ret == 0);
+	if (sigaction(SIGSEGV, &sa, NULL) == -1) {
+		perror("sigaction");
+		exit(EXIT_FAILURE);
+	}
 
 	memset(&siginfo, 0, sizeof(siginfo));
 
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
-	ret = pthread_create(&thr, &attr, thread_segv_pkuerr_stack, NULL);
-	if (ret) {
-		errno = ret;
-		pkey_assert(0);
-	}
+	pthread_create(&thr, &attr, thread_segv_pkuerr_stack, NULL);
 
 	pthread_mutex_lock(&mutex);
 	while (siginfo.si_signo == 0)
@@ -290,22 +285,24 @@ static void test_sigsegv_handler_with_different_pkey_for_stack(void)
 	static stack_t sigstack;
 	void *stack;
 	int pkey;
+	int parent_pid = 0;
 	int child_pid = 0;
 	u64 pkey_reg;
-	long ret;
 
 	sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
 
 	sa.sa_sigaction = sigsegv_handler;
 
 	sigemptyset(&sa.sa_mask);
-	ret = sigaction(SIGSEGV, &sa, NULL);
-	pkey_assert(ret == 0);
+	if (sigaction(SIGSEGV, &sa, NULL) == -1) {
+		perror("sigaction");
+		exit(EXIT_FAILURE);
+	}
 
 	stack = mmap(0, STACK_SIZE, PROT_READ | PROT_WRITE,
 		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
-	pkey_assert(stack != MAP_FAILED);
+	assert(stack != MAP_FAILED);
 
 	/* Allow access to MPK 0 and MPK 1 */
 	pkey_reg = pkey_reg_restrictive_default();
@@ -320,40 +317,32 @@ static void test_sigsegv_handler_with_different_pkey_for_stack(void)
 	/* Set up alternate signal stack that will use the default MPK */
 	sigstack.ss_sp = mmap(0, STACK_SIZE, PROT_READ | PROT_WRITE,
 			      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-	pkey_assert(sigstack.ss_sp != MAP_FAILED);
 	sigstack.ss_flags = 0;
 	sigstack.ss_size = STACK_SIZE;
 
 	memset(&siginfo, 0, sizeof(siginfo));
 
 	/* Use clone to avoid newer glibcs using rseq on new threads */
-	ret = clone_raw(CLONE_VM | CLONE_FS | CLONE_FILES |
-			CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM |
-			CLONE_DETACHED,
-			stack + STACK_SIZE,
-			NULL,
-			NULL);
+	long ret = clone_raw(CLONE_VM | CLONE_FS | CLONE_FILES |
+			     CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM |
+			     CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID |
+			     CLONE_DETACHED,
+			     stack + STACK_SIZE,
+			     &parent_pid,
+			     &child_pid);
 
 	if (ret < 0) {
 		errno = -ret;
-		pkey_assert(0);
+		perror("clone");
 	} else if (ret == 0) {
 		thread_segv_maperr_ptr(&sigstack);
 		syscall_raw(SYS_exit, 0, 0, 0, 0, 0, 0);
 	}
 
-	child_pid = ret;
-
 	pthread_mutex_lock(&mutex);
 	while (siginfo.si_signo == 0)
 		pthread_cond_wait(&cond, &mutex);
 	pthread_mutex_unlock(&mutex);
-
-	/* Wait for child to exit before returning */
-	do {
-		sched_yield();
-		ret = syscall_raw(SYS_tkill, child_pid, 0, 0, 0, 0, 0);
-	} while (ret != -ESRCH && ret != -EINVAL);
 
 	ksft_test_result(siginfo.si_signo == SIGSEGV &&
 			 siginfo.si_code == SEGV_MAPERR &&
@@ -369,7 +358,6 @@ static void test_pkru_preserved_after_sigusr1(void)
 {
 	struct sigaction sa;
 	u64 pkey_reg;
-	int ret;
 
 	/* Allow access to MPK 0 and an arbitrary set of keys */
 	pkey_reg = pkey_reg_restrictive_default();
@@ -381,8 +369,10 @@ static void test_pkru_preserved_after_sigusr1(void)
 
 	sa.sa_sigaction = sigusr1_handler;
 	sigemptyset(&sa.sa_mask);
-	ret = sigaction(SIGUSR1, &sa, NULL);
-	pkey_assert(ret == 0);
+	if (sigaction(SIGUSR1, &sa, NULL) == -1) {
+		perror("sigaction");
+		exit(EXIT_FAILURE);
+	}
 
 	memset(&siginfo, 0, sizeof(siginfo));
 
@@ -451,15 +441,9 @@ static void test_pkru_sigreturn(void)
 	static stack_t sigstack;
 	void *stack;
 	int pkey;
+	int parent_pid = 0;
 	int child_pid = 0;
 	u64 pkey_reg;
-	long ret;
-
-	/*
-	 * SIGSEGV handler is reset to SIG_DFL below; turn tracing off first
-	 * so a crash does not leave ftrace enabled.
-	 */
-	tracing_off();
 
 	sa.sa_handler = SIG_DFL;
 	sa.sa_flags = 0;
@@ -469,20 +453,24 @@ static void test_pkru_sigreturn(void)
 	 * For this testcase, we do not want to handle SIGSEGV. Reset handler
 	 * to default so that the application can crash if it receives SIGSEGV.
 	 */
-	ret = sigaction(SIGSEGV, &sa, NULL);
-	pkey_assert(ret == 0);
+	if (sigaction(SIGSEGV, &sa, NULL) == -1) {
+		perror("sigaction");
+		exit(EXIT_FAILURE);
+	}
 
 	sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
 	sa.sa_sigaction = sigusr2_handler;
 	sigemptyset(&sa.sa_mask);
 
-	ret = sigaction(SIGUSR2, &sa, NULL);
-	pkey_assert(ret == 0);
+	if (sigaction(SIGUSR2, &sa, NULL) == -1) {
+		perror("sigaction");
+		exit(EXIT_FAILURE);
+	}
 
 	stack = mmap(0, STACK_SIZE, PROT_READ | PROT_WRITE,
 		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
-	pkey_assert(stack != MAP_FAILED);
+	assert(stack != MAP_FAILED);
 
 	/*
 	 * Allow access to MPK 0 and MPK 2. The child thread (to be created
@@ -502,21 +490,21 @@ static void test_pkru_sigreturn(void)
 	/* Set up alternate signal stack that will use the default MPK */
 	sigstack.ss_sp = mmap(0, STACK_SIZE, PROT_READ | PROT_WRITE,
 			      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-	pkey_assert(sigstack.ss_sp != MAP_FAILED);
 	sigstack.ss_flags = 0;
 	sigstack.ss_size = STACK_SIZE;
 
 	/* Use clone to avoid newer glibcs using rseq on new threads */
-	ret = clone_raw(CLONE_VM | CLONE_FS | CLONE_FILES |
-			CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM |
-			CLONE_DETACHED,
-			stack + STACK_SIZE,
-			NULL,
-			NULL);
+	long ret = clone_raw(CLONE_VM | CLONE_FS | CLONE_FILES |
+			     CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM |
+			     CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID |
+			     CLONE_DETACHED,
+			     stack + STACK_SIZE,
+			     &parent_pid,
+			     &child_pid);
 
 	if (ret < 0) {
 		errno = -ret;
-		pkey_assert(0);
+		perror("clone");
 	}  else if (ret == 0) {
 		thread_sigusr2_self(&sigstack);
 		syscall_raw(SYS_exit, 0, 0, 0, 0, 0, 0);
@@ -542,17 +530,16 @@ static void (*pkey_tests[])(void) = {
 
 int main(int argc, char *argv[])
 {
+	int i;
+
 	ksft_print_header();
 	ksft_set_plan(ARRAY_SIZE(pkey_tests));
 
 	if (!is_pkeys_supported())
 		ksft_exit_skip("pkeys not supported\n");
 
-	for (test_nr = 0; test_nr < ARRAY_SIZE(pkey_tests); test_nr++) {
-		tracing_on();
-		(*pkey_tests[test_nr])();
-		tracing_off();
-	}
+	for (i = 0; i < ARRAY_SIZE(pkey_tests); i++)
+		(*pkey_tests[i])();
 
 	ksft_finished();
 	return 0;

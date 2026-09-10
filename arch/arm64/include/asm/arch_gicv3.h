@@ -178,12 +178,9 @@ static inline void gic_pmr_mask_irqs(void)
 	gic_write_pmr(GIC_PRIO_IRQOFF);
 }
 
-static inline void gic_unmask_pnmis(void)
+static inline void gic_arch_enable_irqs(void)
 {
-	if (gic_prio_masking_enabled()) {
-		gic_pmr_mask_irqs();
-		asm volatile ("msr daifclr, #3" : : : "memory");
-	}
+	asm volatile ("msr daifclr, #3" : : : "memory");
 }
 
 static inline bool gic_has_relaxed_pmr_sync(void)

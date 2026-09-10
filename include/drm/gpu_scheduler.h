@@ -230,7 +230,8 @@ struct drm_sched_entity {
 	 * @stopped:
 	 *
 	 * Marks the enity as removed from rq and destined for
-	 * termination. This is set by calling drm_sched_entity_flush().
+	 * termination. This is set by calling drm_sched_entity_flush() and by
+	 * drm_sched_fini().
 	 */
 	bool 				stopped;
 

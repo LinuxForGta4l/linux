@@ -102,8 +102,7 @@ struct elan_transport_ops {
 	int (*prepare_fw_update)(struct i2c_client *client, u16 ic_type,
 				 u8 iap_version, u16 fw_page_size);
 	int (*write_fw_block)(struct i2c_client *client, u16 fw_page_size,
-			      u16 fw_page_delay, const u8 *page, u16 checksum,
-			      int idx);
+			      const u8 *page, u16 checksum, int idx);
 	int (*finish_fw_update)(struct i2c_client *client,
 				struct completion *reset_done);
 

@@ -1847,10 +1847,8 @@ static int tmigr_setup_groups(struct tmigr_hierarchy *hier, unsigned int cpu,
 	}
 
 	/* Assert single root without parent */
-	if (WARN_ON_ONCE(i >= tmigr_hierarchy_levels)) {
-		kfree(stack);
+	if (WARN_ON_ONCE(i >= tmigr_hierarchy_levels))
 		return -EINVAL;
-	}
 
 	for (; i >= start_lvl; i--) {
 		group = stack[i];

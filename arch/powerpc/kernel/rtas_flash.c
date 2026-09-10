@@ -394,23 +394,30 @@ static ssize_t manage_flash_write(struct file *file, const char __user *buf,
 				size_t count, loff_t *off)
 {
 	struct rtas_manage_flash_t *const args_buf = &rtas_manage_flash_data;
-	unsigned int op;
-	char cmd;
+	static const char reject_str[] = "0";
+	static const char commit_str[] = "1";
+	char stkbuf[10];
+	int op;
 
 	guard(mutex)(&rtas_manage_flash_mutex);
 
 	if ((args_buf->status == MANAGE_AUTH) || (count == 0))
 		return count;
 		
-	if (get_user(cmd, buf))
-		return -EFAULT;
-
-	if (cmd == '0')
-		op = RTAS_REJECT_TMP_IMG;
-	else if (cmd == '1')
-		op = RTAS_COMMIT_TMP_IMG;
-	else
+	op = -1;
+	if (buf) {
+		if (count > 9) count = 9;
+		if (copy_from_user (stkbuf, buf, count))
+			return -EFAULT;
+		if (strncmp(stkbuf, reject_str, strlen(reject_str)) == 0) 
+			op = RTAS_REJECT_TMP_IMG;
+		else if (strncmp(stkbuf, commit_str, strlen(commit_str)) == 0) 
+			op = RTAS_COMMIT_TMP_IMG;
+	}
+	
+	if (op == -1) {   /* buf is empty, or contains invalid string */
 		return -EINVAL;
+	}
 
 	manage_flash(args_buf, op);
 	return count;

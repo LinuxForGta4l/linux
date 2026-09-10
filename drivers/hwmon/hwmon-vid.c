@@ -237,17 +237,16 @@ static struct vrm_model vrm_models[] = {
  */
 static u8 get_via_model_d_vrm(void)
 {
-	u64 msr;
-	unsigned int vid, brand;
+	unsigned int vid, brand, __maybe_unused dummy;
 	static const char *brands[4] = {
 		"C7-M", "C7", "Eden", "C7-D"
 	};
 
-	rdmsrq(0x198, msr);
-	vid = (msr >> 32) & 0xff;
+	rdmsr(0x198, dummy, vid);
+	vid &= 0xff;
 
-	rdmsrq(0x1154, msr);
-	brand = ((msr >> 4) ^ (msr >> 2)) & 0x03;
+	rdmsr(0x1154, brand, dummy);
+	brand = ((brand >> 4) ^ (brand >> 2)) & 0x03;
 
 	if (vid > 0x3f) {
 		pr_info("Using %d-bit VID table for VIA %s CPU\n",

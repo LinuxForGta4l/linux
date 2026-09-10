@@ -55,10 +55,8 @@ struct bpf_arena {
 	struct vm_struct *kern_vm;
 	struct page *scratch_page;
 	struct range_tree rt;
-	/* protects rt and nr_pages */
+	/* protects rt */
 	rqspinlock_t spinlock;
-	/* number of pages currently populated in the arena */
-	u64 nr_pages;
 	struct list_head vma_list;
 	/* protects vma_list */
 	struct mutex lock;
@@ -145,14 +143,14 @@ static long compute_pgoff(struct bpf_arena *arena, long uaddr)
 }
 
 struct apply_range_data {
-	struct bpf_arena *arena;
 	struct page **pages;
+	struct page *scratch_page;
 	int i;
 };
 
 struct clear_range_data {
-	struct bpf_arena *arena;
 	struct llist_head *free_pages;
+	struct page *scratch_page;
 };
 
 static int apply_range_set_cb(pte_t *pte, unsigned long addr, void *data)
@@ -182,7 +180,7 @@ static int apply_range_set_cb(pte_t *pte, unsigned long addr, void *data)
 
 		if (pte_none(old))
 			continue;
-		if (WARN_ON_ONCE(pte_page(old) != d->arena->scratch_page))
+		if (WARN_ON_ONCE(pte_page(old) != d->scratch_page))
 			return -EBUSY;
 		ptep_get_and_clear(&init_mm, addr, pte);
 		flush_tlb_before_set(addr);
@@ -198,7 +196,6 @@ static int apply_range_set_cb(pte_t *pte, unsigned long addr, void *data)
 	set_pte_at(&init_mm, addr, pte, pteval);
 #endif
 	d->i++;
-	WRITE_ONCE(d->arena->nr_pages, d->arena->nr_pages + 1);
 	return 0;
 }
 
@@ -230,11 +227,10 @@ static int apply_range_clear_cb(pte_t *pte, unsigned long addr, void *data)
 	 * scratches its PTE. A later bpf_arena_free_pages() over that range walks
 	 * here. Without the skip, scratch_page would be freed.
 	 */
-	if (page == d->arena->scratch_page)
+	if (page == d->scratch_page)
 		return 0;
 
 	__llist_add(&page->pcp_llist, d->free_pages);
-	WRITE_ONCE(d->arena->nr_pages, d->arena->nr_pages - 1);
 	return 0;
 }
 
@@ -417,9 +413,7 @@ static int arena_map_check_btf(struct bpf_map *map, const struct btf *btf,
 
 static u64 arena_map_mem_usage(const struct bpf_map *map)
 {
-	struct bpf_arena *arena = container_of(map, struct bpf_arena, map);
-
-	return (u64)READ_ONCE(arena->nr_pages) << PAGE_SHIFT;
+	return 0;
 }
 
 struct vma_list {
@@ -490,12 +484,8 @@ static vm_fault_t arena_vm_fault(struct vm_fault *vmf)
 	kaddr = kbase + (u32)(vmf->address);
 
 	if (raw_res_spin_lock_irqsave(&arena->spinlock, flags))
-		/*
-		 * A failed lock means a possible deadlock was detected. Don't
-		 * return VM_FAULT_RETRY: this handler never took mmap_lock, but
-		 * the fault path would re-take it on retry and deadlock. Fail.
-		 */
-		return VM_FAULT_SIGBUS;
+		/* Make a reasonable effort to address impossible case */
+		return VM_FAULT_RETRY;
 
 	page = vmalloc_to_page((void *)kaddr);
 	if (page) {
@@ -516,7 +506,8 @@ static vm_fault_t arena_vm_fault(struct vm_fault *vmf)
 	if (ret)
 		goto out_sigsegv_memcg;
 
-	struct apply_range_data data = { .arena = arena, .pages = &page, .i = 0 };
+	struct apply_range_data data = { .pages = &page, .i = 0,
+					 .scratch_page = arena->scratch_page };
 	/* Account into memcg of the process that created bpf_arena */
 	ret = bpf_map_alloc_pages(map, NUMA_NO_NODE, 1, &page);
 	if (ret) {
@@ -705,8 +696,8 @@ static long arena_alloc_pages(struct bpf_arena *arena, long uaddr, long page_cnt
 		bpf_map_memcg_exit(old_memcg, new_memcg);
 		return 0;
 	}
-	data.arena = arena;
 	data.pages = pages;
+	data.scratch_page = arena->scratch_page;
 
 	if (raw_res_spin_lock_irqsave(&arena->spinlock, flags))
 		goto out_free_pages;
@@ -862,8 +853,6 @@ static void arena_free_pages(struct bpf_arena *arena, long uaddr, long page_cnt,
 	uaddr &= PAGE_MASK;
 	kaddr = bpf_arena_get_kern_vm_start(arena) + uaddr;
 	full_uaddr = clear_lo32(arena->user_vm_start) + uaddr;
-	if (full_uaddr < arena->user_vm_start)
-		return;
 	uaddr_end = min(arena->user_vm_end, full_uaddr + (page_cnt << PAGE_SHIFT));
 	if (full_uaddr >= uaddr_end)
 		return;
@@ -884,8 +873,8 @@ static void arena_free_pages(struct bpf_arena *arena, long uaddr, long page_cnt,
 	range_tree_set(&arena->rt, pgoff, page_cnt);
 
 	init_llist_head(&free_pages);
-	cdata.arena = arena;
 	cdata.free_pages = &free_pages;
+	cdata.scratch_page = arena->scratch_page;
 	/* clear ptes and collect struct pages */
 	apply_to_existing_page_range(&init_mm, kaddr, page_cnt << PAGE_SHIFT,
 				     apply_range_clear_cb, &cdata);
@@ -992,8 +981,8 @@ static void arena_free_worker(struct work_struct *work)
 	bpf_map_memcg_enter(&arena->map, &old_memcg, &new_memcg);
 
 	init_llist_head(&free_pages);
-	cdata.arena = arena;
 	cdata.free_pages = &free_pages;
+	cdata.scratch_page = arena->scratch_page;
 	arena_vm_start = bpf_arena_get_kern_vm_start(arena);
 	user_vm_start = bpf_arena_get_user_vm_start(arena);
 
@@ -1118,9 +1107,9 @@ __bpf_kfunc int bpf_arena_reserve_pages(void *p__map, void *ptr__ign, u32 page_c
 __bpf_kfunc_end_defs();
 
 BTF_KFUNCS_START(arena_kfuncs)
-BTF_ID_FLAGS(func, bpf_arena_alloc_pages, KF_ARENA_RET | KF_ARENA_ARG2 | KF_SPINLOCK_SAFE)
-BTF_ID_FLAGS(func, bpf_arena_free_pages, KF_ARENA_ARG2 | KF_SPINLOCK_SAFE)
-BTF_ID_FLAGS(func, bpf_arena_reserve_pages, KF_ARENA_ARG2 | KF_SPINLOCK_SAFE)
+BTF_ID_FLAGS(func, bpf_arena_alloc_pages, KF_ARENA_RET | KF_ARENA_ARG2)
+BTF_ID_FLAGS(func, bpf_arena_free_pages, KF_ARENA_ARG2)
+BTF_ID_FLAGS(func, bpf_arena_reserve_pages, KF_ARENA_ARG2)
 BTF_KFUNCS_END(arena_kfuncs)
 
 static const struct btf_kfunc_id_set common_kfunc_set = {

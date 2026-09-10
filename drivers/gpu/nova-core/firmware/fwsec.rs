@@ -27,6 +27,7 @@ use kernel::{
 };
 
 use crate::{
+    driver::Bar0,
     falcon::{
         gsp::Gsp,
         Falcon,
@@ -319,7 +320,8 @@ impl FwsecFirmware {
     /// command.
     pub(crate) fn new(
         dev: &Device<device::Bound>,
-        falcon: &Falcon<'_, Gsp>,
+        falcon: &Falcon<Gsp>,
+        bar: Bar0<'_>,
         bios: &Vbios,
         cmd: FwsecCommand,
     ) -> Result<Self> {
@@ -335,7 +337,7 @@ impl FwsecFirmware {
                 .ok_or(EINVAL)?;
             let desc_sig_versions = u32::from(desc.signature_versions());
             let reg_fuse_version =
-                falcon.signature_reg_fuse_version(desc.engine_id_mask(), desc.ucode_id())?;
+                falcon.signature_reg_fuse_version(bar, desc.engine_id_mask(), desc.ucode_id())?;
             dev_dbg!(
                 dev,
                 "desc_sig_versions: {:#x}, reg_fuse_version: {}\n",
@@ -385,18 +387,24 @@ impl FwsecFirmware {
 
     /// Loads the FWSEC firmware into `falcon` and execute it.
     ///
-    /// This must only be called on chipsets that do not need the FWSEC bootloader. On chipsets
-    /// where the bootloader is required, use [`bootloader::FwsecFirmwareWithBl`] instead.
-    pub(crate) fn run(&self, dev: &Device<device::Bound>, falcon: &Falcon<'_, Gsp>) -> Result<()> {
+    /// This must only be called on chipsets that do not need the FWSEC bootloader (i.e., where
+    /// [`Chipset::needs_fwsec_bootloader()`](crate::gpu::Chipset::needs_fwsec_bootloader) returns
+    /// `false`). On chipsets that do, use [`bootloader::FwsecFirmwareWithBl`] instead.
+    pub(crate) fn run(
+        &self,
+        dev: &Device<device::Bound>,
+        falcon: &Falcon<Gsp>,
+        bar: Bar0<'_>,
+    ) -> Result<()> {
         // Reset falcon, load the firmware, and run it.
         falcon
-            .reset()
+            .reset(bar)
             .inspect_err(|e| dev_err!(dev, "Failed to reset GSP falcon: {:?}\n", e))?;
         falcon
-            .load(self)
+            .load(dev, bar, self)
             .inspect_err(|e| dev_err!(dev, "Failed to load FWSEC firmware: {:?}\n", e))?;
         let (mbox0, _) = falcon
-            .boot(Some(0), None)
+            .boot(bar, Some(0), None)
             .inspect_err(|e| dev_err!(dev, "Failed to boot FWSEC firmware: {:?}\n", e))?;
         if mbox0 != 0 {
             dev_err!(dev, "FWSEC firmware returned error {}\n", mbox0);

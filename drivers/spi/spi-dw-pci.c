@@ -154,6 +154,7 @@ static void dw_spi_pci_remove(struct pci_dev *pdev)
 	dw_spi_remove_controller(dws);
 }
 
+#ifdef CONFIG_PM_SLEEP
 static int dw_spi_pci_suspend(struct device *dev)
 {
 	struct dw_spi *dws = dev_get_drvdata(dev);
@@ -167,8 +168,9 @@ static int dw_spi_pci_resume(struct device *dev)
 
 	return dw_spi_resume_controller(dws);
 }
+#endif
 
-static DEFINE_SIMPLE_DEV_PM_OPS(dw_spi_pci_pm_ops, dw_spi_pci_suspend, dw_spi_pci_resume);
+static SIMPLE_DEV_PM_OPS(dw_spi_pci_pm_ops, dw_spi_pci_suspend, dw_spi_pci_resume);
 
 static const struct pci_device_id dw_spi_pci_ids[] = {
 	/* Intel MID platform SPI controller 0 */
@@ -195,7 +197,7 @@ static struct pci_driver dw_spi_pci_driver = {
 	.probe =	dw_spi_pci_probe,
 	.remove =	dw_spi_pci_remove,
 	.driver         = {
-		.pm     = pm_sleep_ptr(&dw_spi_pci_pm_ops),
+		.pm     = &dw_spi_pci_pm_ops,
 	},
 };
 module_pci_driver(dw_spi_pci_driver);

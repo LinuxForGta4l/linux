@@ -620,8 +620,10 @@ static int act8945a_charger_probe(struct platform_device *pdev)
 	ret = devm_request_irq(&pdev->dev, irq, act8945a_status_changed,
 			       IRQF_TRIGGER_FALLING, "act8945a_interrupt",
 			       charger);
-	if (ret)
+	if (ret) {
+		dev_err(&pdev->dev, "failed to request nIRQ pin IRQ\n");
 		return ret;
+	}
 
 	platform_set_drvdata(pdev, charger);
 

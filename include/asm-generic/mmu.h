@@ -6,7 +6,7 @@
  * This is the mmu.h header for nommu implementations.
  * Architectures with an MMU need something more complex.
  */
-#ifndef __ASSEMBLER__
+#ifndef __ASSEMBLY__
 typedef struct {
 	unsigned long		end_brk;
 

@@ -598,11 +598,8 @@ static int atcspi_suspend(struct device *dev)
 {
 	struct spi_controller *host = dev_get_drvdata(dev);
 	struct atcspi_dev *spi = spi_controller_get_devdata(host);
-	int ret;
 
-	ret = spi_controller_suspend(host);
-	if (ret)
-		return ret;
+	spi_controller_suspend(host);
 
 	clk_disable_unprepare(spi->clk);
 
@@ -638,6 +635,7 @@ disable_clk:
 static DEFINE_SIMPLE_DEV_PM_OPS(atcspi_pm_ops, atcspi_suspend, atcspi_resume);
 
 static const struct of_device_id atcspi_of_match[] = {
+	{ .compatible = "andestech,qilai-spi", },
 	{ .compatible = "andestech,ae350-spi", },
 	{ /* sentinel */ }
 };

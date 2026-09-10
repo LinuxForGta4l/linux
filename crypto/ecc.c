@@ -279,48 +279,6 @@ static void vli_rshift1(u64 *vli, unsigned int ndigits)
 	}
 }
 
-#ifdef __has_builtin
-#if __has_builtin(__builtin_addcll)
-#define USE_BUILTIN_ADDC
-#endif
-#endif
-
-/* Computes result = left + right + carry_in and updates carry_out */
-static inline void add_carry(u64 left, u64 right, u64 *result, u64 carry_in,
-			     u64 *carry_out)
-{
-#ifdef USE_BUILTIN_ADDC
-	*result = __builtin_addcll(left, right, carry_in, carry_out);
-#else
-	u64 sum1, sum2;
-	u64 c1 = __builtin_uaddll_overflow(left, right, &sum1);
-	u64 c2 = __builtin_uaddll_overflow(sum1, carry_in, &sum2);
-	*result = sum2;
-	*carry_out = c1 | c2;
-#endif
-}
-
-#ifdef __has_builtin
-#if __has_builtin(__builtin_subcll)
-#define USE_BUILTIN_SUBC
-#endif
-#endif
-
-/* Computes result = left - right - borrow_in and updates borrow_out */
-static inline void sub_borrow(u64 left, u64 right, u64 *result, u64 borrow_in,
-			      u64 *borrow_out)
-{
-#ifdef USE_BUILTIN_SUBC
-	*result = __builtin_subcll(left, right, borrow_in, borrow_out);
-#else
-	u64 diff1, diff2;
-	u64 b1 = __builtin_usubll_overflow(left, right, &diff1);
-	u64 b2 = __builtin_usubll_overflow(diff1, borrow_in, &diff2);
-	*result = diff2;
-	*borrow_out = b1 | b2;
-#endif
-}
-
 /* Computes result = left + right, returning carry. Can modify in place. */
 static u64 vli_add(u64 *result, const u64 *left, const u64 *right,
 		   unsigned int ndigits)
@@ -328,8 +286,15 @@ static u64 vli_add(u64 *result, const u64 *left, const u64 *right,
 	u64 carry = 0;
 	int i;
 
-	for (i = 0; i < ndigits; i++)
-		add_carry(left[i], right[i], &result[i], carry, &carry);
+	for (i = 0; i < ndigits; i++) {
+		u64 sum;
+
+		sum = left[i] + right[i] + carry;
+		if (sum != left[i])
+			carry = (sum < left[i]);
+
+		result[i] = sum;
+	}
 
 	return carry;
 }
@@ -338,29 +303,40 @@ static u64 vli_add(u64 *result, const u64 *left, const u64 *right,
 static u64 vli_uadd(u64 *result, const u64 *left, u64 right,
 		    unsigned int ndigits)
 {
-	u64 carry;
+	u64 carry = right;
 	int i;
 
-	if (ndigits == 0)
-		return right;
+	for (i = 0; i < ndigits; i++) {
+		u64 sum;
 
-	carry = __builtin_uaddll_overflow(left[0], right, &result[0]);
+		sum = left[i] + carry;
+		if (sum != left[i])
+			carry = (sum < left[i]);
+		else
+			carry = !!carry;
 
-	for (i = 1; i < ndigits; i++)
-		carry = __builtin_uaddll_overflow(left[i], carry, &result[i]);
+		result[i] = sum;
+	}
 
 	return carry;
 }
 
 /* Computes result = left - right, returning borrow. Can modify in place. */
 u64 vli_sub(u64 *result, const u64 *left, const u64 *right,
-	    unsigned int ndigits)
+		   unsigned int ndigits)
 {
 	u64 borrow = 0;
 	int i;
 
-	for (i = 0; i < ndigits; i++)
-		sub_borrow(left[i], right[i], &result[i], borrow, &borrow);
+	for (i = 0; i < ndigits; i++) {
+		u64 diff;
+
+		diff = left[i] - right[i] - borrow;
+		if (diff != left[i])
+			borrow = (diff > left[i]);
+
+		result[i] = diff;
+	}
 
 	return borrow;
 }
@@ -368,18 +344,20 @@ EXPORT_SYMBOL(vli_sub);
 
 /* Computes result = left - right, returning borrow. Can modify in place. */
 static u64 vli_usub(u64 *result, const u64 *left, u64 right,
-		    unsigned int ndigits)
+	     unsigned int ndigits)
 {
-	u64 borrow;
+	u64 borrow = right;
 	int i;
 
-	if (ndigits == 0)
-		return right;
+	for (i = 0; i < ndigits; i++) {
+		u64 diff;
 
-	borrow = __builtin_usubll_overflow(left[0], right, &result[0]);
+		diff = left[i] - borrow;
+		if (diff != left[i])
+			borrow = (diff > left[i]);
 
-	for (i = 1; i < ndigits; i++)
-		borrow = __builtin_usubll_overflow(left[i], borrow, &result[i]);
+		result[i] = diff;
+	}
 
 	return borrow;
 }

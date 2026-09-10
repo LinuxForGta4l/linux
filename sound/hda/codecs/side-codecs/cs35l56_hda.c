@@ -527,6 +527,18 @@ static void cs35l56_hda_request_firmware_files(struct cs35l56_hda *cs35l56,
 						  base_name, NULL, NULL, "bin");
 }
 
+static void cs35l56_hda_release_firmware_files(const struct firmware *wmfw_firmware,
+					       char *wmfw_filename,
+					       const struct firmware *coeff_firmware,
+					       char *coeff_filename)
+{
+	release_firmware(wmfw_firmware);
+	kfree(wmfw_filename);
+
+	release_firmware(coeff_firmware);
+	kfree(coeff_filename);
+}
+
 static int cs35l56_hda_apply_calibration(struct cs35l56_hda *cs35l56)
 {
 	int ret;
@@ -549,10 +561,10 @@ static int cs35l56_hda_apply_calibration(struct cs35l56_hda *cs35l56)
 
 static void cs35l56_hda_fw_load(struct cs35l56_hda *cs35l56)
 {
-	const struct firmware *coeff_firmware __free(firmware) = NULL;
-	const struct firmware *wmfw_firmware __free(firmware) = NULL;
-	char *coeff_filename __free(kfree) = NULL;
-	char *wmfw_filename __free(kfree) = NULL;
+	const struct firmware *coeff_firmware = NULL;
+	const struct firmware *wmfw_firmware = NULL;
+	char *coeff_filename = NULL;
+	char *wmfw_filename = NULL;
 	unsigned int preloaded_fw_ver;
 	bool firmware_missing;
 	int ret;
@@ -594,14 +606,14 @@ static void cs35l56_hda_fw_load(struct cs35l56_hda *cs35l56)
 	if (firmware_missing) {
 		if (!wmfw_firmware) {
 			dev_err(cs35l56->base.dev, ".%s file required but not found\n", "wmfw");
-			return;
+			goto err_fw_release;
 		} else if (!coeff_firmware) {
 			dev_err(cs35l56->base.dev, ".%s file required but not found\n", "bin");
-			return;
+			goto err_fw_release;
 		}
 	}
 
-	guard(mutex)(&cs35l56->base.irq_lock);
+	mutex_lock(&cs35l56->base.irq_lock);
 
 	/*
 	 * If the firmware hasn't been patched it must be shutdown before
@@ -612,14 +624,14 @@ static void cs35l56_hda_fw_load(struct cs35l56_hda *cs35l56)
 	if (firmware_missing && (wmfw_firmware || coeff_firmware)) {
 		ret = cs35l56_firmware_shutdown(&cs35l56->base);
 		if (ret)
-			return;
+			goto err;
 	}
 
 	ret = cs_dsp_power_up(&cs35l56->cs_dsp, wmfw_firmware, wmfw_filename,
 			      coeff_firmware, coeff_filename, "misc");
 	if (ret) {
 		dev_dbg(cs35l56->base.dev, "%s: cs_dsp_power_up ret %d\n", __func__, ret);
-		return;
+		goto err;
 	}
 
 	if (wmfw_filename)
@@ -667,6 +679,11 @@ static void cs35l56_hda_fw_load(struct cs35l56_hda *cs35l56)
 err_powered_up:
 	if (!cs35l56->base.fw_patched)
 		cs_dsp_power_down(&cs35l56->cs_dsp);
+err:
+	mutex_unlock(&cs35l56->base.irq_lock);
+err_fw_release:
+	cs35l56_hda_release_firmware_files(wmfw_firmware, wmfw_filename,
+					   coeff_firmware, coeff_filename);
 }
 
 static void cs35l56_hda_dsp_work(struct work_struct *work)

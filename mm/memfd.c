@@ -19,7 +19,6 @@
 #include <linux/memfd.h>
 #include <linux/pid_namespace.h>
 #include <uapi/linux/memfd.h>
-#include "internal.h"
 #include "swap.h"
 
 /*
@@ -370,36 +369,39 @@ static inline bool is_write_sealed(unsigned int seals)
 	return seals & (F_SEAL_WRITE | F_SEAL_FUTURE_WRITE);
 }
 
-static int check_write_seal(vma_flags_t *vma_flags_ptr)
+static int check_write_seal(vm_flags_t *vm_flags_ptr)
 {
+	vm_flags_t vm_flags = *vm_flags_ptr;
+	vm_flags_t mask = vm_flags & (VM_SHARED | VM_WRITE);
+
 	/* If a private mapping then writability is irrelevant. */
-	if (!vma_flags_test(vma_flags_ptr, VMA_SHARED_BIT))
+	if (!(mask & VM_SHARED))
 		return 0;
 
 	/*
 	 * New PROT_WRITE and MAP_SHARED mmaps are not allowed when
 	 * write seals are active.
 	 */
-	if (vma_flags_test(vma_flags_ptr, VMA_WRITE_BIT))
+	if (mask & VM_WRITE)
 		return -EPERM;
 
 	/*
 	 * This is a read-only mapping, disallow mprotect() from making a
 	 * write-sealed mapping writable in future.
 	 */
-	vma_flags_clear(vma_flags_ptr, VMA_MAYWRITE_BIT);
+	*vm_flags_ptr &= ~VM_MAYWRITE;
 
 	return 0;
 }
 
-int memfd_check_seals_mmap(struct file *file, vma_flags_t *vma_flags_ptr)
+int memfd_check_seals_mmap(struct file *file, vm_flags_t *vm_flags_ptr)
 {
 	int err = 0;
 	unsigned int *seals_ptr = memfd_file_seals_ptr(file);
 	unsigned int seals = seals_ptr ? *seals_ptr : 0;
 
 	if (is_write_sealed(seals))
-		err = check_write_seal(vma_flags_ptr);
+		err = check_write_seal(vm_flags_ptr);
 
 	return err;
 }

@@ -87,15 +87,10 @@ static int damon_sample_wsse_start(void)
 	target->pid = target_pidp;
 
 	err = damon_start(&ctx, 1, true);
-	if (err) {
-		damon_destroy_ctx(ctx);
-		return err;
-	}
-	repeat_call_control.data = ctx;
-	err = damon_call(ctx, &repeat_call_control);
 	if (err)
-		damon_destroy_ctx(ctx);
-	return err;
+		return err;
+	repeat_call_control.data = ctx;
+	return damon_call(ctx, &repeat_call_control);
 }
 
 static void damon_sample_wsse_stop(void)

@@ -246,13 +246,12 @@ EXPORT_SYMBOL_GPL(rsi_read_pkt);
 /**
  * rsi_tx_scheduler_thread() - This function is a kernel thread to send the
  *			       packets to the device.
- * @data: Pointer to the driver private structure.
+ * @common: Pointer to the driver private structure.
  *
- * Return: 0.
+ * Return: None.
  */
-static int rsi_tx_scheduler_thread(void *data)
+static void rsi_tx_scheduler_thread(struct rsi_common *common)
 {
-	struct rsi_common *common = data;
 	struct rsi_hw *adapter = common->priv;
 	u32 timeout = EVENT_WAIT_FOREVER;
 

@@ -132,8 +132,10 @@ static int avs_pcm3168a_probe(struct platform_device *pdev)
 }
 
 static const struct platform_device_id avs_pcm3168a_driver_ids[] = {
-	{ .name = "avs_pcm3168a" },
-	{ }
+	{
+		.name = "avs_pcm3168a",
+	},
+	{},
 };
 MODULE_DEVICE_TABLE(platform, avs_pcm3168a_driver_ids);
 

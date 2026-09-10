@@ -64,7 +64,7 @@ int main(int argc, char **argv)
 {
 	struct scx_simple *skel;
 	struct bpf_link *link;
-	__s32 opt;
+	__u32 opt;
 	__u64 ecode;
 
 	libbpf_set_print(libbpf_print_fn);
@@ -104,7 +104,7 @@ restart:
 	ecode = UEI_REPORT(skel, uei);
 	scx_simple__destroy(skel);
 
-	if (!exit_req && UEI_ECODE_RESTART(ecode))
+	if (UEI_ECODE_RESTART(ecode))
 		goto restart;
 	return 0;
 }

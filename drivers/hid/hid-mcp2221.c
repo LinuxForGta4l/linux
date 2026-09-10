@@ -343,7 +343,7 @@ static int mcp_i2c_smbus_read(struct mcp2221 *mcp,
 
 	ret = mcp_send_data_req_status(mcp, mcp->txbuf, 4);
 	if (ret)
-		goto out;
+		return ret;
 
 	mcp->rxbuf_idx = 0;
 
@@ -365,7 +365,7 @@ static int mcp_i2c_smbus_read(struct mcp2221 *mcp,
 			} else {
 				usleep_range(980, 1000);
 				mcp_cancel_last_cmd(mcp);
-				goto out;
+				return ret;
 			}
 		} else {
 			retries = 0;
@@ -374,10 +374,6 @@ static int mcp_i2c_smbus_read(struct mcp2221 *mcp,
 
 	usleep_range(980, 1000);
 	ret = mcp_chk_last_cmd_status_free_bus(mcp);
-
-out:
-	mcp->rxbuf = NULL;
-	mcp->rxbuf_size = 0;
 
 	return ret;
 }
@@ -865,9 +861,6 @@ static int mcp2221_raw_event(struct hid_device *hdev,
 	u8 *buf;
 	struct mcp2221 *mcp = hid_get_drvdata(hdev);
 
-	if (size < 4)
-		return 0;
-
 	switch (data[0]) {
 
 	case MCP2221_I2C_WR_DATA:
@@ -930,10 +923,6 @@ static int mcp2221_raw_event(struct hid_device *hdev,
 					break;
 				}
 				if (mcp->rxbuf_idx + data[3] > mcp->rxbuf_size) {
-					mcp->status = -EINVAL;
-					break;
-				}
-				if (4 + data[3] > size) {
 					mcp->status = -EINVAL;
 					break;
 				}
@@ -1060,8 +1049,6 @@ static void mcp2221_hid_unregister(void *ptr)
 {
 	struct hid_device *hdev = ptr;
 
-	if (hdev->io_started)
-		hid_device_io_stop(hdev);
 	hid_hw_close(hdev);
 	hid_hw_stop(hdev);
 }

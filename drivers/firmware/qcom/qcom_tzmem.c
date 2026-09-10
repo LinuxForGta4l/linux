@@ -15,7 +15,6 @@
 #include <linux/kernel.h>
 #include <linux/list.h>
 #include <linux/mm.h>
-#include <linux/once.h>
 #include <linux/radix-tree.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
@@ -508,18 +507,14 @@ phys_addr_t qcom_tzmem_to_phys(void *vaddr)
 }
 EXPORT_SYMBOL_GPL(qcom_tzmem_to_phys);
 
-static void qcom_tzmem_do_init(int *result)
-{
-	*result = qcom_tzmem_init();
-}
-
 int qcom_tzmem_enable(struct device *dev)
 {
-	static int result;
+	if (qcom_tzmem_dev)
+		return -EBUSY;
 
 	qcom_tzmem_dev = dev;
-	DO_ONCE(qcom_tzmem_do_init, &result);
-	return result;
+
+	return qcom_tzmem_init();
 }
 EXPORT_SYMBOL_GPL(qcom_tzmem_enable);
 

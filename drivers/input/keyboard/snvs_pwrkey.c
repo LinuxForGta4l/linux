@@ -39,9 +39,6 @@ struct pwrkey_drv_data {
 	int keycode;
 	int keystate;  /* 1:pressed */
 	int wakeup;
-	bool suspended;     /* Track suspend state */
-	bool pending_press; /* Key pressed during suspend, report from timer callback */
-	spinlock_t lock;    /* Protects keystate, suspended and pending_press */
 	struct timer_list check_timer;
 	struct input_dev *input;
 	u8 minor_rev;
@@ -52,38 +49,14 @@ static void imx_imx_snvs_check_for_events(struct timer_list *t)
 	struct pwrkey_drv_data *pdata = timer_container_of(pdata, t,
 							   check_timer);
 	struct input_dev *input = pdata->input;
-	bool state_changed = false;
-	bool pending_press;
 	u32 state;
 
 	regmap_read(pdata->snvs, SNVS_HPSR_REG, &state);
 	state = state & SNVS_HPSR_BTN ? 1 : 0;
 
-	scoped_guard(spinlock_irqsave, &pdata->lock) {
-		pending_press = pdata->pending_press;
-		if (pending_press) {
-			pdata->pending_press = false;
-			pdata->keystate = 1;
-		}
-		/* only report new event if status changed */
-		if (state ^ pdata->keystate) {
-			pdata->keystate = state;
-			state_changed = true;
-		}
-	}
-
-	/*
-	 * Report a press event latched during suspend. If the key is still
-	 * held, state_changed will be 0 (keystate already set to 1 above),
-	 * so no duplicate press is reported. If already released,
-	 * state_changed will fire next to report the release.
-	 */
-	if (pending_press) {
-		input_report_key(input, pdata->keycode, 1);
-		input_sync(input);
-	}
-
-	if (state_changed) {
+	/* only report new event if status changed */
+	if (state ^ pdata->keystate) {
+		pdata->keystate = state;
 		input_event(input, EV_KEY, pdata->keycode, state);
 		input_sync(input);
 		pm_relax(pdata->input->dev.parent);
@@ -119,17 +92,8 @@ static irqreturn_t imx_snvs_pwrkey_interrupt(int irq, void *dev_id)
 			input_sync(input);
 			pm_relax(input->dev.parent);
 		} else {
-			/*
-			 * If the key is pressed during suspend, latch it so
-			 * the timer callback can report the press event in
-			 * softirq context, avoiding out-of-order events.
-			 */
-			scoped_guard(spinlock_irqsave, &pdata->lock) {
-				if (pdata->suspended)
-					pdata->pending_press = true;
-			}
 			mod_timer(&pdata->check_timer,
-				  jiffies + msecs_to_jiffies(DEBOUNCE_TIME));
+			          jiffies + msecs_to_jiffies(DEBOUNCE_TIME));
 		}
 	}
 
@@ -148,7 +112,6 @@ static void imx_snvs_pwrkey_act(void *pdata)
 
 static int imx_snvs_pwrkey_probe(struct platform_device *pdev)
 {
-	struct device *dev = &pdev->dev;
 	struct pwrkey_drv_data *pdata;
 	struct input_dev *input;
 	struct device_node *np;
@@ -159,35 +122,37 @@ static int imx_snvs_pwrkey_probe(struct platform_device *pdev)
 	u32 vid;
 
 	/* Get SNVS register Page */
-	np = dev->of_node;
+	np = pdev->dev.of_node;
 	if (!np)
-		return dev_err_probe(dev, -ENODEV, "Device tree node not found\n");
+		return -ENODEV;
 
-	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
+	pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
 	if (!pdata)
 		return -ENOMEM;
 
 	pdata->snvs = syscon_regmap_lookup_by_phandle(np, "regmap");
-	if (IS_ERR(pdata->snvs))
-		return dev_err_probe(dev, PTR_ERR(pdata->snvs), "Can't get snvs syscon\n");
+	if (IS_ERR(pdata->snvs)) {
+		dev_err(&pdev->dev, "Can't get snvs syscon\n");
+		return PTR_ERR(pdata->snvs);
+	}
 
 	if (of_property_read_u32(np, "linux,keycode", &pdata->keycode)) {
 		pdata->keycode = KEY_POWER;
-		dev_warn(dev, "KEY_POWER without setting in dts\n");
+		dev_warn(&pdev->dev, "KEY_POWER without setting in dts\n");
 	}
 
-	clk = devm_clk_get_optional_enabled(dev, NULL);
-	if (IS_ERR(clk))
-		return dev_err_probe(dev, PTR_ERR(clk),
-				     "Failed to get snvs clock (%pe)\n", clk);
+	clk = devm_clk_get_optional_enabled(&pdev->dev, NULL);
+	if (IS_ERR(clk)) {
+		dev_err(&pdev->dev, "Failed to get snvs clock (%pe)\n", clk);
+		return PTR_ERR(clk);
+	}
 
 	pdata->wakeup = of_property_read_bool(np, "wakeup-source");
 
 	pdata->irq = platform_get_irq(pdev, 0);
 	if (pdata->irq < 0)
-		return pdata->irq;
+		return -EINVAL;
 
-	spin_lock_init(&pdata->lock);
 	error = of_property_read_u32(np, "power-off-time-sec", &val);
 	if (!error) {
 		switch (val) {
@@ -200,8 +165,9 @@ static int imx_snvs_pwrkey_probe(struct platform_device *pdev)
 			bpt = (val / 5) - 1;
 			break;
 		default:
-			return dev_err_probe(dev, -EINVAL,
-					     "power-off-time-sec %d out of range\n", val);
+			dev_err(&pdev->dev,
+				"power-off-time-sec %d out of range\n", val);
+			return -EINVAL;
 		}
 
 		regmap_update_bits(pdata->snvs, SNVS_LPCR_REG, SNVS_LPCR_BPT_MASK,
@@ -218,9 +184,11 @@ static int imx_snvs_pwrkey_probe(struct platform_device *pdev)
 
 	timer_setup(&pdata->check_timer, imx_imx_snvs_check_for_events, 0);
 
-	input = devm_input_allocate_device(dev);
-	if (!input)
-		return dev_err_probe(dev, -ENOMEM, "failed to allocate the input device\n");
+	input = devm_input_allocate_device(&pdev->dev);
+	if (!input) {
+		dev_err(&pdev->dev, "failed to allocate the input device\n");
+		return -ENOMEM;
+	}
 
 	input->name = pdev->name;
 	input->phys = "snvs-pwrkey/input0";
@@ -229,56 +197,36 @@ static int imx_snvs_pwrkey_probe(struct platform_device *pdev)
 	input_set_capability(input, EV_KEY, pdata->keycode);
 
 	/* input customer action to cancel release timer */
-	error = devm_add_action(dev, imx_snvs_pwrkey_act, pdata);
-	if (error)
-		return dev_err_probe(dev, error, "failed to register remove action\n");
+	error = devm_add_action(&pdev->dev, imx_snvs_pwrkey_act, pdata);
+	if (error) {
+		dev_err(&pdev->dev, "failed to register remove action\n");
+		return error;
+	}
 
 	pdata->input = input;
 	platform_set_drvdata(pdev, pdata);
 
-	error = devm_request_irq(dev, pdata->irq,
-				 imx_snvs_pwrkey_interrupt,
-				 0, pdev->name, pdev);
-	if (error)
-		return dev_err_probe(dev, error, "interrupt not available.\n");
+	error = devm_request_irq(&pdev->dev, pdata->irq,
+			       imx_snvs_pwrkey_interrupt,
+			       0, pdev->name, pdev);
+	if (error) {
+		dev_err(&pdev->dev, "interrupt not available.\n");
+		return error;
+	}
 
 	error = input_register_device(input);
-	if (error < 0)
-		return dev_err_probe(dev, error, "failed to register input device\n");
+	if (error < 0) {
+		dev_err(&pdev->dev, "failed to register input device\n");
+		return error;
+	}
 
-	device_init_wakeup(dev, pdata->wakeup);
-	error = dev_pm_set_wake_irq(dev, pdata->irq);
+	device_init_wakeup(&pdev->dev, pdata->wakeup);
+	error = dev_pm_set_wake_irq(&pdev->dev, pdata->irq);
 	if (error)
-		dev_err(dev, "irq wake enable failed.\n");
+		dev_err(&pdev->dev, "irq wake enable failed.\n");
 
 	return 0;
 }
-
-static int imx_snvs_pwrkey_suspend(struct device *dev)
-{
-	struct platform_device *pdev = to_platform_device(dev);
-	struct pwrkey_drv_data *pdata = platform_get_drvdata(pdev);
-
-	guard(spinlock_irq)(&pdata->lock);
-	pdata->suspended = true;
-
-	return 0;
-}
-
-static int imx_snvs_pwrkey_resume(struct device *dev)
-{
-	struct platform_device *pdev = to_platform_device(dev);
-	struct pwrkey_drv_data *pdata = platform_get_drvdata(pdev);
-
-	guard(spinlock_irq)(&pdata->lock);
-	pdata->suspended = false;
-
-	return 0;
-}
-
-static DEFINE_SIMPLE_DEV_PM_OPS(imx_snvs_pwrkey_pm_ops,
-				imx_snvs_pwrkey_suspend,
-				imx_snvs_pwrkey_resume);
 
 static const struct of_device_id imx_snvs_pwrkey_ids[] = {
 	{ .compatible = "fsl,sec-v4.0-pwrkey" },
@@ -290,7 +238,6 @@ static struct platform_driver imx_snvs_pwrkey_driver = {
 	.driver = {
 		.name = "snvs_pwrkey",
 		.of_match_table = imx_snvs_pwrkey_ids,
-		.pm = pm_ptr(&imx_snvs_pwrkey_pm_ops),
 	},
 	.probe = imx_snvs_pwrkey_probe,
 };

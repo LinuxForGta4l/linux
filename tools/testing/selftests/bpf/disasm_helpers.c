@@ -55,9 +55,10 @@ struct bpf_insn *disasm_insn(struct bpf_insn *insn, char *buf, size_t buf_sz)
 	 * for each instruction (FF stands for instruction `code` byte).
 	 * Remove the prefix inplace, and also simplify call instructions.
 	 * E.g.: "(85) call foo#10" -> "call foo".
+	 * Also remove newline in the end (the 'max(strlen(buf) - 1, 0)' thing).
 	 */
 	pfx_end = buf + 5;
-	sfx_start = buf + (int)strlen(buf);
+	sfx_start = buf + max((int)strlen(buf) - 1, 0);
 	if (strncmp(pfx_end, "call ", 5) == 0 && (tmp = strrchr(buf, '#')))
 		sfx_start = tmp;
 	len = sfx_start - pfx_end;

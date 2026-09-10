@@ -69,14 +69,13 @@ static unsigned int pentium3_get_frequency(enum speedstep_processor processor)
 		{   0, 0xff}
 	};
 
-	struct msr msr;
 	u32 msr_lo, msr_tmp;
 	int i = 0, j = 0;
 
 	/* read MSR 0x2a - we only need the low 32 bits */
-	rdmsrq(MSR_IA32_EBL_CR_POWERON, msr.q);
-	pr_debug("P3 - MSR_IA32_EBL_CR_POWERON: 0x%x 0x%x\n", msr.l, msr.h);
-	msr_tmp = msr_lo = msr.l;
+	rdmsr(MSR_IA32_EBL_CR_POWERON, msr_lo, msr_tmp);
+	pr_debug("P3 - MSR_IA32_EBL_CR_POWERON: 0x%x 0x%x\n", msr_lo, msr_tmp);
+	msr_tmp = msr_lo;
 
 	/* decode the FSB */
 	msr_tmp &= 0x00c0000;
@@ -109,20 +108,19 @@ static unsigned int pentium3_get_frequency(enum speedstep_processor processor)
 
 static unsigned int pentiumM_get_frequency(void)
 {
-	struct msr msr;
-	u32 msr_tmp;
+	u32 msr_lo, msr_tmp;
 
-	rdmsrq(MSR_IA32_EBL_CR_POWERON, msr.q);
-	pr_debug("PM - MSR_IA32_EBL_CR_POWERON: 0x%x 0x%x\n", msr.l, msr.h);
+	rdmsr(MSR_IA32_EBL_CR_POWERON, msr_lo, msr_tmp);
+	pr_debug("PM - MSR_IA32_EBL_CR_POWERON: 0x%x 0x%x\n", msr_lo, msr_tmp);
 
 	/* see table B-2 of 24547212.pdf */
-	if (msr.l & 0x00040000) {
+	if (msr_lo & 0x00040000) {
 		printk(KERN_DEBUG PFX "PM - invalid FSB: 0x%x 0x%x\n",
-				msr.l, msr.h);
+				msr_lo, msr_tmp);
 		return 0;
 	}
 
-	msr_tmp = (msr.l >> 22) & 0x1f;
+	msr_tmp = (msr_lo >> 22) & 0x1f;
 	pr_debug("bits 22-26 are 0x%x, speed is %u\n",
 			msr_tmp, (msr_tmp * 100 * 1000));
 
@@ -131,14 +129,13 @@ static unsigned int pentiumM_get_frequency(void)
 
 static unsigned int pentium_core_get_frequency(void)
 {
-	struct msr msr;
 	u32 fsb = 0;
-	u32 msr_tmp;
+	u32 msr_lo, msr_tmp;
 	int ret;
 
-	rdmsrq(MSR_FSB_FREQ, msr.q);
+	rdmsr(MSR_FSB_FREQ, msr_lo, msr_tmp);
 	/* see table B-2 of 25366920.pdf */
-	switch (msr.l & 0x07) {
+	switch (msr_lo & 0x07) {
 	case 5:
 		fsb = 100000;
 		break;
@@ -161,11 +158,11 @@ static unsigned int pentium_core_get_frequency(void)
 		pr_err("PCORE - MSR_FSB_FREQ undefined value\n");
 	}
 
-	rdmsrq(MSR_IA32_EBL_CR_POWERON, msr.q);
+	rdmsr(MSR_IA32_EBL_CR_POWERON, msr_lo, msr_tmp);
 	pr_debug("PCORE - MSR_IA32_EBL_CR_POWERON: 0x%x 0x%x\n",
-			msr.l, msr.h);
+			msr_lo, msr_tmp);
 
-	msr_tmp = (msr.l >> 22) & 0x1f;
+	msr_tmp = (msr_lo >> 22) & 0x1f;
 	pr_debug("bits 22-26 are 0x%x, speed is %u\n",
 			msr_tmp, (msr_tmp * fsb));
 
@@ -177,8 +174,7 @@ static unsigned int pentium_core_get_frequency(void)
 static unsigned int pentium4_get_frequency(void)
 {
 	struct cpuinfo_x86 *c = &boot_cpu_data;
-	struct msr msr;
-	u32 mult;
+	u32 msr_lo, msr_hi, mult;
 	unsigned int fsb = 0;
 	unsigned int ret;
 	u8 fsb_code;
@@ -191,16 +187,16 @@ static unsigned int pentium4_get_frequency(void)
 	if (c->x86_model < 2)
 		return cpu_khz;
 
-	rdmsrq(0x2c, msr.q);
+	rdmsr(0x2c, msr_lo, msr_hi);
 
-	pr_debug("P4 - MSR_EBC_FREQUENCY_ID: 0x%x 0x%x\n", msr.l, msr.h);
+	pr_debug("P4 - MSR_EBC_FREQUENCY_ID: 0x%x 0x%x\n", msr_lo, msr_hi);
 
 	/* decode the FSB: see IA-32 Intel (C) Architecture Software
 	 * Developer's Manual, Volume 3: System Prgramming Guide,
 	 * revision #12 in Table B-1: MSRs in the Pentium 4 and
 	 * Intel Xeon Processors, on page B-4 and B-5.
 	 */
-	fsb_code = (msr.l >> 16) & 0x7;
+	fsb_code = (msr_lo >> 16) & 0x7;
 	switch (fsb_code) {
 	case 0:
 		fsb = 100 * 1000;
@@ -218,7 +214,7 @@ static unsigned int pentium4_get_frequency(void)
 				"Please send an e-mail to <linux@brodo.de>\n");
 
 	/* Multiplier. */
-	mult = msr.l >> 24;
+	mult = msr_lo >> 24;
 
 	pr_debug("P4 - FSB %u kHz; Multiplier %u; Speed %u kHz\n",
 			fsb, mult, (fsb * mult));
@@ -259,8 +255,7 @@ EXPORT_SYMBOL_GPL(speedstep_get_frequency);
 enum speedstep_processor speedstep_detect_processor(void)
 {
 	struct cpuinfo_x86 *c = &cpu_data(0);
-	struct msr msr;
-	u32 ebx;
+	u32 ebx, msr_lo, msr_hi;
 
 	pr_debug("x86: %x, model: %x\n", c->x86, c->x86_model);
 
@@ -348,11 +343,11 @@ enum speedstep_processor speedstep_detect_processor(void)
 
 		/* all mobile PIII Coppermines have FSB 100 MHz
 		 * ==> sort out a few desktop PIIIs. */
-		rdmsrq(MSR_IA32_EBL_CR_POWERON, msr.q);
+		rdmsr(MSR_IA32_EBL_CR_POWERON, msr_lo, msr_hi);
 		pr_debug("Coppermine: MSR_IA32_EBL_CR_POWERON is 0x%x, 0x%x\n",
-				msr.l, msr.h);
-		msr.l &= 0x00c0000;
-		if (msr.l != 0x0080000)
+				msr_lo, msr_hi);
+		msr_lo &= 0x00c0000;
+		if (msr_lo != 0x0080000)
 			return 0;
 
 		/*
@@ -361,11 +356,11 @@ enum speedstep_processor speedstep_detect_processor(void)
 		 * it has SpeedStep technology if either
 		 * bit 56 or 57 is set
 		 */
-		rdmsrq(MSR_IA32_PLATFORM_ID, msr.q);
+		rdmsr(MSR_IA32_PLATFORM_ID, msr_lo, msr_hi);
 		pr_debug("Coppermine: MSR_IA32_PLATFORM ID is 0x%x, 0x%x\n",
-				msr.l, msr.h);
-		if ((msr.h & (1<<18)) &&
-		    (relaxed_check ? 1 : (msr.h & (3<<24)))) {
+				msr_lo, msr_hi);
+		if ((msr_hi & (1<<18)) &&
+		    (relaxed_check ? 1 : (msr_hi & (3<<24)))) {
 			if (c->x86_stepping == 0x01) {
 				pr_debug("early PIII version\n");
 				return SPEEDSTEP_CPU_PIII_C_EARLY;

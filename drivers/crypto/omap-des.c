@@ -1017,8 +1017,10 @@ static int omap_des_probe(struct platform_device *pdev)
 
 		err = devm_request_irq(dev, irq, omap_des_irq, 0,
 				dev_name(dev), dd);
-		if (err)
+		if (err) {
+			dev_err(dev, "Unable to grab omap-des IRQ\n");
 			goto err_irq;
+		}
 	}
 
 

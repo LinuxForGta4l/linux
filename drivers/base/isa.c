@@ -166,16 +166,14 @@ static int __init isa_bus_init(void)
 	int error;
 
 	error = bus_register(&isa_bus_type);
-	if (error)
-		return error;
-
-	isa_bus = root_device_register("isa");
-	if (IS_ERR(isa_bus)) {
-		bus_unregister(&isa_bus_type);
-		return PTR_ERR(isa_bus);
+	if (!error) {
+		isa_bus = root_device_register("isa");
+		if (IS_ERR(isa_bus)) {
+			error = PTR_ERR(isa_bus);
+			bus_unregister(&isa_bus_type);
+		}
 	}
-
-	return 0;
+	return error;
 }
 
 postcore_initcall(isa_bus_init);

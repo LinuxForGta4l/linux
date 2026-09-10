@@ -75,8 +75,6 @@ required:
   - interrupts
   - clocks
   - clock-names
-  - resets
-  - reset-names
   - ports
 
 additionalProperties: false

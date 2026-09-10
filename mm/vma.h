@@ -2,14 +2,7 @@
 /*
  * vma.h
  *
- * Core VMA manipulation API implemented in vma.c, vma_init.c and vma_exec.c.
- *
- * Note that, in order for VMA logic to be userland testable, this header
- * intentionally includes no dependencies.
- *
- * This is specifically scoped to mm-only. Users of this functionality (other
- * than the core VMA implementation itself) should not include this header
- * directly, but rather include internal.h.
+ * Core VMA manipulation API implemented in vma.c.
  */
 #ifndef __MM_VMA_H
 #define __MM_VMA_H
@@ -237,62 +230,11 @@ static inline bool vmg_nomem(struct vma_merge_struct *vmg)
 	return vmg->state == VMA_MERGE_ERROR_NOMEM;
 }
 
-static inline pgoff_t vmg_start_pgoff(const struct vma_merge_struct *vmg)
+/* Assumes addr >= vma->vm_start. */
+static inline pgoff_t vma_pgoff_offset(struct vm_area_struct *vma,
+				       unsigned long addr)
 {
-	return vmg->pgoff;
-}
-
-static inline pgoff_t vmg_pages(const struct vma_merge_struct *vmg)
-{
-	const unsigned long size = vmg->end - vmg->start;
-
-	return size >> PAGE_SHIFT;
-}
-
-static inline pgoff_t vmg_end_pgoff(const struct vma_merge_struct *vmg)
-{
-	return vmg_start_pgoff(vmg) + vmg_pages(vmg);
-}
-
-static inline void assert_sane_pgoff(struct vm_area_struct *vma, pgoff_t pgoff)
-{
-	/* nommu doesn't set a virtual pgoff for anon VMAs. */
-	if (!IS_ENABLED(CONFIG_MMU))
-		return;
-	/*
-	 * File-backed VMAs have arbitrary page offset (either page offset into
-	 * file or for pfnmap the PFN of the start of the range or drivers may
-	 * set arbitrary page offset).
-	 */
-	if (!vma_is_anonymous(vma))
-		return;
-	/* MAP_PRIVATE-/dev/zero is anon, non-NULL vm_file, but has file pgoff. */
-	if (vma->vm_file)
-		return;
-	/* If faulted in, could have been remapped. */
-	if (vma->anon_vma)
-		return;
-	/* OK this is really an anon VMA - expect virtual page offset. */
-	VM_WARN_ON_ONCE(pgoff != vma->vm_start >> PAGE_SHIFT);
-}
-
-static inline void vma_set_pgoff(struct vm_area_struct *vma, pgoff_t pgoff)
-{
-	vma_assert_can_modify(vma);
-	assert_sane_pgoff(vma, pgoff);
-	vma->vm_pgoff = pgoff;
-}
-
-static inline void vma_add_pgoff(struct vm_area_struct *vma, pgoff_t delta)
-{
-	vma_assert_can_modify(vma);
-	vma_set_pgoff(vma, vma_start_pgoff(vma) + delta);
-}
-
-static inline void vma_sub_pgoff(struct vm_area_struct *vma, pgoff_t delta)
-{
-	vma_assert_can_modify(vma);
-	vma_set_pgoff(vma, vma_start_pgoff(vma) - delta);
+	return vma->vm_pgoff + PHYS_PFN(addr - vma->vm_start);
 }
 
 #define VMG_STATE(name, mm_, vmi_, start_, end_, vma_flags_, pgoff_)	\
@@ -316,7 +258,7 @@ static inline void vma_sub_pgoff(struct vm_area_struct *vma, pgoff_t delta)
 		.start = start_,				\
 		.end = end_,					\
 		.vm_flags = vma_->vm_flags,			\
-		.pgoff = linear_page_index(vma_, start_),	\
+		.pgoff = vma_pgoff_offset(vma_, start_),	\
 		.file = vma_->vm_file,				\
 		.anon_vma = vma_->anon_vma,			\
 		.policy = vma_policy(vma_),			\
@@ -333,7 +275,8 @@ void validate_mm(struct mm_struct *mm);
 
 __must_check int vma_expand(struct vma_merge_struct *vmg);
 __must_check int vma_shrink(struct vma_iterator *vmi,
-		struct vm_area_struct *vma, unsigned long end);
+		struct vm_area_struct *vma,
+		unsigned long start, unsigned long end, pgoff_t pgoff);
 
 static inline int vma_iter_store_gfp(struct vma_iterator *vmi,
 			struct vm_area_struct *vma, gfp_t gfp)
@@ -367,7 +310,7 @@ static inline void compat_set_vma_from_desc(struct vm_area_struct *vma,
 	 */
 
 	/* Mutable fields. Populated with initial state. */
-	vma_set_pgoff(vma, desc->pgoff);
+	vma->vm_pgoff = desc->pgoff;
 	if (desc->vm_file != vma->vm_file)
 		vma_set_file(vma, desc->vm_file);
 	vma->flags = desc->vma_flags;
@@ -517,7 +460,7 @@ int mm_take_all_locks(struct mm_struct *mm);
 void mm_drop_all_locks(struct mm_struct *mm);
 
 unsigned long mmap_region(struct file *file, unsigned long addr,
-		unsigned long len, vma_flags_t vma_flags, unsigned long pgoff,
+		unsigned long len, vm_flags_t vm_flags, unsigned long pgoff,
 		struct list_head *uf);
 
 int do_brk_flags(struct vma_iterator *vmi, struct vm_area_struct *brkvma,
@@ -541,11 +484,9 @@ static inline bool vma_wants_manual_pte_write_upgrade(struct vm_area_struct *vma
 }
 
 #ifdef CONFIG_MMU
-static inline pgprot_t vma_pgprot_modify(pgprot_t oldprot, vma_flags_t vma_flags)
+static inline pgprot_t vm_pgprot_modify(pgprot_t oldprot, vm_flags_t vm_flags)
 {
-	const pgprot_t prot = vma_flags_to_page_prot(vma_flags);
-
-	return pgprot_modify(oldprot, prot);
+	return pgprot_modify(oldprot, vm_get_page_prot(vm_flags));
 }
 #endif
 
@@ -811,10 +752,5 @@ static inline bool map_deny_write_exec(const vma_flags_t *old,
 	return false;
 }
 #endif
-
-struct vm_area_struct *__install_special_mapping(struct mm_struct *mm,
-		unsigned long addr, unsigned long len,
-		vm_flags_t vm_flags, void *priv,
-		const struct vm_operations_struct *ops);
 
 #endif	/* __MM_VMA_H */

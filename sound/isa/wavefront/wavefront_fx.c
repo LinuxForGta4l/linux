@@ -232,32 +232,41 @@ snd_wavefront_fx_start (snd_wavefront_t *dev)
 {
 	unsigned int i;
 	int err;
-	const struct firmware *firmware __free(firmware) = NULL;
+	const struct firmware *firmware = NULL;
 
 	if (dev->fx_initialized)
 		return 0;
 
 	err = request_firmware(&firmware, "yamaha/yss225_registers.bin",
 			       dev->card->dev);
-	if (err < 0)
-		return -1;
+	if (err < 0) {
+		err = -1;
+		goto out;
+	}
 
 	for (i = 0; i + 1 < firmware->size; i += 2) {
 		if (firmware->data[i] >= 8 && firmware->data[i] < 16) {
 			outb(firmware->data[i + 1],
 			     dev->base + firmware->data[i]);
 		} else if (firmware->data[i] == WAIT_IDLE) {
-			if (!wavefront_fx_idle(dev))
-				return -1;
+			if (!wavefront_fx_idle(dev)) {
+				err = -1;
+				goto out;
+			}
 		} else {
 			dev_err(dev->card->dev,
 				"invalid address in register data\n");
-			return -1;
+			err = -1;
+			goto out;
 		}
 	}
 
 	dev->fx_initialized = 1;
-	return 0;
+	err = 0;
+
+out:
+	release_firmware(firmware);
+	return err;
 }
 
 MODULE_FIRMWARE("yamaha/yss225_registers.bin");

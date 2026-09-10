@@ -146,9 +146,10 @@ struct cpuset {
 	nodemask_t old_mems_allowed;
 
 	/*
-	 * For linking impacted cpusets during an attach operation.
+	 * Tasks are being attached to this cpuset.  Used to prevent
+	 * zeroing cpus/mems_allowed between ->can_attach() and ->attach().
 	 */
-	struct llist_node attach_node;
+	int attach_in_progress;
 
 	/* partition root state */
 	int partition_root_state;
@@ -164,7 +165,7 @@ struct cpuset {
 	 * number of SCHED_DEADLINE tasks attached to this cpuset, so that we
 	 * know when to rebuild associated root domain bandwidth information.
 	 */
-	atomic_t nr_deadline_tasks;
+	int nr_deadline_tasks;
 	int nr_migrate_dl_tasks;
 	/* DL bandwidth that needs destination reservation for this attach. */
 	u64 sum_migrate_dl_bw;
@@ -268,7 +269,10 @@ static inline int nr_cpusets(void)
 static inline bool cpuset_is_populated(struct cpuset *cs)
 {
 	lockdep_assert_cpuset_lock_held();
-	return cgroup_is_populated(cs->css.cgroup);
+
+	/* Cpusets in the process of attaching should be considered as populated */
+	return cgroup_is_populated(cs->css.cgroup) ||
+		cs->attach_in_progress;
 }
 
 /**

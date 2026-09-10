@@ -35,7 +35,6 @@ Contents:
    intel/idpf
    intel/igb
    intel/igbvf
-   intel/ixd
    intel/ixgbe
    intel/ixgbevf
    intel/i40e

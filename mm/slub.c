@@ -53,7 +53,6 @@
 #include <trace/events/kmem.h>
 
 #include "internal.h"
-#include "page_alloc.h"
 
 /*
  * Lock order:
@@ -3264,8 +3263,7 @@ static inline struct slab *alloc_slab_page(gfp_t flags, int node,
 	else if (node == NUMA_NO_NODE)
 		page = alloc_frozen_pages(flags, order);
 	else
-		page = __alloc_frozen_pages(flags, order, node, NULL,
-					    ALLOC_DEFAULT);
+		page = __alloc_frozen_pages(flags, order, node, NULL);
 
 	if (!page)
 		return NULL;
@@ -5275,8 +5273,7 @@ static void *___kmalloc_large_node(size_t size, gfp_t flags, int node)
 	if (node == NUMA_NO_NODE)
 		page = alloc_frozen_pages_noprof(flags, order);
 	else
-		page = __alloc_frozen_pages_noprof(flags, order, node, NULL,
-						   ALLOC_DEFAULT);
+		page = __alloc_frozen_pages_noprof(flags, order, node, NULL);
 
 	if (page) {
 		ptr = page_address(page);
@@ -5380,7 +5377,15 @@ static void *__kmalloc_nolock_noprof(DECL_TOKEN_PARAMS(size, token), gfp_t gfp_f
 	if (unlikely(!size))
 		return ZERO_SIZE_PTR;
 
-	if (!can_spin_trylock())
+	/*
+	 * See the comment for the same check in
+	 * alloc_frozen_pages_nolock_noprof()
+	 */
+	if (IS_ENABLED(CONFIG_PREEMPT_RT) && (in_nmi() || in_hardirq()))
+		return NULL;
+
+	/* On UP, spin_trylock() always succeeds even when it is locked */
+	if (!IS_ENABLED(CONFIG_SMP) && in_nmi())
 		return NULL;
 
 retry:

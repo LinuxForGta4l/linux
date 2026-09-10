@@ -18,14 +18,9 @@ description: |
 
 properties:
   compatible:
-    oneOf:
-      - enum:
-          - syna,rmi4-i2c
-          - syna,rmi4-spi
-      - items:
-          - enum:
-              - syna,rmi4-s3706b  # OnePlus 6/6T
-          - const: syna,rmi4-i2c
+    enum:
+      - syna,rmi4-i2c
+      - syna,rmi4-spi
 
   reg:
     maxItems: 1

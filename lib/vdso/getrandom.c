@@ -8,7 +8,6 @@
 #include <vdso/datapage.h>
 #include <vdso/getrandom.h>
 #include <vdso/limits.h>
-#include <vdso/page.h>
 #include <vdso/unaligned.h>
 #include <asm/barrier.h>
 #include <asm/vdso/getrandom.h>
@@ -18,6 +17,11 @@
 
 /* Bring in default accessors */
 #include <vdso/vsyscall.h>
+
+#undef PAGE_SIZE
+#undef PAGE_MASK
+#define PAGE_SIZE (1UL << CONFIG_PAGE_SHIFT)
+#define PAGE_MASK (~(PAGE_SIZE - 1))
 
 #define MEMCPY_AND_ZERO_SRC(type, dst, src, len) do {				\
 	while (len >= sizeof(type)) {						\

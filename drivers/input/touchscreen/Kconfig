@@ -1414,4 +1414,19 @@ config TOUCHSCREEN_HIMAX_HX83112B
 	  To compile this driver as a module, choose M here: the
 	  module will be called himax_hx83112b.
 
+config TOUCHSCREEN_NOVATEK_NT36523_I2C
+	tristate "Novatek NT36523 touchscreen (I2C)"
+	depends on I2C
+	depends on GPIOLIB || COMPILE_TEST
+	help
+	  Novatek NT36523-series TCM touch controller on I2C.
+	  Samsung Galaxy Tab A7 (gta4l): address 0x63, "novatek,NVT-ts".
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called novatek-nt36523.
+
+source "drivers/input/touchscreen/novatek-nt36523/Kconfig"
+source "drivers/input/touchscreen/nt36xxx/Kconfig"
+
+
 endif

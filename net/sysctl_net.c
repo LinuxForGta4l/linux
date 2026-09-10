@@ -114,17 +114,16 @@ out1:
 	goto out;
 }
 
-/* Return error when sysctls for non-init netns are unsafe by verifying:
+/* Verify that sysctls for non-init netns are safe by either:
  * 1) being read-only, or
  * 2) having a data pointer which points outside of the global kernel/module
  *    data segment, and rather into the heap where a per-net object was
  *    allocated.
  */
-static int ensure_safe_net_sysctl(struct net *net, const char *path,
-				  const struct ctl_table *table,
-				  size_t table_size)
+static void ensure_safe_net_sysctl(struct net *net, const char *path,
+				   struct ctl_table *table, size_t table_size)
 {
-	const struct ctl_table *ent;
+	struct ctl_table *ent;
 
 	pr_debug("Registering net sysctl (net %p): %s\n", net, path);
 	ent = table;
@@ -150,24 +149,24 @@ static int ensure_safe_net_sysctl(struct net *net, const char *path,
 		else
 			continue;
 
-		/* Warn on netns leak. */
+		/* If it is writable and points to kernel/module global
+		 * data, then it's probably a netns leak.
+		 */
 		WARN(1, "sysctl %s/%s: data points to %s global data: %ps\n",
 		     path, ent->procname, where, ent->data);
 
-		return -EACCES;
+		/* Make it "safe" by dropping writable perms */
+		ent->mode &= ~0222;
 	}
-
-	return 0;
 }
 
 struct ctl_table_header *register_net_sysctl_sz(struct net *net,
 						const char *path,
-						const struct ctl_table *table,
+						struct ctl_table *table,
 						size_t table_size)
 {
 	if (!net_eq(net, &init_net))
-		if (ensure_safe_net_sysctl(net, path, table, table_size))
-			return NULL;
+		ensure_safe_net_sysctl(net, path, table, table_size);
 
 	return __register_sysctl_table(&net->sysctls, path, table, table_size);
 }

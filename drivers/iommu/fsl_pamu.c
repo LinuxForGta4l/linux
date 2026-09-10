@@ -8,7 +8,6 @@
 
 #include "fsl_pamu.h"
 
-#include <linux/cleanup.h>
 #include <linux/fsl/guts.h>
 #include <linux/interrupt.h>
 #include <linux/genalloc.h>
@@ -934,6 +933,7 @@ static struct platform_driver fsl_of_pamu_driver = {
 static __init int fsl_pamu_init(void)
 {
 	struct platform_device *pdev = NULL;
+	struct device_node *np;
 	int ret;
 
 	/*
@@ -955,8 +955,7 @@ static __init int fsl_pamu_init(void)
 	 * PAMU node would require significant changes to a lot of code.
 	 */
 
-	struct device_node *np __free(device_node) =
-			of_find_compatible_node(NULL, NULL, "fsl,pamu");
+	np = of_find_compatible_node(NULL, NULL, "fsl,pamu");
 	if (!np) {
 		pr_err("could not find a PAMU node\n");
 		return -ENODEV;
@@ -965,7 +964,7 @@ static __init int fsl_pamu_init(void)
 	ret = platform_driver_register(&fsl_of_pamu_driver);
 	if (ret) {
 		pr_err("could not register driver (err=%i)\n", ret);
-		return ret;
+		goto error_driver_register;
 	}
 
 	pdev = platform_device_alloc("fsl-of-pamu", 0);
@@ -974,8 +973,7 @@ static __init int fsl_pamu_init(void)
 		ret = -ENOMEM;
 		goto error_device_alloc;
 	}
-
-	platform_device_set_of_node(pdev, np);
+	pdev->dev.of_node = of_node_get(np);
 
 	ret = pamu_domain_init();
 	if (ret)
@@ -990,10 +988,16 @@ static __init int fsl_pamu_init(void)
 	return 0;
 
 error_device_add:
+	of_node_put(pdev->dev.of_node);
+	pdev->dev.of_node = NULL;
+
 	platform_device_put(pdev);
 
 error_device_alloc:
 	platform_driver_unregister(&fsl_of_pamu_driver);
+
+error_driver_register:
+	of_node_put(np);
 
 	return ret;
 }

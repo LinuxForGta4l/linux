@@ -1618,7 +1618,11 @@ static int qlcnic_83xx_check_hw_status(struct qlcnic_adapter *p_dev)
 	if (err)
 		return err;
 
-	return qlcnic_83xx_check_heartbeat(p_dev);
+	err = qlcnic_83xx_check_heartbeat(p_dev);
+	if (err)
+		return err;
+
+	return err;
 }
 
 static int qlcnic_83xx_poll_reg(struct qlcnic_adapter *p_dev, u32 addr,

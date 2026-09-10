@@ -273,8 +273,7 @@ static int debugfs_locked_down(struct inode *inode,
 	    (!real_fops ||
 	     (!real_fops->unlocked_ioctl &&
 	      !real_fops->compat_ioctl &&
-	      !real_fops->mmap &&
-	      !real_fops->mmap_prepare)))
+	      !real_fops->mmap)))
 		return 0;
 
 	if (security_locked_down(LOCKDOWN_DEBUGFS))

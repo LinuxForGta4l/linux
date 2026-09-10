@@ -246,7 +246,11 @@ static inline void gic_pmr_mask_irqs(void)
 	WARN_ON_ONCE(true);
 }
 
-static inline void gic_unmask_pnmis(void) {}
+static inline void gic_arch_enable_irqs(void)
+{
+	/* Should not get called. */
+	WARN_ON_ONCE(true);
+}
 
 static inline bool gic_has_relaxed_pmr_sync(void)
 {

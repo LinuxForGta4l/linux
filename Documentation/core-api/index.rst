@@ -81,7 +81,6 @@ Documentation/locking/index.rst for more related documentation.
    padata
    ../RCU/index
    wrappers/memory-barriers.rst
-   SMP
 
 Low-level hardware management
 =============================

@@ -127,16 +127,9 @@ additionalProperties / unevaluatedProperties
         two above cases ('false').
 
 examples
-  Optional, although expected outside of bindings describing common properties
-  or sub-blocks of more complex devices. A list of one or more DTS hunks
-  implementing this binding only.  Example should not contain unrelated device
-  nodes, e.g. consumer nodes in a provider binding, other nodes referenced by
-  phandles or node labels which are not directly referenced in the example
-  itself. Phandles in the example do not have to be resolvable.  The example
-  must be complete as much as possible - have most of the properties - and look
-  readable to developers, thus for example use known defines for interrupt or
-  GPIO flags. Example should not contain 'status' property in typical cases.
-
+  Optional. A list of one or more DTS hunks implementing this binding only.
+  Example should not contain unrelated device nodes, e.g. consumer nodes in a
+  provider binding, other nodes referenced by phandle.
   Note: YAML doesn't allow leading tabs, so spaces must be used instead.
 
 Unless noted otherwise, all above schema properties are required.

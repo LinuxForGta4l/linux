@@ -18,7 +18,6 @@
 #include <linux/of.h>
 #include <linux/of_net.h>
 #include <net/dsa_stubs.h>
-#include <net/netdev_lock.h>
 #include <net/sch_generic.h>
 
 #include "conduit.h"
@@ -1383,7 +1382,7 @@ static int dsa_switch_parse_of(struct dsa_switch *ds, struct device_node *dn)
 
 static int dev_is_class(struct device *dev, const void *class)
 {
-	if (dev->class && !strcmp(dev->class->name, class))
+	if (dev->class != NULL && !strcmp(dev->class->name, class))
 		return 1;
 
 	return 0;
@@ -1621,23 +1620,10 @@ void dsa_switch_shutdown(struct dsa_switch *ds)
 
 	rtnl_lock();
 
-	dsa_switch_for_each_cpu_port(dp, ds) {
-		if (!(dp->conduit->flags & IFF_UP))
-			continue;
-		list_add_tail(&dp->conduit->close_list, &close_list);
-		netdev_lock_ops(dp->conduit);
-	}
+	dsa_switch_for_each_cpu_port(dp, ds)
+		list_add(&dp->conduit->close_list, &close_list);
 
-	netif_close_many(&close_list, false);
-
-	while (!list_empty(&close_list)) {
-		struct net_device *conduit;
-
-		conduit = list_first_entry(&close_list, struct net_device,
-					   close_list);
-		netdev_unlock_ops(conduit);
-		list_del_init(&conduit->close_list);
-	}
+	netif_close_many(&close_list, true);
 
 	dsa_switch_for_each_user_port(dp, ds) {
 		conduit = dsa_port_to_conduit(dp);

@@ -11,6 +11,5 @@
 
 bool snd_soc_acpi_intel_sdca_is_device_rt712_vb(void *arg);
 bool snd_soc_acpi_intel_no_function_topology(void *arg);
-bool snd_soc_acpi_intel_rt712_vb_no_function_topology(void *arg);
 
 #endif

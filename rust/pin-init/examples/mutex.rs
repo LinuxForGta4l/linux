@@ -79,7 +79,11 @@ impl<T> CMutex<T> {
             wait_list <- ListHead::new(),
             spin_lock: SpinLock::new(),
             locked: Cell::new(false),
-            data <- UnsafeCell::pin_init(val),
+            data <- unsafe {
+                pin_init_from_closure(|slot: *mut UnsafeCell<T>| {
+                    val.__pinned_init(slot.cast::<T>())
+                })
+            },
         })
     }
 
@@ -87,7 +91,7 @@ impl<T> CMutex<T> {
     pub fn lock(&self) -> Pin<CMutexGuard<'_, T>> {
         let mut sguard = self.spin_lock.acquire();
         if self.locked.get() {
-            stack_pin_init!(let _wait_entry = WaitEntry::insert_new(&self.wait_list));
+            stack_pin_init!(let wait_entry = WaitEntry::insert_new(&self.wait_list));
             // println!("wait list length: {}", self.wait_list.size());
             while self.locked.get() {
                 drop(sguard);
@@ -95,6 +99,9 @@ impl<T> CMutex<T> {
                 thread::park();
                 sguard = self.spin_lock.acquire();
             }
+            // This does have an effect, as the ListHead inside wait_entry implements Drop!
+            #[expect(clippy::drop_non_drop)]
+            drop(wait_entry);
         }
         self.locked.set(true);
         unsafe {

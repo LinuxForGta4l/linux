@@ -93,7 +93,7 @@ void udp_tunnel6_xmit_skb(struct dst_entry *dst, struct sock *sk,
 	uh->dest = dst_port;
 	uh->source = src_port;
 
-	udp_set_len(uh, skb->len);
+	uh->len = htons(skb->len);
 
 	skb_dst_set(skb, dst);
 

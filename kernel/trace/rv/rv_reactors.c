@@ -479,4 +479,3 @@ void rv_react(struct rv_monitor *monitor, const char *msg, ...)
 
 	va_end(args);
 }
-EXPORT_SYMBOL_GPL(rv_react);

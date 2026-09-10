@@ -11,13 +11,6 @@
 #include <linux/pm_qos.h>
 #include <linux/platform_profile.h>
 
-#if IS_MODULE(CONFIG_X86_AMD_PSTATE_UT)
-#define EXPORT_SYMBOL_FOR_PSTATE_UT(symbol) \
-	EXPORT_SYMBOL_FOR_MODULES(symbol, "amd-pstate-ut")
-#else
-#define EXPORT_SYMBOL_FOR_PSTATE_UT(symbol)
-#endif
-
 /*********************************************************************
  *                        AMD P-state INTERFACE                       *
  *********************************************************************/
@@ -39,7 +32,6 @@
  * @min_limit_perf: Cached value of the performance corresponding to policy->min
  * @max_limit_perf: Cached value of the performance corresponding to policy->max
  * @bios_min_perf: Cached perf value corresponding to the "Requested CPU Min Frequency" BIOS option
- * @val: Raw 64-bit value for atomic access via READ_ONCE()/WRITE_ONCE()
  */
 union perf_cached {
 	struct {
@@ -97,12 +89,7 @@ struct amd_aperf_mperf {
  * @epp_default_ac: Default EPP value for AC power source
  * @epp_default_dc: Default EPP value for DC power source
  * @dynamic_epp: Whether dynamic EPP is enabled
- * @raw_epp: Whether the last EPP write was a raw numeric value rather than a
- *	     named preference
  * @power_nb: Notifier block for power events
- * @current_profile: Currently selected platform profile option
- * @ppdev: Device registered with the platform profile handler
- * @profile_name: Name under which @ppdev is registered
  *
  * The amd_cpudata is key private data for each CPU thread in AMD P-State, and
  * represents all the attributes and goals that AMD P-State requests at runtime.
@@ -166,8 +153,6 @@ ssize_t store_energy_performance_preference(struct cpufreq_policy *policy,
 				    const char *buf, size_t count);
 ssize_t show_energy_performance_preference(struct cpufreq_policy *policy, char *buf);
 void amd_pstate_clear_dynamic_epp(struct cpufreq_policy *policy);
-ssize_t store_amd_pstate_floor_freq(struct cpufreq_policy *policy, const char *buf, size_t count);
-ssize_t show_amd_pstate_floor_freq(struct cpufreq_policy *policy, char *buf);
 
 struct freq_attr;
 

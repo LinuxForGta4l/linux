@@ -1,17 +1,13 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-#include "perf_api_probe.h"
 
-#include <errno.h>
-
-#include <perf/cpumap.h>
-
-#include "cloexec.h"
-#include "evlist.h"
-#include "evsel.h"
-#include "parse-events.h"
 #include "perf-sys.h"
-#include "pmu.h"
-#include "pmus.h"
+#include "util/cloexec.h"
+#include "util/evlist.h"
+#include "util/evsel.h"
+#include "util/parse-events.h"
+#include "util/perf_api_probe.h"
+#include <perf/cpumap.h>
+#include <errno.h>
 
 typedef void (*setup_probe_fn_t)(struct evsel *evsel);
 
@@ -57,7 +53,7 @@ static int perf_do_probe_api(setup_probe_fn_t fn, struct perf_cpu cpu, const cha
 	err = 0;
 
 out_delete:
-	evlist__put(evlist);
+	evlist__delete(evlist);
 	return err;
 }
 

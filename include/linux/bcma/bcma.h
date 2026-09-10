@@ -486,6 +486,4 @@ extern u32 bcma_core_dma_translation(struct bcma_device *core);
 
 extern unsigned int bcma_core_irq(struct bcma_device *core, int num);
 
-extern const struct software_node bcma_gpio_swnode;
-
 #endif /* LINUX_BCMA_H_ */

@@ -6,8 +6,6 @@
 #include <linux/spinlock.h>
 #include <linux/time.h>
 
-struct timekeeper;
-
 /*
  * timekeeping debug functions
  */
@@ -49,24 +47,5 @@ void timekeeper_unlock_irqrestore(unsigned long flags);
 
 /* NTP specific interface to access the current seconds value */
 long ktime_get_ntp_seconds(unsigned int id);
-
-#ifdef CONFIG_GENERIC_GETTIMEOFDAY
-
-extern void update_vsyscall(struct timekeeper *tk);
-extern void update_vsyscall_tz(void);
-extern void vdso_time_update_aux(struct timekeeper *tk);
-
-#else
-
-static inline void update_vsyscall(struct timekeeper *tk)
-{
-}
-static inline void update_vsyscall_tz(void)
-{
-}
-static inline void vdso_time_update_aux(struct timekeeper *tk)
-{
-}
-#endif
 
 #endif /* _TIMEKEEPING_INTERNAL_H */

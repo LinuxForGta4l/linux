@@ -6,7 +6,6 @@
 
 #include <assert.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <sched.h>
 #include <stdbool.h>
 #include <stdlib.h>

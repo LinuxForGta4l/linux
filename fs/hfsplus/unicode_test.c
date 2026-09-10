@@ -39,7 +39,8 @@ static struct test_mock_string_env *setup_mock_str_env(u32 buf_size)
 
 static void free_mock_str_env(struct test_mock_string_env *env)
 {
-	kfree(env->buf);
+	if (env->buf)
+		kfree(env->buf);
 	kfree(env);
 }
 

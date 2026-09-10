@@ -3,9 +3,7 @@
 !/**/
 !*.c
 !*.h
-!*.mk
 !*.sh
 !.gitignore
 !config
-!config.*
 !Makefile

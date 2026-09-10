@@ -2,7 +2,7 @@
 #ifndef _LINUX_OBJTOOL_TYPES_H
 #define _LINUX_OBJTOOL_TYPES_H
 
-#ifndef __ASSEMBLER__
+#ifndef __ASSEMBLY__
 
 #include <linux/types.h>
 
@@ -18,7 +18,7 @@ struct unwind_hint {
 	u8		signal;
 };
 
-#endif /* __ASSEMBLER__ */
+#endif /* __ASSEMBLY__ */
 
 /*
  * UNWIND_HINT_TYPE_UNDEFINED: A blind spot in ORC coverage which can result in

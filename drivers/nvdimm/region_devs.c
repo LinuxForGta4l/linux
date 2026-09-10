@@ -1093,10 +1093,7 @@ int nvdimm_flush(struct nd_region *nd_region, struct bio *bio)
 	if (!nd_region->flush)
 		rc = generic_nvdimm_flush(nd_region);
 	else {
-		rc = nd_region->flush(nd_region, bio);
-		if (rc > 0)
-			return rc;
-		if (rc && rc != -ENOMEM)
+		if (nd_region->flush(nd_region, bio))
 			rc = -EIO;
 	}
 

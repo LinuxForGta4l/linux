@@ -345,7 +345,8 @@ static long cec_dqevent(struct cec_adapter *adap, struct cec_fh *fh,
 
 	if (copy_to_user(parg, &ev->ev, sizeof(ev->ev)))
 		err = -EFAULT;
-	kfree(ev);
+	if (ev_idx >= CEC_NUM_CORE_EVENTS)
+		kfree(ev);
 	fh->queued_events[ev_idx]--;
 	fh->total_queued_events--;
 
@@ -672,7 +673,7 @@ static int cec_release(struct inode *inode, struct file *filp)
 		list_del(&entry->list);
 		kfree(entry);
 	}
-	for (i = 0; i < CEC_NUM_EVENTS; i++) {
+	for (i = CEC_NUM_CORE_EVENTS; i < CEC_NUM_EVENTS; i++) {
 		while (!list_empty(&fh->events[i])) {
 			struct cec_event_entry *entry =
 				list_first_entry(&fh->events[i],

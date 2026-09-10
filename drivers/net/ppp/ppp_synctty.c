@@ -59,6 +59,8 @@ struct syncppp {
 	unsigned long	xmit_flags;
 	u32		xaccm[8];
 	u32		raccm;
+	unsigned int	bytes_sent;
+	unsigned int	bytes_rcvd;
 
 	struct sk_buff	*tpkt;
 	unsigned long	last_xmit;

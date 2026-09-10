@@ -1422,25 +1422,14 @@ end:
 #define I2C_SUBIP_DMA_TDLR_DEFAULT	7
 #define I2C_SUBIP_DMA_RDLR_DEFAULT	7
 
-static int thc_i2c_subip_bus_config(struct thc_device *dev, const struct thc_i2c_config *i2c_config)
+static int thc_i2c_subip_set_speed(struct thc_device *dev, const u32 speed,
+				   const u32 hcnt, const u32 lcnt)
 {
 	u32 hcnt_offset, lcnt_offset;
-	u32 read_size = sizeof(u32);
-	u32 val = 0;
+	u32 val;
 	int ret;
 
-	ret = thc_i2c_subip_pio_read(dev, THC_I2C_IC_TAR_OFFSET, &read_size, &val);
-	if (ret < 0)
-		return ret;
-
-	val &= ~(THC_I2C_IC_TAR_IC_TAR | THC_I2C_IC_TAR_IC_10BITADDR_MASTER);
-	val |= FIELD_PREP(THC_I2C_IC_TAR_IC_10BITADDR_MASTER, i2c_config->addr_mode);
-	val |= FIELD_PREP(THC_I2C_IC_TAR_IC_TAR, i2c_config->target_addr);
-	ret = thc_i2c_subip_pio_write(dev, THC_I2C_IC_TAR_OFFSET, sizeof(u32), &val);
-	if (ret < 0)
-		return ret;
-
-	switch (i2c_config->speed) {
+	switch (speed) {
 	case THC_I2C_STANDARD:
 		hcnt_offset = THC_I2C_IC_SS_SCL_HCNT_OFFSET;
 		lcnt_offset = THC_I2C_IC_SS_SCL_LCNT_OFFSET;
@@ -1457,40 +1446,22 @@ static int thc_i2c_subip_bus_config(struct thc_device *dev, const struct thc_i2c
 		break;
 
 	default:
-		dev_err_once(dev->dev, "Unsupported i2c speed %d\n", i2c_config->speed);
+		dev_err_once(dev->dev, "Unsupported i2c speed %d\n", speed);
 		ret = -EINVAL;
 		return ret;
 	}
 
-	ret = thc_i2c_subip_pio_write(dev, hcnt_offset, sizeof(u32), &i2c_config->scl_hcnt);
+	ret = thc_i2c_subip_pio_write(dev, hcnt_offset, sizeof(u32), &hcnt);
 	if (ret < 0)
 		return ret;
 
-	ret = thc_i2c_subip_pio_write(dev, lcnt_offset, sizeof(u32), &i2c_config->scl_lcnt);
+	ret = thc_i2c_subip_pio_write(dev, lcnt_offset, sizeof(u32), &lcnt);
 	if (ret < 0)
 		return ret;
 
 	val = I2C_SUBIP_CON_DEFAULT & ~THC_I2C_IC_CON_SPEED;
-	val |= FIELD_PREP(THC_I2C_IC_CON_SPEED, i2c_config->speed);
+	val |= FIELD_PREP(THC_I2C_IC_CON_SPEED, speed);
 	ret = thc_i2c_subip_pio_write(dev, THC_I2C_IC_CON_OFFSET, sizeof(u32), &val);
-	if (ret < 0)
-		return ret;
-
-	ret = thc_i2c_subip_pio_read(dev, THC_I2C_IC_SDA_HOLD_OFFSET, &read_size, &val);
-	if (ret < 0)
-		return ret;
-
-	if (i2c_config->sda_tx_hold) {
-		val &= ~THC_I2C_IC_SDA_HOLD_IC_SDA_TX_HOLD;
-		val |= FIELD_PREP(THC_I2C_IC_SDA_HOLD_IC_SDA_TX_HOLD, i2c_config->sda_tx_hold);
-	}
-
-	if (i2c_config->sda_rx_hold) {
-		val &= ~THC_I2C_IC_SDA_HOLD_IC_SDA_RX_HOLD;
-		val |= FIELD_PREP(THC_I2C_IC_SDA_HOLD_IC_SDA_RX_HOLD, i2c_config->sda_rx_hold);
-	}
-
-	ret = thc_i2c_subip_pio_write(dev, THC_I2C_IC_SDA_HOLD_OFFSET, sizeof(u32), &val);
 	if (ret < 0)
 		return ret;
 
@@ -1503,7 +1474,6 @@ static u32 i2c_subip_regs[] = {
 	THC_I2C_IC_INTR_MASK_OFFSET,
 	THC_I2C_IC_RX_TL_OFFSET,
 	THC_I2C_IC_TX_TL_OFFSET,
-	THC_I2C_IC_SDA_HOLD_OFFSET,
 	THC_I2C_IC_DMA_CR_OFFSET,
 	THC_I2C_IC_DMA_TDLR_OFFSET,
 	THC_I2C_IC_DMA_RDLR_OFFSET,
@@ -1520,18 +1490,19 @@ static u32 i2c_subip_regs[] = {
  * thc_i2c_subip_init - Initialize and configure THC I2C subsystem
  *
  * @dev: The pointer of THC private device context
- * @i2c_config: The pointer of THC I2C bus configure structure
+ * @target_address: Slave address of touch device (TIC)
+ * @speed: I2C bus frequency speed mode
+ * @hcnt: I2C clock SCL high count
+ * @lcnt: I2C clock SCL low count
  *
  * Return: 0 on success, other error codes on failed.
  */
-int thc_i2c_subip_init(struct thc_device *dev, const struct thc_i2c_config *i2c_config)
+int thc_i2c_subip_init(struct thc_device *dev, const u32 target_address,
+		       const u32 speed, const u32 hcnt, const u32 lcnt)
 {
 	u32 read_size = sizeof(u32);
 	u32 val;
 	int ret;
-
-	if (!dev || !i2c_config)
-		return -EINVAL;
 
 	ret = thc_i2c_subip_pio_read(dev, THC_I2C_IC_ENABLE_OFFSET, &read_size, &val);
 	if (ret < 0)
@@ -1542,7 +1513,17 @@ int thc_i2c_subip_init(struct thc_device *dev, const struct thc_i2c_config *i2c_
 	if (ret < 0)
 		return ret;
 
-	ret = thc_i2c_subip_bus_config(dev, i2c_config);
+	ret = thc_i2c_subip_pio_read(dev, THC_I2C_IC_TAR_OFFSET, &read_size, &val);
+	if (ret < 0)
+		return ret;
+
+	val &= ~THC_I2C_IC_TAR_IC_TAR;
+	val |= FIELD_PREP(THC_I2C_IC_TAR_IC_TAR, target_address);
+	ret = thc_i2c_subip_pio_write(dev, THC_I2C_IC_TAR_OFFSET, sizeof(u32), &val);
+	if (ret < 0)
+		return ret;
+
+	ret = thc_i2c_subip_set_speed(dev, speed, hcnt, lcnt);
 	if (ret < 0)
 		return ret;
 

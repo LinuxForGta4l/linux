@@ -21,7 +21,7 @@
 
 static void init_zhaoxin_cap(struct cpuinfo_x86 *c)
 {
-	u64 msr;
+	u32  lo, hi;
 
 	/* Test for Extended Feature Flags presence */
 	if (cpuid_eax(0xC0000000) >= 0xC0000001) {
@@ -29,17 +29,19 @@ static void init_zhaoxin_cap(struct cpuinfo_x86 *c)
 
 		/* Enable ACE unit, if present and disabled */
 		if ((tmp & (ACE_PRESENT | ACE_ENABLED)) == ACE_PRESENT) {
-			rdmsrq(MSR_ZHAOXIN_FCR57, msr);
+			rdmsr(MSR_ZHAOXIN_FCR57, lo, hi);
 			/* Enable ACE unit */
-			wrmsrq(MSR_ZHAOXIN_FCR57, msr | ACE_FCR);
+			lo |= ACE_FCR;
+			wrmsr(MSR_ZHAOXIN_FCR57, lo, hi);
 			pr_info("CPU: Enabled ACE h/w crypto\n");
 		}
 
 		/* Enable RNG unit, if present and disabled */
 		if ((tmp & (RNG_PRESENT | RNG_ENABLED)) == RNG_PRESENT) {
-			rdmsrq(MSR_ZHAOXIN_FCR57, msr);
+			rdmsr(MSR_ZHAOXIN_FCR57, lo, hi);
 			/* Enable RNG unit */
-			wrmsrq(MSR_ZHAOXIN_FCR57, msr | RNG_ENABLE);
+			lo |= RNG_ENABLE;
+			wrmsr(MSR_ZHAOXIN_FCR57, lo, hi);
 			pr_info("CPU: Enabled h/w RNG\n");
 		}
 

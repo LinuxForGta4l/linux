@@ -222,9 +222,10 @@ static int fsl_asrc_request_pair(int channels, struct fsl_asrc_pair *pair)
 	enum asrc_pair_index index = ASRC_INVALID_PAIR;
 	struct fsl_asrc *asrc = pair->asrc;
 	struct device *dev = &asrc->pdev->dev;
+	unsigned long lock_flags;
 	int i, ret = 0;
 
-	guard(spinlock_irqsave)(&asrc->lock);
+	spin_lock_irqsave(&asrc->lock, lock_flags);
 
 	for (i = ASRC_PAIR_A; i < ASRC_PAIR_MAX_NUM; i++) {
 		if (asrc->pair[i] != NULL)
@@ -249,6 +250,8 @@ static int fsl_asrc_request_pair(int channels, struct fsl_asrc_pair *pair)
 		pair->index = index;
 	}
 
+	spin_unlock_irqrestore(&asrc->lock, lock_flags);
+
 	return ret;
 }
 
@@ -262,16 +265,19 @@ static void fsl_asrc_release_pair(struct fsl_asrc_pair *pair)
 {
 	struct fsl_asrc *asrc = pair->asrc;
 	enum asrc_pair_index index = pair->index;
+	unsigned long lock_flags;
 
 	/* Make sure the pair is disabled */
 	regmap_update_bits(asrc->regmap, REG_ASRCTR,
 			   ASRCTR_ASRCEi_MASK(index), 0);
 
-	guard(spinlock_irqsave)(&asrc->lock);
+	spin_lock_irqsave(&asrc->lock, lock_flags);
 
 	asrc->channel_avail += pair->channels;
 	asrc->pair[index] = NULL;
 	pair->error = 0;
+
+	spin_unlock_irqrestore(&asrc->lock, lock_flags);
 }
 
 /**
@@ -1352,7 +1358,7 @@ static int fsl_asrc_probe(struct platform_device *pdev)
 	}
 
 	ret = of_property_read_u32(np, "fsl,asrc-format", &asrc_fmt);
-	asrc->asrc_format = asrc_fmt;
+	asrc->asrc_format = (__force snd_pcm_format_t)asrc_fmt;
 	if (ret) {
 		ret = of_property_read_u32(np, "fsl,asrc-width", &width);
 		if (ret) {

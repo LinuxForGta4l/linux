@@ -310,7 +310,7 @@ static int __svm_skip_emulated_instruction(struct kvm_vcpu *vcpu,
 		goto done;
 
 	if (nrips && svm->vmcb->control.next_rip != 0) {
-		WARN_ON_ONCE(!cpu_feature_enabled(X86_FEATURE_NRIPS));
+		WARN_ON_ONCE(!static_cpu_has(X86_FEATURE_NRIPS));
 		svm->next_rip = svm->vmcb->control.next_rip;
 	}
 
@@ -380,7 +380,7 @@ static int svm_update_soft_interrupt_rip(struct kvm_vcpu *vcpu, u8 vector)
 	if (nrips)
 		kvm_rip_write(vcpu, old_rip);
 
-	if (cpu_feature_enabled(X86_FEATURE_NRIPS))
+	if (static_cpu_has(X86_FEATURE_NRIPS))
 		svm->vmcb->control.next_rip = rip;
 
 	return 0;
@@ -583,7 +583,7 @@ static int svm_enable_virtualization_cpu(void)
 
 	wrmsrq(MSR_VM_HSAVE_PA, sd->save_area_pa);
 
-	if (cpu_feature_enabled(X86_FEATURE_TSCRATEMSR)) {
+	if (static_cpu_has(X86_FEATURE_TSCRATEMSR)) {
 		/*
 		 * Set the default value, even if we don't use TSC scaling
 		 * to avoid having stale value in the msr
@@ -1967,7 +1967,7 @@ static int pf_interception(struct kvm_vcpu *vcpu)
 	u64 error_code = svm->vmcb->control.exit_info_1;
 
 	return kvm_handle_page_fault(vcpu, error_code, fault_address,
-			cpu_feature_enabled(X86_FEATURE_DECODEASSISTS) ?
+			static_cpu_has(X86_FEATURE_DECODEASSISTS) ?
 			svm->vmcb->control.insn_bytes : NULL,
 			svm->vmcb->control.insn_len);
 }
@@ -2027,7 +2027,7 @@ static int npf_interception(struct kvm_vcpu *vcpu)
 
 	trace_kvm_page_fault(vcpu, gpa, error_code);
 	rc = kvm_mmu_page_fault(vcpu, gpa, error_code,
-				cpu_feature_enabled(X86_FEATURE_DECODEASSISTS) ?
+				static_cpu_has(X86_FEATURE_DECODEASSISTS) ?
 				svm->vmcb->control.insn_bytes : NULL,
 				svm->vmcb->control.insn_len);
 
@@ -2533,7 +2533,7 @@ static int iret_interception(struct kvm_vcpu *vcpu)
 
 static int invlpg_interception(struct kvm_vcpu *vcpu)
 {
-	if (!cpu_feature_enabled(X86_FEATURE_DECODEASSISTS))
+	if (!static_cpu_has(X86_FEATURE_DECODEASSISTS))
 		return kvm_emulate_instruction(vcpu, 0);
 
 	kvm_mmu_invlpg(vcpu, to_svm(vcpu)->vmcb->control.exit_info_1);
@@ -2581,7 +2581,7 @@ static int cr_interception(struct kvm_vcpu *vcpu)
 	unsigned long val;
 	int err;
 
-	if (!cpu_feature_enabled(X86_FEATURE_DECODEASSISTS))
+	if (!static_cpu_has(X86_FEATURE_DECODEASSISTS))
 		return emulate_on_interception(vcpu);
 
 	if (unlikely((svm->vmcb->control.exit_info_1 & CR_VALID) == 0))
@@ -4190,7 +4190,7 @@ static void svm_flush_tlb_asid(struct kvm_vcpu *vcpu)
 	 * unconditionally does a TLB flush on both nested VM-Enter and nested
 	 * VM-Exit (via kvm_mmu_reset_context()).
 	 */
-	if (cpu_feature_enabled(X86_FEATURE_FLUSHBYASID))
+	if (static_cpu_has(X86_FEATURE_FLUSHBYASID))
 		svm->vmcb->control.tlb_ctl = TLB_CONTROL_FLUSH_ASID;
 	else
 		svm->current_vmcb->asid_generation--;
@@ -4567,12 +4567,12 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu, u64 run_flags)
 	 * is no need to worry about the conditional branch over the wrmsr
 	 * being speculatively taken.
 	 */
-	if (!cpu_feature_enabled(X86_FEATURE_V_SPEC_CTRL))
+	if (!static_cpu_has(X86_FEATURE_V_SPEC_CTRL))
 		x86_spec_ctrl_set_guest(svm->virt_spec_ctrl);
 
 	svm_vcpu_enter_exit(vcpu, enter_flags);
 
-	if (!cpu_feature_enabled(X86_FEATURE_V_SPEC_CTRL))
+	if (!static_cpu_has(X86_FEATURE_V_SPEC_CTRL))
 		x86_spec_ctrl_restore_host(svm->virt_spec_ctrl);
 
 	/* SEV-ES guests must use the CR write traps to track CR registers. */
@@ -4949,7 +4949,7 @@ static int svm_check_intercept(struct kvm_vcpu *vcpu,
 	}
 
 	/* TODO: Advertise NRIPS to guest hypervisor unconditionally */
-	if (cpu_feature_enabled(X86_FEATURE_NRIPS))
+	if (static_cpu_has(X86_FEATURE_NRIPS))
 		vmcb->control.next_rip  = info->next_rip;
 	vmcb->control.exit_code = icpt_info.exit_code;
 	vmexit = nested_svm_exit_handled(svm);
@@ -5466,6 +5466,10 @@ struct kvm_x86_ops svm_x86_ops __initdata = {
 
 	.vm_copy_enc_context_from = sev_vm_copy_enc_context_from,
 	.vm_move_enc_context_from = sev_vm_move_enc_context_from,
+
+	.gmem_prepare = sev_gmem_prepare,
+	.gmem_invalidate = sev_gmem_invalidate,
+	.gmem_max_mapping_level = sev_gmem_max_mapping_level,
 #endif
 	.check_emulate_instruction = svm_check_emulate_instruction,
 
@@ -5477,10 +5481,6 @@ struct kvm_x86_ops svm_x86_ops __initdata = {
 	.vcpu_deliver_sipi_vector = svm_vcpu_deliver_sipi_vector,
 	.vcpu_get_apicv_inhibit_reasons = avic_vcpu_get_apicv_inhibit_reasons,
 	.alloc_apic_backing_page = svm_alloc_apic_backing_page,
-
-	.gmem_prepare = sev_gmem_prepare,
-	.gmem_invalidate = sev_gmem_invalidate,
-	.gmem_max_mapping_level = sev_gmem_max_mapping_level,
 };
 
 /*

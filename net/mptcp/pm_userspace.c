@@ -281,9 +281,8 @@ remove_err:
 	return err;
 }
 
-static void
-mptcp_userspace_pm_remove_addr_entry(struct mptcp_sock *msk,
-				     struct mptcp_pm_addr_entry *entry)
+void mptcp_pm_remove_addr_entry(struct mptcp_sock *msk,
+				struct mptcp_pm_addr_entry *entry)
 {
 	struct mptcp_rm_list alist = { .nr = 0 };
 	int anno_nr = 0;
@@ -341,7 +340,7 @@ int mptcp_pm_nl_remove_doit(struct sk_buff *skb, struct genl_info *info)
 	list_del_rcu(&match->list);
 	spin_unlock_bh(&msk->pm.lock);
 
-	mptcp_userspace_pm_remove_addr_entry(msk, match);
+	mptcp_pm_remove_addr_entry(msk, match);
 
 	release_sock(sk);
 

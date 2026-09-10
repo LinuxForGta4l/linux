@@ -46,22 +46,16 @@ union voltage_object_info {
 static int atomctrl_retrieve_ac_timing(
 		uint8_t index,
 		ATOM_INIT_REG_BLOCK *reg_block,
-		u8 *table_end,
 		pp_atomctrl_mc_reg_table *table)
 {
 	uint32_t i, j;
-	u16 stride = le16_to_cpu(reg_block->usRegDataBlkSize);
 	uint8_t tmem_id;
 	ATOM_MEMORY_SETTING_DATA_BLOCK *reg_data = (ATOM_MEMORY_SETTING_DATA_BLOCK *)
 		((uint8_t *)reg_block + (2 * sizeof(uint16_t)) + le16_to_cpu(reg_block->usRegIndexTblSize));
 
 	uint8_t num_ranges = 0;
 
-	if (stride < sizeof(uint32_t))
-		return -EINVAL;
-
-	while ((uint8_t *)reg_data + sizeof(uint32_t) <= table_end &&
-	       *(uint32_t *)reg_data != END_OF_REG_DATA_BLOCK &&
+	while (*(uint32_t *)reg_data != END_OF_REG_DATA_BLOCK &&
 			num_ranges < VBIOS_MAX_AC_TIMING_ENTRIES) {
 		tmem_id = (uint8_t)((*(uint32_t *)reg_data & MEM_ID_MASK) >> MEM_ID_SHIFT);
 
@@ -73,10 +67,6 @@ static int atomctrl_retrieve_ac_timing(
 			for (i = 0, j = 1; i < table->last; i++) {
 				if ((table->mc_reg_address[i].uc_pre_reg_data &
 							LOW_NIBBLE_MASK) == DATA_FROM_TABLE) {
-					if ((uint8_t *)reg_data +
-					    (j + 1) * sizeof(uint32_t) > table_end)
-						return -EINVAL;
-
 					table->mc_reg_table_entry[num_ranges].mc_data[i] =
 						(uint32_t)*((uint32_t *)reg_data + j);
 					j++;
@@ -91,13 +81,11 @@ static int atomctrl_retrieve_ac_timing(
 		}
 
 		reg_data = (ATOM_MEMORY_SETTING_DATA_BLOCK *)
-			((uint8_t *)reg_data + stride);
+			((uint8_t *)reg_data + le16_to_cpu(reg_block->usRegDataBlkSize)) ;
 	}
 
-	if ((uint8_t *)reg_data + sizeof(uint32_t) > table_end ||
-	    *(uint32_t *)reg_data != END_OF_REG_DATA_BLOCK)
-		return -EINVAL;
-
+	PP_ASSERT_WITH_CODE((*(uint32_t *)reg_data == END_OF_REG_DATA_BLOCK),
+			"Invalid VramInfo table.", return -1);
 	table->num_entries = num_ranges;
 
 	return 0;
@@ -148,7 +136,6 @@ int atomctrl_initialize_mc_reg_table(
 {
 	ATOM_VRAM_INFO_HEADER_V2_1 *vram_info;
 	ATOM_INIT_REG_BLOCK *reg_block;
-	u8 *table_end;
 	int result = 0;
 	u8 frev, crev;
 	u16 size;
@@ -170,7 +157,6 @@ int atomctrl_initialize_mc_reg_table(
 	}
 
 	if (0 == result) {
-		table_end = (uint8_t *)vram_info + size;
 		reg_block = (ATOM_INIT_REG_BLOCK *)
 			((uint8_t *)vram_info + le16_to_cpu(vram_info->usMemClkPatchTblOffset));
 		result = atomctrl_set_mc_reg_address_table(reg_block, table);
@@ -178,7 +164,7 @@ int atomctrl_initialize_mc_reg_table(
 
 	if (0 == result) {
 		result = atomctrl_retrieve_ac_timing(module_index,
-					reg_block, table_end, table);
+					reg_block, table);
 	}
 
 	return result;
@@ -191,7 +177,6 @@ int atomctrl_initialize_mc_reg_table_v2_2(
 {
 	ATOM_VRAM_INFO_HEADER_V2_2 *vram_info;
 	ATOM_INIT_REG_BLOCK *reg_block;
-	u8 *table_end;
 	int result = 0;
 	u8 frev, crev;
 	u16 size;
@@ -213,7 +198,6 @@ int atomctrl_initialize_mc_reg_table_v2_2(
 	}
 
 	if (0 == result) {
-		table_end = (uint8_t *)vram_info + size;
 		reg_block = (ATOM_INIT_REG_BLOCK *)
 			((uint8_t *)vram_info + le16_to_cpu(vram_info->usMemClkPatchTblOffset));
 		result = atomctrl_set_mc_reg_address_table(reg_block, table);
@@ -221,7 +205,7 @@ int atomctrl_initialize_mc_reg_table_v2_2(
 
 	if (0 == result) {
 		result = atomctrl_retrieve_ac_timing(module_index,
-					reg_block, table_end, table);
+					reg_block, table);
 	}
 
 	return result;
@@ -284,21 +268,15 @@ static const ATOM_VOLTAGE_OBJECT_V3 *atomctrl_lookup_voltage_type_v3(
 	unsigned int offset = offsetof(ATOM_VOLTAGE_OBJECT_INFO_V3_1, asVoltageObj[0]);
 	uint8_t *start = (uint8_t *)voltage_object_info_table;
 
-	while (offset + sizeof(ATOM_VOLTAGE_OBJECT_HEADER_V3) <= size) {
+	while (offset < size) {
 		const ATOM_VOLTAGE_OBJECT_V3 *voltage_object =
 			(const ATOM_VOLTAGE_OBJECT_V3 *)(start + offset);
-		u16 obj_size;
-
-		obj_size = le16_to_cpu(voltage_object->asGpioVoltageObj.sHeader.usSize);
-		if (obj_size < sizeof(voltage_object->asGpioVoltageObj.sHeader) ||
-		    offset + obj_size > size)
-			break;
 
 		if (voltage_type == voltage_object->asGpioVoltageObj.sHeader.ucVoltageType &&
 			voltage_mode == voltage_object->asGpioVoltageObj.sHeader.ucVoltageMode)
 			return voltage_object;
 
-		offset += obj_size;
+		offset += le16_to_cpu(voltage_object->asGpioVoltageObj.sHeader.usSize);
 	}
 
 	return NULL;

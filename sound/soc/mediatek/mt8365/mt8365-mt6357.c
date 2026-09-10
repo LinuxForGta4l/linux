@@ -70,8 +70,7 @@ static const struct snd_soc_dapm_route mt8365_mt6357_routes[] = {
 static int mt8365_mt6357_int_adda_startup(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct mtk_soc_card_data *soc_card_data = snd_soc_card_get_drvdata(rtd->card);
-	struct mt8365_mt6357_priv *priv = soc_card_data->mach_priv;
+	struct mt8365_mt6357_priv *priv = snd_soc_card_get_drvdata(rtd->card);
 	int ret = 0;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
@@ -102,8 +101,7 @@ static int mt8365_mt6357_int_adda_startup(struct snd_pcm_substream *substream)
 static void mt8365_mt6357_int_adda_shutdown(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct mtk_soc_card_data *soc_card_data = snd_soc_card_get_drvdata(rtd->card);
-	struct mt8365_mt6357_priv *priv = soc_card_data->mach_priv;
+	struct mt8365_mt6357_priv *priv = snd_soc_card_get_drvdata(rtd->card);
 	int ret = 0;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
@@ -247,8 +245,7 @@ static struct snd_soc_dai_link mt8365_mt6357_dais[] = {
 
 static int mt8365_mt6357_gpio_probe(struct snd_soc_card *card)
 {
-	struct mtk_soc_card_data *soc_card_data = snd_soc_card_get_drvdata(card);
-	struct mt8365_mt6357_priv *priv = soc_card_data->mach_priv;
+	struct mt8365_mt6357_priv *priv = snd_soc_card_get_drvdata(card);
 	struct device *dev = card->dev;
 	int ret, i;
 
@@ -297,6 +294,7 @@ static int mt8365_mt6357_dev_probe(struct mtk_soc_card_data *soc_card_data, bool
 	struct mt8365_mt6357_priv *mach_priv;
 	int ret;
 
+	card->dev = dev;
 	ret = parse_dai_link_info(card);
 	if (ret)
 		goto err;

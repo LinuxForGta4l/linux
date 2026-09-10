@@ -14,7 +14,7 @@
  *	struct embedded in a virtio_dma_buf_ops.
  *
  * This wraps dma_buf_export() to allow virtio drivers to create a dma-buf
- * for a virtio exported object that can be queried by other virtio drivers
+ * for an virtio exported object that can be queried by other virtio drivers
  * for the object's UUID.
  */
 struct dma_buf *virtio_dma_buf_export

@@ -789,9 +789,11 @@ struct irq_domain *iort_get_device_domain(struct device *dev, u32 id,
 	return irq_find_matching_fwnode(handle, bus_token);
 }
 
-acpi_handle iort_iwb_handle(u32 iwb_id)
+struct fwnode_handle *iort_iwb_handle(u32 iwb_id)
 {
+	struct fwnode_handle *fwnode;
 	struct acpi_iort_node *node;
+	struct acpi_device *device;
 	struct acpi_iort_iwb *iwb;
 	acpi_status status;
 	acpi_handle handle;
@@ -804,19 +806,6 @@ acpi_handle iort_iwb_handle(u32 iwb_id)
 	iwb = (struct acpi_iort_iwb *)node->node_data;
 	status = acpi_get_handle(NULL, iwb->device_name, &handle);
 	if (ACPI_FAILURE(status))
-		return NULL;
-
-	return handle;
-}
-
-struct fwnode_handle *iort_iwb_handle_fwnode(u32 iwb_id)
-{
-	struct fwnode_handle *fwnode;
-	struct acpi_device *device;
-	acpi_handle handle;
-
-	handle = iort_iwb_handle(iwb_id);
-	if (!handle)
 		return NULL;
 
 	device = acpi_get_acpi_dev(handle);
@@ -1992,7 +1981,7 @@ static int __init iort_add_platform_device(struct acpi_iort_node *node,
 		goto dev_put;
 	}
 
-	platform_device_set_fwnode(pdev, fwnode);
+	pdev->dev.fwnode = fwnode;
 
 	if (ops->dev_dma_configure)
 		ops->dev_dma_configure(&pdev->dev, node);
@@ -2099,11 +2088,6 @@ static void __init iort_init_platform_devices(void)
 		iort_node = ACPI_ADD_PTR(struct acpi_iort_node, iort_node,
 					 iort_node->length);
 	}
-}
-
-u32 arch_acpi_add_auto_dep(acpi_handle handle)
-{
-	return acpi_irq_add_auto_dep(handle);
 }
 
 void __init acpi_iort_init(void)

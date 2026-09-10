@@ -625,8 +625,7 @@ static int elan_i2c_prepare_fw_update(struct i2c_client *client, u16 ic_type,
 }
 
 static int elan_i2c_write_fw_block(struct i2c_client *client, u16 fw_page_size,
-				   u16 fw_page_delay, const u8 *page, u16 checksum,
-				   int idx)
+				   const u8 *page, u16 checksum, int idx)
 {
 	struct device *dev = &client->dev;
 	u8 val[3];
@@ -651,7 +650,7 @@ static int elan_i2c_write_fw_block(struct i2c_client *client, u16 fw_page_size,
 	}
 
 	/* Wait for F/W to update one page ROM data. */
-	msleep(fw_page_delay);
+	msleep(fw_page_size == ETP_FW_PAGE_SIZE_512 ? 50 : 35);
 
 	error = elan_i2c_read_cmd(client, ETP_I2C_IAP_CTRL_CMD, val);
 	if (error) {

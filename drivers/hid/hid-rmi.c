@@ -365,7 +365,7 @@ static int rmi_check_sanity(struct hid_device *hdev, u8 *data, int size)
 	 * such reports here.
 	 */
 
-	while (valid_size > 0 && data[valid_size - 1] == 0xff)
+	while ((data[valid_size - 1] == 0xff) && valid_size > 0)
 		valid_size--;
 
 	return valid_size;

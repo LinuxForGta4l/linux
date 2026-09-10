@@ -46,6 +46,7 @@ static int dummy_workload_1(unsigned long count)
 {
 	int (*func)(void);
 	int ret = 0;
+	char *p;
 	char insn1[] = {
 		0xb8, 0x01, 0x00, 0x00, 0x00, /* mov 1,%eax */
 		0xc3, /* ret */
@@ -58,11 +59,18 @@ static int dummy_workload_1(unsigned long count)
 		0xcc, /* int 3 */
 	};
 
-	func = mmap(NULL, page_size, PROT_READ | PROT_WRITE | PROT_EXEC,
-		    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-	if (func == MAP_FAILED) {
-		pr_debug("mmap() failed. %m\n");
-		return -1;
+	p = calloc(2, page_size);
+	if (!p) {
+		printf("malloc() failed. %m");
+		return 1;
+	}
+
+	func = (void *)((unsigned long)(p + page_size - 1) & ~(page_size - 1));
+
+	ret = mprotect(func, page_size, PROT_READ | PROT_WRITE | PROT_EXEC);
+	if (ret) {
+		printf("mprotect() failed. %m");
+		goto out;
 	}
 
 	if (count < 100000)
@@ -85,7 +93,7 @@ static int dummy_workload_1(unsigned long count)
 	}
 
 out:
-	munmap(func, page_size);
+	free(p);
 	return ret;
 }
 

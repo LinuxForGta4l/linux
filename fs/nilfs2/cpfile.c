@@ -81,26 +81,18 @@ nilfs_cpfile_block_add_valid_checkpoints(const struct inode *cpfile,
 	return count;
 }
 
-static int
+static unsigned int
 nilfs_cpfile_block_sub_valid_checkpoints(const struct inode *cpfile,
 					 struct buffer_head *bh,
 					 unsigned int n)
 {
 	struct nilfs_checkpoint *cp;
-	unsigned int checkpoints_count;
-	int count;
+	unsigned int count;
 
 	cp = kmap_local_folio(bh->b_folio,
 			      offset_in_folio(bh->b_folio, bh->b_data));
-	checkpoints_count = le32_to_cpu(cp->cp_checkpoints_count);
-	if (unlikely(checkpoints_count < n)) {
-		nilfs_error(cpfile->i_sb,
-			    "deleted checkpoints count %u exceeds block count %u",
-			    n, checkpoints_count);
-		kunmap_local(cp);
-		return -EIO;
-	}
-	count = checkpoints_count - n;
+	WARN_ON(le32_to_cpu(cp->cp_checkpoints_count) < n);
+	count = le32_to_cpu(cp->cp_checkpoints_count) - n;
 	cp->cp_checkpoints_count = cpu_to_le32(count);
 	kunmap_local(cp);
 	return count;
@@ -530,10 +522,6 @@ int nilfs_cpfile_delete_checkpoints(struct inode *cpfile,
 		count = nilfs_cpfile_block_sub_valid_checkpoints(cpfile, cp_bh,
 								 nicps);
 		brelse(cp_bh);
-		if (unlikely(count < 0)) {
-			ret = count;
-			break;
-		}
 		if (count)
 			continue;
 

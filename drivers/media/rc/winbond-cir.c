@@ -1179,8 +1179,8 @@ wbcir_remove(struct pnp_dev *device)
 }
 
 static const struct pnp_device_id wbcir_ids[] = {
-	{ .id = "WEC1022" },
-	{ }
+	{ "WEC1022", 0 },
+	{ "", 0 }
 };
 MODULE_DEVICE_TABLE(pnp, wbcir_ids);
 

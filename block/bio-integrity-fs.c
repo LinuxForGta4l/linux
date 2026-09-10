@@ -46,8 +46,7 @@ void fs_bio_integrity_free(struct bio *bio)
 
 void fs_bio_integrity_generate(struct bio *bio)
 {
-	if (fs_bio_integrity_alloc(bio) &&
-	    (bio_integrity(bio)->bip_flags & BIP_CHECK_FLAGS))
+	if (fs_bio_integrity_alloc(bio))
 		bio_integrity_generate(bio);
 }
 EXPORT_SYMBOL_GPL(fs_bio_integrity_generate);
@@ -60,9 +59,6 @@ int fs_bio_integrity_verify(struct bio *bio, sector_t sector, unsigned int size)
 		.bi_sector	= sector,
 		.bi_size	= size,
 	};
-
-	if (!bip || !(bip->bip_flags & BIP_CHECK_FLAGS))
-		return 0;
 
 	/*
 	 * Reinitialize bip->bip_iter.

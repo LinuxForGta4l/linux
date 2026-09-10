@@ -719,7 +719,7 @@ int read_file(const char *path, char *buf, size_t buflen)
 	return (unsigned int) numread;
 }
 
-static void __write_file(const char *path, const char *buf, size_t buflen, bool ignore_einval)
+void write_file(const char *path, const char *buf, size_t buflen)
 {
 	int fd, saved_errno;
 	ssize_t numwritten;
@@ -735,20 +735,12 @@ static void __write_file(const char *path, const char *buf, size_t buflen, bool 
 	saved_errno = errno;
 	close(fd);
 	errno = saved_errno;
-	if (numwritten < 0) {
-		if (ignore_einval && errno == EINVAL)
-			return;
+	if (numwritten < 0)
 		ksft_exit_fail_msg("%s write(%.*s) failed: %s\n", path, (int)(buflen - 1),
 				buf, strerror(errno));
-	}
 	if (numwritten != buflen - 1)
 		ksft_exit_fail_msg("%s write(%.*s) is truncated, expected %zu bytes, got %zd bytes\n",
 				path, (int)(buflen - 1), buf, buflen - 1, numwritten);
-}
-
-void write_file(const char *path, const char *buf, size_t buflen)
-{
-	__write_file(path, buf, buflen, /* ignore_einval = */ false);
 }
 
 unsigned long read_num(const char *path)
@@ -761,22 +753,12 @@ unsigned long read_num(const char *path)
 	return strtoul(buf, NULL, 10);
 }
 
-static void __write_num(const char *path, unsigned long num, bool ignore_einval)
+void write_num(const char *path, unsigned long num)
 {
 	char buf[21];
 
 	sprintf(buf, "%lu", num);
-	__write_file(path, buf, strlen(buf) + 1, ignore_einval);
-}
-
-void write_num(const char *path, unsigned long num)
-{
-	return __write_num(path, num, /* ignore_einval = */ false);
-}
-
-void write_num_ignore_einval(const char *path, unsigned long num)
-{
-	return __write_num(path, num, /* ignore_einval = */ true);
+	write_file(path, buf, strlen(buf) + 1);
 }
 
 static unsigned long shmall, shmmax;

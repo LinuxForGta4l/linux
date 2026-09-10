@@ -13,7 +13,6 @@
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/kfifo.h>
-#include <linux/overflow.h>
 #include <linux/slab.h>
 #include <trace/events/host1x.h>
 
@@ -420,7 +419,7 @@ syncpt_incr:
 		/* won't need a timeout when replayed */
 		job->timeout = 0;
 
-		syncpt_incrs = wrapping_sub(u32, job->syncpt_end, syncpt_val);
+		syncpt_incrs = job->syncpt_end - syncpt_val;
 		dev_dbg(dev, "%s: CPU incr (%d)\n", __func__, syncpt_incrs);
 
 		host1x_job_dump(dev, job);

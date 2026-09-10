@@ -188,7 +188,6 @@ static const struct nla_policy nldev_policy[RDMA_NLDEV_ATTR_MAX] = {
 	[RDMA_NLDEV_ATTR_FRMR_POOLS_AGING_PERIOD] = { .type = NLA_U32 },
 	[RDMA_NLDEV_ATTR_FRMR_POOL_PINNED_HANDLES] = { .type = NLA_U32 },
 	[RDMA_NLDEV_ATTR_FRMR_POOL_KEY_KERNEL_VENDOR_KEY] = { .type = NLA_U64 },
-	[RDMA_NLDEV_ATTR_RES_SUMMARY_ENTRY_MAX]	= { .type = NLA_U64 },
 };
 
 static int put_driver_name_print_type(struct sk_buff *msg, const char *name,
@@ -414,7 +413,7 @@ out:
 }
 
 static int fill_res_info_entry(struct sk_buff *msg,
-			       const char *name, u64 curr, u64 max)
+			       const char *name, u64 curr)
 {
 	struct nlattr *entry_attr;
 
@@ -427,9 +426,6 @@ static int fill_res_info_entry(struct sk_buff *msg,
 		goto err;
 	if (nla_put_u64_64bit(msg, RDMA_NLDEV_ATTR_RES_SUMMARY_ENTRY_CURR, curr,
 			      RDMA_NLDEV_ATTR_PAD))
-		goto err;
-	if (max && nla_put_u64_64bit(msg, RDMA_NLDEV_ATTR_RES_SUMMARY_ENTRY_MAX,
-				     max, RDMA_NLDEV_ATTR_PAD))
 		goto err;
 
 	nla_nest_end(msg, entry_attr);
@@ -451,13 +447,10 @@ static int fill_res_info(struct sk_buff *msg, struct ib_device *device,
 		[RDMA_RESTRACK_MR] = "mr",
 		[RDMA_RESTRACK_CTX] = "ctx",
 		[RDMA_RESTRACK_SRQ] = "srq",
-		[RDMA_RESTRACK_COMP_CNTR] = "comp_cntr",
 	};
 
-	struct ib_comp_cntr_caps comp_cntr_caps = {};
 	struct nlattr *table_attr;
-	u64 curr, max;
-	int ret, i;
+	int ret, i, curr;
 
 	if (fill_nldev_handle(msg, device))
 		return -EMSGSIZE;
@@ -466,36 +459,11 @@ static int fill_res_info(struct sk_buff *msg, struct ib_device *device,
 	if (!table_attr)
 		return -EMSGSIZE;
 
-	if (device->ops.query_comp_cntr_caps)
-		device->ops.query_comp_cntr_caps(device, &comp_cntr_caps, NULL);
-
 	for (i = 0; i < RDMA_RESTRACK_MAX; i++) {
 		if (!names[i])
 			continue;
 		curr = rdma_restrack_count(device, i, show_details);
-		switch (i) {
-		case RDMA_RESTRACK_QP:
-			max = device->attrs.max_qp;
-			break;
-		case RDMA_RESTRACK_CQ:
-			max = device->attrs.max_cq;
-			break;
-		case RDMA_RESTRACK_MR:
-			max = device->attrs.max_mr;
-			break;
-		case RDMA_RESTRACK_PD:
-			max = device->attrs.max_pd;
-			break;
-		case RDMA_RESTRACK_SRQ:
-			max = device->attrs.max_srq;
-			break;
-		case RDMA_RESTRACK_COMP_CNTR:
-			max = comp_cntr_caps.max_counters;
-			break;
-		default:
-			max = 0;
-		}
-		ret = fill_res_info_entry(msg, names[i], curr, max);
+		ret = fill_res_info_entry(msg, names[i], curr);
 		if (ret)
 			goto err;
 	}
@@ -1186,24 +1154,6 @@ static int nldev_set_doit(struct sk_buff *skb, struct nlmsghdr *nlh,
 	if (!device)
 		return -EINVAL;
 
-	if (tb[RDMA_NLDEV_NET_NS_FD]) {
-		char name[IB_DEVICE_NAME_MAX] = {};
-		u32 ns_fd;
-
-		if (tb[RDMA_NLDEV_ATTR_DEV_NAME]) {
-			nla_strscpy(name, tb[RDMA_NLDEV_ATTR_DEV_NAME],
-				    IB_DEVICE_NAME_MAX);
-			if (strlen(name) == 0) {
-				err = -EINVAL;
-				goto done;
-			}
-		}
-		ns_fd = nla_get_u32(tb[RDMA_NLDEV_NET_NS_FD]);
-		err = ib_device_set_netns_put(skb, device, ns_fd,
-					      name[0] ? name : NULL, extack);
-		goto put_done;
-	}
-
 	if (tb[RDMA_NLDEV_ATTR_DEV_NAME]) {
 		char name[IB_DEVICE_NAME_MAX] = {};
 
@@ -1215,6 +1165,14 @@ static int nldev_set_doit(struct sk_buff *skb, struct nlmsghdr *nlh,
 		}
 		err = ib_device_rename(device, name);
 		goto done;
+	}
+
+	if (tb[RDMA_NLDEV_NET_NS_FD]) {
+		u32 ns_fd;
+
+		ns_fd = nla_get_u32(tb[RDMA_NLDEV_NET_NS_FD]);
+		err = ib_device_set_netns_put(skb, device, ns_fd);
+		goto put_done;
 	}
 
 	if (tb[RDMA_NLDEV_ATTR_DEV_DIM]) {
@@ -2175,11 +2133,6 @@ static int nldev_stat_set_counter_dynamic_doit(struct nlattr *tb[],
 
 	nla_for_each_nested(entry_attr, tb[RDMA_NLDEV_ATTR_STAT_HWCOUNTERS],
 			    rem) {
-		if (nla_len(entry_attr) != sizeof(u32)) {
-			ret = -EINVAL;
-			goto out;
-		}
-
 		index = nla_get_u32(entry_attr);
 		if ((index >= stats->num_counters) ||
 		    !(stats->descs[index].flags & IB_STAT_FLAG_OPTIONAL)) {

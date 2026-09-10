@@ -66,7 +66,7 @@ struct nullb_page {
 #define NULLB_PAGE_FREE (MAP_SZ - 2)
 
 static LIST_HEAD(nullb_list);
-static DEFINE_MUTEX(lock);
+static struct mutex lock;
 static int null_major;
 static DEFINE_IDA(nullb_indexes);
 static struct blk_mq_tag_set tag_set;
@@ -340,20 +340,11 @@ static ssize_t nullb_device_bool_attr_store(bool *val, const char *page,
 	return count;
 }
 
-/*
- * The following macro should only be used with TYPE = {uint, ulong, bool}.
- *
- * The device configuration is modified under the global lock to serialize
- * attribute changes against null_add_dev() and null_del_dev(): without this,
- * an attribute could be changed while null_add_dev() is running, that is,
- * before NULLB_DEV_FL_CONFIGURED is set, which would let null_add_dev()
- * observe inconsistent values for the device configuration.
- */
+/* The following macro should only be used with TYPE = {uint, ulong, bool}. */
 #define NULLB_DEVICE_ATTR(NAME, TYPE, APPLY)				\
 static ssize_t								\
 nullb_device_##NAME##_show(struct config_item *item, char *page)	\
 {									\
-	guard(mutex)(&lock);						\
 	return nullb_device_##TYPE##_attr_show(				\
 				to_nullb_device(item)->NAME, page);	\
 }									\
@@ -369,7 +360,6 @@ nullb_device_##NAME##_store(struct config_item *item, const char *page,	\
 	ret = nullb_device_##TYPE##_attr_store(&new_value, page, count);\
 	if (ret < 0)							\
 		return ret;						\
-	guard(mutex)(&lock);						\
 	if (apply_fn)							\
 		ret = apply_fn(dev, new_value);				\
 	else if (test_bit(NULLB_DEV_FL_CONFIGURED, &dev->flags)) 	\
@@ -389,19 +379,8 @@ static int nullb_update_nr_hw_queues(struct nullb_device *dev,
 	struct blk_mq_tag_set *set;
 	int ret, nr_hw_queues;
 
-	lockdep_assert_held(&lock);
-
 	if (!dev->nullb)
 		return 0;
-
-	/*
-	 * A shared tag_set is mapped via the module-wide queue counts, so a
-	 * per-device resize is meaningless. On shrink it would also leave
-	 * mq_map[] pointing at NULLed hctx slots, causing a NULL deref in
-	 * blk_mq_map_swqueue(). Reject it.
-	 */
-	if (dev->shared_tags)
-		return -EINVAL;
 
 	/*
 	 * Make sure at least one submit queue exists.
@@ -442,13 +421,25 @@ static int nullb_update_nr_hw_queues(struct nullb_device *dev,
 static int nullb_apply_submit_queues(struct nullb_device *dev,
 				     unsigned int submit_queues)
 {
-	return nullb_update_nr_hw_queues(dev, submit_queues, dev->poll_queues);
+	int ret;
+
+	mutex_lock(&lock);
+	ret = nullb_update_nr_hw_queues(dev, submit_queues, dev->poll_queues);
+	mutex_unlock(&lock);
+
+	return ret;
 }
 
 static int nullb_apply_poll_queues(struct nullb_device *dev,
 				   unsigned int poll_queues)
 {
-	return nullb_update_nr_hw_queues(dev, dev->submit_queues, poll_queues);
+	int ret;
+
+	mutex_lock(&lock);
+	ret = nullb_update_nr_hw_queues(dev, dev->submit_queues, poll_queues);
+	mutex_unlock(&lock);
+
+	return ret;
 }
 
 NULLB_DEVICE_ATTR(size, ulong, NULL);
@@ -487,7 +478,6 @@ NULLB_DEVICE_ATTR(badblocks_partial_io, bool, NULL);
 
 static ssize_t nullb_device_power_show(struct config_item *item, char *page)
 {
-	guard(mutex)(&lock);
 	return nullb_device_bool_attr_show(to_nullb_device(item)->power, page);
 }
 
@@ -503,15 +493,15 @@ static ssize_t nullb_device_power_store(struct config_item *item,
 		return ret;
 
 	ret = count;
-	guard(mutex)(&lock);
+	mutex_lock(&lock);
 	if (!dev->power && newp) {
 		if (test_and_set_bit(NULLB_DEV_FL_UP, &dev->flags))
-			return ret;
+			goto out;
 
 		ret = null_add_dev(dev);
 		if (ret) {
 			clear_bit(NULLB_DEV_FL_UP, &dev->flags);
-			return ret;
+			goto out;
 		}
 
 		set_bit(NULLB_DEV_FL_CONFIGURED, &dev->flags);
@@ -525,6 +515,8 @@ static ssize_t nullb_device_power_store(struct config_item *item,
 		clear_bit(NULLB_DEV_FL_CONFIGURED, &dev->flags);
 	}
 
+out:
+	mutex_unlock(&lock);
 	return ret;
 }
 
@@ -588,7 +580,6 @@ static ssize_t nullb_device_zone_readonly_store(struct config_item *item,
 {
 	struct nullb_device *dev = to_nullb_device(item);
 
-	guard(mutex)(&lock);
 	return zone_cond_store(dev, page, count, BLK_ZONE_COND_READONLY);
 }
 CONFIGFS_ATTR_WO(nullb_device_, zone_readonly);
@@ -598,7 +589,6 @@ static ssize_t nullb_device_zone_offline_store(struct config_item *item,
 {
 	struct nullb_device *dev = to_nullb_device(item);
 
-	guard(mutex)(&lock);
 	return zone_cond_store(dev, page, count, BLK_ZONE_COND_OFFLINE);
 }
 CONFIGFS_ATTR_WO(nullb_device_, zone_offline);
@@ -717,9 +707,10 @@ nullb_group_drop_item(struct config_group *group, struct config_item *item)
 	struct nullb_device *dev = to_nullb_device(item);
 
 	if (test_and_clear_bit(NULLB_DEV_FL_UP, &dev->flags)) {
-		guard(mutex)(&lock);
+		mutex_lock(&lock);
 		dev->power = false;
 		null_del_dev(dev->nullb);
+		mutex_unlock(&lock);
 	}
 	nullb_del_fault_config(dev);
 	config_item_put(item);
@@ -845,6 +836,7 @@ static void null_free_dev(struct nullb_device *dev)
 	if (!dev)
 		return;
 
+	null_free_zoned_dev(dev);
 	badblocks_exit(&dev->badblocks);
 	kfree(dev);
 }
@@ -1778,19 +1770,18 @@ static void null_del_dev(struct nullb *nullb)
 
 	del_gendisk(nullb->disk);
 
-	if (test_bit(NULLB_DEV_FL_THROTTLED, &dev->flags)) {
+	if (test_bit(NULLB_DEV_FL_THROTTLED, &nullb->dev->flags)) {
 		hrtimer_cancel(&nullb->bw_timer);
 		atomic_long_set(&nullb->cur_bytes, LONG_MAX);
 		blk_mq_start_stopped_hw_queues(nullb->q, true);
 	}
 
 	put_disk(nullb->disk);
-	null_free_zoned_dev(dev);
 	if (nullb->tag_set == &nullb->__tag_set)
 		blk_mq_free_tag_set(nullb->tag_set);
 	kfree(nullb->queues);
 	if (null_cache_active(nullb))
-		null_free_device_storage(dev, true);
+		null_free_device_storage(nullb->dev, true);
 	kfree(nullb);
 	dev->nullb = NULL;
 }
@@ -2090,13 +2081,14 @@ static struct nullb *null_find_dev_by_name(const char *name)
 {
 	struct nullb *nullb = NULL, *nb;
 
-	guard(mutex)(&lock);
+	mutex_lock(&lock);
 	list_for_each_entry(nb, &nullb_list, list) {
 		if (strcmp(nb->disk_name, name) == 0) {
 			nullb = nb;
 			break;
 		}
 	}
+	mutex_unlock(&lock);
 
 	return nullb;
 }
@@ -2110,9 +2102,9 @@ static int null_create_dev(void)
 	if (!dev)
 		return -ENOMEM;
 
-	scoped_guard(mutex, &lock) {
-		ret = null_add_dev(dev);
-	}
+	mutex_lock(&lock);
+	ret = null_add_dev(dev);
+	mutex_unlock(&lock);
 	if (ret) {
 		null_free_dev(dev);
 		return ret;
@@ -2170,19 +2162,23 @@ static int __init null_init(void)
 	config_group_init(&nullb_subsys.su_group);
 	mutex_init(&nullb_subsys.su_mutex);
 
+	ret = configfs_register_subsystem(&nullb_subsys);
+	if (ret)
+		return ret;
+
+	mutex_init(&lock);
+
 	null_major = register_blkdev(0, "nullb");
-	if (null_major < 0)
-		return null_major;
+	if (null_major < 0) {
+		ret = null_major;
+		goto err_conf;
+	}
 
 	for (i = 0; i < nr_devices; i++) {
 		ret = null_create_dev();
 		if (ret)
 			goto err_dev;
 	}
-
-	ret = configfs_register_subsystem(&nullb_subsys);
-	if (ret)
-		goto err_dev;
 
 	pr_info("module loaded\n");
 	return 0;
@@ -2193,8 +2189,8 @@ err_dev:
 		null_destroy_dev(nullb);
 	}
 	unregister_blkdev(null_major, "nullb");
-	if (tag_set.ops)
-		blk_mq_free_tag_set(&tag_set);
+err_conf:
+	configfs_unregister_subsystem(&nullb_subsys);
 	return ret;
 }
 
@@ -2204,17 +2200,19 @@ static void __exit null_exit(void)
 
 	configfs_unregister_subsystem(&nullb_subsys);
 
-	scoped_guard(mutex, &lock) {
-		while (!list_empty(&nullb_list)) {
-			nullb = list_entry(nullb_list.next, struct nullb, list);
-			null_destroy_dev(nullb);
-		}
-	}
-
 	unregister_blkdev(null_major, "nullb");
+
+	mutex_lock(&lock);
+	while (!list_empty(&nullb_list)) {
+		nullb = list_entry(nullb_list.next, struct nullb, list);
+		null_destroy_dev(nullb);
+	}
+	mutex_unlock(&lock);
 
 	if (tag_set.ops)
 		blk_mq_free_tag_set(&tag_set);
+
+	mutex_destroy(&lock);
 }
 
 module_init(null_init);

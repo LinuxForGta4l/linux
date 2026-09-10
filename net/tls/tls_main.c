@@ -424,16 +424,20 @@ static __poll_t tls_sk_poll(struct file *file, struct socket *sock,
 	return mask;
 }
 
-static int do_tls_getsockopt_conf(struct sock *sk, sockopt_t *opt, int tx)
+static int do_tls_getsockopt_conf(struct sock *sk, char __user *optval,
+				  int __user *optlen, int tx)
 {
 	int rc = 0;
 	const struct tls_cipher_desc *cipher_desc;
 	struct tls_context *ctx = tls_get_ctx(sk);
 	struct tls_crypto_info *crypto_info;
 	struct cipher_context *cctx;
-	int len = opt->optlen;
+	int len;
 
-	if (!opt->iter_out.ubuf || len < sizeof(*crypto_info)) {
+	if (get_user(len, optlen))
+		return -EFAULT;
+
+	if (!optval || (len < sizeof(*crypto_info))) {
 		rc = -EINVAL;
 		goto out;
 	}
@@ -458,8 +462,7 @@ static int do_tls_getsockopt_conf(struct sock *sk, sockopt_t *opt, int tx)
 	}
 
 	if (len == sizeof(*crypto_info)) {
-		if (copy_to_iter(crypto_info, sizeof(*crypto_info),
-				 &opt->iter_out) != sizeof(*crypto_info))
+		if (copy_to_user(optval, crypto_info, sizeof(*crypto_info)))
 			rc = -EFAULT;
 		goto out;
 	}
@@ -475,38 +478,44 @@ static int do_tls_getsockopt_conf(struct sock *sk, sockopt_t *opt, int tx)
 	memcpy(crypto_info_rec_seq(crypto_info, cipher_desc),
 	       cctx->rec_seq, cipher_desc->rec_seq);
 
-	if (copy_to_iter(crypto_info, cipher_desc->crypto_info,
-			 &opt->iter_out) != cipher_desc->crypto_info)
+	if (copy_to_user(optval, crypto_info, cipher_desc->crypto_info))
 		rc = -EFAULT;
 
 out:
 	return rc;
 }
 
-static int do_tls_getsockopt_tx_zc(struct sock *sk, sockopt_t *opt)
+static int do_tls_getsockopt_tx_zc(struct sock *sk, char __user *optval,
+				   int __user *optlen)
 {
 	struct tls_context *ctx = tls_get_ctx(sk);
 	unsigned int value;
-	int len = opt->optlen;
+	int len;
+
+	if (get_user(len, optlen))
+		return -EFAULT;
 
 	if (len != sizeof(value))
 		return -EINVAL;
 
 	value = ctx->zerocopy_sendfile;
-	if (copy_to_iter(&value, sizeof(value), &opt->iter_out) != sizeof(value))
+	if (copy_to_user(optval, &value, sizeof(value)))
 		return -EFAULT;
 
 	return 0;
 }
 
-static int do_tls_getsockopt_no_pad(struct sock *sk, sockopt_t *opt)
+static int do_tls_getsockopt_no_pad(struct sock *sk, char __user *optval,
+				    int __user *optlen)
 {
 	struct tls_context *ctx = tls_get_ctx(sk);
-	int value, len = opt->optlen;
+	int value, len;
 
 	if (ctx->prot_info.version != TLS_1_3_VERSION)
 		return -EINVAL;
 
+	if (get_user(len, optlen))
+		return -EFAULT;
 	if (len < sizeof(value))
 		return -EINVAL;
 
@@ -516,31 +525,38 @@ static int do_tls_getsockopt_no_pad(struct sock *sk, sockopt_t *opt)
 	if (value < 0)
 		return value;
 
-	opt->optlen = sizeof(value);
-	if (copy_to_iter(&value, sizeof(value), &opt->iter_out) != sizeof(value))
+	if (put_user(sizeof(value), optlen))
+		return -EFAULT;
+	if (copy_to_user(optval, &value, sizeof(value)))
 		return -EFAULT;
 
 	return 0;
 }
 
-static int do_tls_getsockopt_tx_payload_len(struct sock *sk, sockopt_t *opt)
+static int do_tls_getsockopt_tx_payload_len(struct sock *sk, char __user *optval,
+					    int __user *optlen)
 {
 	struct tls_context *ctx = tls_get_ctx(sk);
 	u16 payload_len = ctx->tx_max_payload_len;
-	int len = opt->optlen;
+	int len;
+
+	if (get_user(len, optlen))
+		return -EFAULT;
 
 	if (len < sizeof(payload_len))
 		return -EINVAL;
 
-	opt->optlen = sizeof(payload_len);
-	if (copy_to_iter(&payload_len, sizeof(payload_len),
-			 &opt->iter_out) != sizeof(payload_len))
+	if (put_user(sizeof(payload_len), optlen))
+		return -EFAULT;
+
+	if (copy_to_user(optval, &payload_len, sizeof(payload_len)))
 		return -EFAULT;
 
 	return 0;
 }
 
-static int do_tls_getsockopt(struct sock *sk, int optname, sockopt_t *opt)
+static int do_tls_getsockopt(struct sock *sk, int optname,
+			     char __user *optval, int __user *optlen)
 {
 	int rc = 0;
 
@@ -549,16 +565,17 @@ static int do_tls_getsockopt(struct sock *sk, int optname, sockopt_t *opt)
 	switch (optname) {
 	case TLS_TX:
 	case TLS_RX:
-		rc = do_tls_getsockopt_conf(sk, opt, optname == TLS_TX);
+		rc = do_tls_getsockopt_conf(sk, optval, optlen,
+					    optname == TLS_TX);
 		break;
 	case TLS_TX_ZEROCOPY_RO:
-		rc = do_tls_getsockopt_tx_zc(sk, opt);
+		rc = do_tls_getsockopt_tx_zc(sk, optval, optlen);
 		break;
 	case TLS_RX_EXPECT_NO_PAD:
-		rc = do_tls_getsockopt_no_pad(sk, opt);
+		rc = do_tls_getsockopt_no_pad(sk, optval, optlen);
 		break;
 	case TLS_TX_MAX_PAYLOAD_LEN:
-		rc = do_tls_getsockopt_tx_payload_len(sk, opt);
+		rc = do_tls_getsockopt_tx_payload_len(sk, optval, optlen);
 		break;
 	default:
 		rc = -ENOPROTOOPT;
@@ -574,25 +591,12 @@ static int tls_getsockopt(struct sock *sk, int level, int optname,
 			  char __user *optval, int __user *optlen)
 {
 	struct tls_context *ctx = tls_get_ctx(sk);
-	sockopt_t opt;
-	int err;
 
 	if (level != SOL_TLS)
 		return ctx->sk_proto->getsockopt(sk, level,
 						 optname, optval, optlen);
 
-	err = sockopt_init_user(&opt, optval, optlen);
-	if (err)
-		return err;
-
-	err = do_tls_getsockopt(sk, optname, &opt);
-	if (err)
-		return err;
-
-	if (put_user(opt.optlen, optlen))
-		return -EFAULT;
-
-	return 0;
+	return do_tls_getsockopt(sk, optname, optval, optlen);
 }
 
 static int validate_crypto_info(const struct tls_crypto_info *crypto_info,

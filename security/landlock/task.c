@@ -20,11 +20,11 @@
 #include <net/af_unix.h>
 #include <net/sock.h>
 
+#include "audit.h"
 #include "common.h"
 #include "cred.h"
 #include "domain.h"
 #include "fs.h"
-#include "log.h"
 #include "ruleset.h"
 #include "setup.h"
 #include "task.h"
@@ -41,8 +41,8 @@
  * Return: True if @parent is an ancestor of or equal to @child, false
  * otherwise.
  */
-static bool domain_scope_le(const struct landlock_domain *const parent,
-			    const struct landlock_domain *const child)
+static bool domain_scope_le(const struct landlock_ruleset *const parent,
+			    const struct landlock_ruleset *const child)
 {
 	const struct landlock_hierarchy *walker;
 
@@ -63,8 +63,8 @@ static bool domain_scope_le(const struct landlock_domain *const parent,
 	return false;
 }
 
-static int domain_ptrace(const struct landlock_domain *const parent,
-			 const struct landlock_domain *const child)
+static int domain_ptrace(const struct landlock_ruleset *const parent,
+			 const struct landlock_ruleset *const child)
 {
 	if (domain_scope_le(parent, child))
 		return 0;
@@ -88,7 +88,6 @@ static int hook_ptrace_access_check(struct task_struct *const child,
 				    const unsigned int mode)
 {
 	const struct landlock_cred_security *parent_subject;
-	u64 tracee_domain_id = 0;
 	int err;
 
 	/* Quick return for non-landlocked tasks. */
@@ -97,13 +96,9 @@ static int hook_ptrace_access_check(struct task_struct *const child,
 		return 0;
 
 	scoped_guard(rcu) {
-		const struct landlock_domain *const child_dom =
+		const struct landlock_ruleset *const child_dom =
 			landlock_get_task_domain(child);
 		err = domain_ptrace(parent_subject->domain, child_dom);
-#ifdef CONFIG_SECURITY_LANDLOCK_LOG
-		if (child_dom)
-			tracee_domain_id = child_dom->hierarchy->id;
-#endif /* CONFIG_SECURITY_LANDLOCK_LOG */
 	}
 
 	if (!err)
@@ -121,7 +116,6 @@ static int hook_ptrace_access_check(struct task_struct *const child,
 				.u.tsk = child,
 			},
 			.layer_plus_one = parent_subject->domain->num_layers,
-			.other_domain_id = tracee_domain_id,
 		});
 
 	return err;
@@ -141,8 +135,7 @@ static int hook_ptrace_access_check(struct task_struct *const child,
 static int hook_ptrace_traceme(struct task_struct *const parent)
 {
 	const struct landlock_cred_security *parent_subject;
-	const struct landlock_domain *child_dom;
-	u64 tracee_domain_id = 0;
+	const struct landlock_ruleset *child_dom;
 	int err;
 
 	child_dom = landlock_get_current_domain();
@@ -153,12 +146,6 @@ static int hook_ptrace_traceme(struct task_struct *const parent)
 
 	if (!err)
 		return 0;
-
-#ifdef CONFIG_SECURITY_LANDLOCK_LOG
-	/* The tracee is the current task; its domain is stable here. */
-	if (child_dom)
-		tracee_domain_id = child_dom->hierarchy->id;
-#endif /* CONFIG_SECURITY_LANDLOCK_LOG */
 
 	/*
 	 * For the ptrace_traceme case, we log the domain which is the cause of
@@ -174,7 +161,6 @@ static int hook_ptrace_traceme(struct task_struct *const parent)
 			.u.tsk = current,
 		},
 		.layer_plus_one = parent_subject->domain->num_layers,
-		.other_domain_id = tracee_domain_id,
 	});
 	return err;
 }
@@ -190,8 +176,8 @@ static int hook_ptrace_traceme(struct task_struct *const parent)
  * Return: True if @server is in a different domain from @client and @client
  * is scoped to access @server (i.e. access should be denied), false otherwise.
  */
-static bool domain_is_scoped(const struct landlock_domain *const client,
-			     const struct landlock_domain *const server,
+static bool domain_is_scoped(const struct landlock_ruleset *const client,
+			     const struct landlock_ruleset *const server,
 			     access_mask_t scope)
 {
 	int client_layer, server_layer;
@@ -250,28 +236,13 @@ static bool domain_is_scoped(const struct landlock_domain *const client,
 }
 
 static bool sock_is_scoped(struct sock *const other,
-			   const struct landlock_domain *const domain,
-			   u64 *const peer_domain_id)
+			   const struct landlock_ruleset *const domain)
 {
-	const struct landlock_domain *dom_other;
+	const struct landlock_ruleset *dom_other;
 
 	/* The credentials will not change. */
 	lockdep_assert_held(&unix_sk(other)->lock);
-
-	/*
-	 * A live kernel socket (e.g. from sock_create_kern()) has no backing
-	 * file, hence no Landlock domain, so treat it as unscoped.  The
-	 * sk_socket check only guards that dereference; sk_socket is NULL
-	 * solely for a dead peer, which the caller already excludes under the
-	 * held lock, so no separate SOCK_DEAD check is needed.
-	 */
-	if (unlikely(!other->sk_socket || !other->sk_socket->file))
-		return false;
-
 	dom_other = landlock_cred(other->sk_socket->file->f_cred)->domain;
-#ifdef CONFIG_SECURITY_LANDLOCK_LOG
-	*peer_domain_id = dom_other ? dom_other->hierarchy->id : 0;
-#endif /* CONFIG_SECURITY_LANDLOCK_LOG */
 	return domain_is_scoped(domain, dom_other,
 				LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET);
 }
@@ -299,7 +270,6 @@ static int hook_unix_stream_connect(struct sock *const sock,
 				    struct sock *const newsk)
 {
 	size_t handle_layer;
-	u64 peer_domain_id = 0;
 	const struct landlock_cred_security *const subject =
 		landlock_get_applicable_subject(current_cred(), unix_scope,
 						&handle_layer);
@@ -311,7 +281,7 @@ static int hook_unix_stream_connect(struct sock *const sock,
 	if (!is_abstract_socket(other))
 		return 0;
 
-	if (!sock_is_scoped(other, subject->domain, &peer_domain_id))
+	if (!sock_is_scoped(other, subject->domain))
 		return 0;
 
 	landlock_log_denial(subject, &(struct landlock_request) {
@@ -323,7 +293,6 @@ static int hook_unix_stream_connect(struct sock *const sock,
 			},
 		},
 		.layer_plus_one = handle_layer + 1,
-		.other_domain_id = peer_domain_id,
 	});
 	return -EPERM;
 }
@@ -332,7 +301,6 @@ static int hook_unix_may_send(struct socket *const sock,
 			      struct socket *const other)
 {
 	size_t handle_layer;
-	u64 peer_domain_id = 0;
 	const struct landlock_cred_security *const subject =
 		landlock_get_applicable_subject(current_cred(), unix_scope,
 						&handle_layer);
@@ -350,7 +318,7 @@ static int hook_unix_may_send(struct socket *const sock,
 	if (!is_abstract_socket(other->sk))
 		return 0;
 
-	if (!sock_is_scoped(other->sk, subject->domain, &peer_domain_id))
+	if (!sock_is_scoped(other->sk, subject->domain))
 		return 0;
 
 	landlock_log_denial(subject, &(struct landlock_request) {
@@ -362,7 +330,6 @@ static int hook_unix_may_send(struct socket *const sock,
 			},
 		},
 		.layer_plus_one = handle_layer + 1,
-		.other_domain_id = peer_domain_id,
 	});
 	return -EPERM;
 }
@@ -377,7 +344,6 @@ static int hook_task_kill(struct task_struct *const p,
 {
 	bool is_scoped;
 	size_t handle_layer;
-	u64 target_domain_id = 0;
 	const struct landlock_cred_security *subject;
 
 	if (!cred) {
@@ -404,15 +370,9 @@ static int hook_task_kill(struct task_struct *const p,
 		return 0;
 
 	scoped_guard(rcu) {
-		const struct landlock_domain *const other =
-			landlock_get_task_domain(p);
-
-		is_scoped = domain_is_scoped(subject->domain, other,
+		is_scoped = domain_is_scoped(subject->domain,
+					     landlock_get_task_domain(p),
 					     signal_scope.scope);
-#ifdef CONFIG_SECURITY_LANDLOCK_LOG
-		if (other)
-			target_domain_id = other->hierarchy->id;
-#endif /* CONFIG_SECURITY_LANDLOCK_LOG */
 	}
 
 	if (!is_scoped)
@@ -425,7 +385,6 @@ static int hook_task_kill(struct task_struct *const p,
 			.u.tsk = p,
 		},
 		.layer_plus_one = handle_layer + 1,
-		.other_domain_id = target_domain_id,
 	});
 	return -EPERM;
 }
@@ -435,7 +394,6 @@ static int hook_file_send_sigiotask(struct task_struct *tsk,
 {
 	const struct landlock_cred_security *subject;
 	bool is_scoped = false;
-	u64 target_domain_id = 0;
 
 	/* Lock already held by send_sigio() and send_sigurg(). */
 	lockdep_assert_held(&fown->lock);
@@ -463,15 +421,9 @@ static int hook_file_send_sigiotask(struct task_struct *tsk,
 		return 0;
 
 	scoped_guard(rcu) {
-		const struct landlock_domain *const other =
-			landlock_get_task_domain(tsk);
-
-		is_scoped = domain_is_scoped(subject->domain, other,
+		is_scoped = domain_is_scoped(subject->domain,
+					     landlock_get_task_domain(tsk),
 					     signal_scope.scope);
-#ifdef CONFIG_SECURITY_LANDLOCK_LOG
-		if (other)
-			target_domain_id = other->hierarchy->id;
-#endif /* CONFIG_SECURITY_LANDLOCK_LOG */
 	}
 
 	if (!is_scoped)
@@ -483,10 +435,9 @@ static int hook_file_send_sigiotask(struct task_struct *tsk,
 			.type = LSM_AUDIT_DATA_TASK,
 			.u.tsk = tsk,
 		},
-#ifdef CONFIG_SECURITY_LANDLOCK_LOG
+#ifdef CONFIG_AUDIT
 		.layer_plus_one = landlock_file(fown->file)->fown_layer + 1,
-#endif /* CONFIG_SECURITY_LANDLOCK_LOG */
-		.other_domain_id = target_domain_id,
+#endif /* CONFIG_AUDIT */
 	});
 	return -EPERM;
 }

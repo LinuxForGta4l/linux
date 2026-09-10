@@ -192,6 +192,7 @@ static ssize_t b43legacy_debugfs_read(struct file *file, char __user *userbuf,
 	ssize_t ret;
 	char *buf;
 	const size_t bufsize = 1024 * 16; /* 16 KiB buffer */
+	const size_t buforder = get_order(bufsize);
 	int err = 0;
 
 	if (!count)
@@ -214,11 +215,12 @@ static ssize_t b43legacy_debugfs_read(struct file *file, char __user *userbuf,
 	dfile = fops_to_dfs_file(dev, dfops);
 
 	if (!dfile->buffer) {
-		buf = kzalloc(bufsize, GFP_KERNEL);
+		buf = (char *)__get_free_pages(GFP_KERNEL, buforder);
 		if (!buf) {
 			err = -ENOMEM;
 			goto out_unlock;
 		}
+		memset(buf, 0, bufsize);
 		if (dfops->take_irqlock) {
 			spin_lock_irq(&dev->wl->irq_lock);
 			ret = dfops->read(dev, buf, bufsize);
@@ -226,7 +228,7 @@ static ssize_t b43legacy_debugfs_read(struct file *file, char __user *userbuf,
 		} else
 			ret = dfops->read(dev, buf, bufsize);
 		if (ret <= 0) {
-			kfree(buf);
+			free_pages((unsigned long)buf, buforder);
 			err = ret;
 			goto out_unlock;
 		}
@@ -238,7 +240,7 @@ static ssize_t b43legacy_debugfs_read(struct file *file, char __user *userbuf,
 				      dfile->buffer,
 				      dfile->data_len);
 	if (*ppos >= dfile->data_len) {
-		kfree(dfile->buffer);
+		free_pages((unsigned long)dfile->buffer, buforder);
 		dfile->buffer = NULL;
 		dfile->data_len = 0;
 	}
@@ -277,7 +279,7 @@ static ssize_t b43legacy_debugfs_write(struct file *file,
 		goto out_unlock;
 	}
 
-	buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
+	buf = (char *)get_zeroed_page(GFP_KERNEL);
 	if (!buf) {
 		err = -ENOMEM;
 		goto out_unlock;
@@ -296,7 +298,7 @@ static ssize_t b43legacy_debugfs_write(struct file *file,
 		goto out_freepage;
 
 out_freepage:
-	kfree(buf);
+	free_page((unsigned long)buf);
 out_unlock:
 	mutex_unlock(&dev->wl->mutex);
 

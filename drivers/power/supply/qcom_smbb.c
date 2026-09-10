@@ -937,8 +937,11 @@ static int smbb_charger_probe(struct platform_device *pdev)
 		rc = devm_request_threaded_irq(&pdev->dev, irq, NULL,
 				smbb_charger_irqs[i].handler, IRQF_ONESHOT,
 				smbb_charger_irqs[i].name, chg);
-		if (rc)
+		if (rc) {
+			dev_err(&pdev->dev, "failed to request irq '%s'\n",
+				smbb_charger_irqs[i].name);
 			return rc;
+		}
 	}
 
 	/*

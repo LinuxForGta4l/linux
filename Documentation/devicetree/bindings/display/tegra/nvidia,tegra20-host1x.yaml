@@ -25,7 +25,6 @@ properties:
           - nvidia,tegra186-host1x
           - nvidia,tegra194-host1x
           - nvidia,tegra234-host1x
-          - nvidia,tegra264-host1x
 
       - items:
           - const: nvidia,tegra132-host1x
@@ -58,8 +57,7 @@ properties:
     enum: [1, 2]
 
   ranges:
-    minItems: 1
-    maxItems: 2
+    maxItems: 1
 
   clocks:
     description: Must contain one entry, for the module clock. See
@@ -194,7 +192,6 @@ allOf:
           contains:
             enum:
               - nvidia,tegra234-host1x
-              - nvidia,tegra264-host1x
     then:
       properties:
         reg-names:
@@ -242,21 +239,6 @@ allOf:
 
       required:
         - reg-names
-  - if:
-      properties:
-        compatible:
-          contains:
-            enum:
-              - nvidia,tegra264-host1x
-    then:
-      properties:
-        ranges:
-          minItems: 2
-          maxItems: 2
-    else:
-      properties:
-        ranges:
-          maxItems: 1
 
 examples:
   - |

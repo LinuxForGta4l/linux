@@ -690,11 +690,19 @@ static ssize_t dmar_perf_latency_write(struct file *filp,
 {
 	struct dmar_drhd_unit *drhd;
 	struct intel_iommu *iommu;
-	int ret, counting;
+	int counting;
+	char buf[64];
 
-	ret = kstrtoint_from_user(ubuf, cnt, 0, &counting);
-	if (ret)
-		return ret;
+	if (cnt > 63)
+		cnt = 63;
+
+	if (copy_from_user(&buf, ubuf, cnt))
+		return -EFAULT;
+
+	buf[cnt] = 0;
+
+	if (kstrtoint(buf, 0, &counting))
+		return -EINVAL;
 
 	switch (counting) {
 	case 0:

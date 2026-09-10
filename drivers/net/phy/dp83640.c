@@ -21,7 +21,6 @@
 #include <linux/ptp_clock_kernel.h>
 
 #include "dp83640_reg.h"
-#include "phylib.h"
 
 #define DP83640_PHY_ID	0x20005ce1
 #define PAGESEL		0x13
@@ -129,6 +128,10 @@ struct dp83640_private {
 };
 
 struct dp83640_clock {
+	/* keeps the instance in the 'phyter_clocks' list */
+	struct list_head list;
+	/* we create one clock instance per MII bus */
+	struct mii_bus *bus;
 	/* protects extended registers from concurrent access */
 	struct mutex extreg_lock;
 	/* remembers which page was last selected */
@@ -143,8 +146,6 @@ struct dp83640_clock {
 	struct list_head phylist;
 	/* reference to our PTP hardware clock */
 	struct ptp_clock *ptp_clock;
-	/* protected by the PTP core pin configuration lock */
-	struct ptp_pin_desc pin_config[DP83640_N_PINS];
 };
 
 /* globals */
@@ -204,6 +205,10 @@ static void dp83640_gpio_defaults(struct ptp_pin_desc *pd)
 		pd[index].chan = i - EXTTS0_GPIO;
 	}
 }
+
+/* a list of clocks and a mutex to protect it */
+static LIST_HEAD(phyter_clocks);
+static DEFINE_MUTEX(phyter_clocks_lock);
 
 static void rx_timestamp_work(struct work_struct *work);
 
@@ -948,12 +953,13 @@ static void decode_status_frame(struct dp83640_private *dp83640,
 	}
 }
 
-static void dp83640_clock_init(struct dp83640_clock *clock)
+static void dp83640_clock_init(struct dp83640_clock *clock, struct mii_bus *bus)
 {
+	INIT_LIST_HEAD(&clock->list);
+	clock->bus = bus;
 	mutex_init(&clock->extreg_lock);
 	mutex_init(&clock->clock_lock);
 	INIT_LIST_HEAD(&clock->phylist);
-	clock->caps.pin_config = clock->pin_config;
 	clock->caps.owner = THIS_MODULE;
 	sprintf(clock->caps.name, "dp83640 timer");
 	clock->caps.max_adj	= 1953124;
@@ -971,8 +977,14 @@ static void dp83640_clock_init(struct dp83640_clock *clock)
 	clock->caps.settime64	= ptp_dp83640_settime;
 	clock->caps.enable	= ptp_dp83640_enable;
 	clock->caps.verify	= ptp_dp83640_verify;
-	/* Initialize the runtime pin configuration from gpio_tab. */
+	/*
+	 * Convert the module param defaults into a dynamic pin configuration.
+	 */
 	dp83640_gpio_defaults(clock->caps.pin_config);
+	/*
+	 * Get a reference to this bus instance.
+	 */
+	get_device(&bus->dev);
 }
 
 static int choose_this_phy(struct dp83640_clock *clock,
@@ -985,6 +997,58 @@ static int choose_this_phy(struct dp83640_clock *clock,
 		return 1;
 
 	return 0;
+}
+
+static struct dp83640_clock *dp83640_clock_get(struct dp83640_clock *clock)
+{
+	if (clock)
+		mutex_lock(&clock->clock_lock);
+	return clock;
+}
+
+/*
+ * Look up and lock a clock by bus instance.
+ * If there is no clock for this bus, then create it first.
+ */
+static struct dp83640_clock *dp83640_clock_get_bus(struct mii_bus *bus)
+{
+	struct dp83640_clock *clock = NULL, *tmp;
+	struct list_head *this;
+
+	mutex_lock(&phyter_clocks_lock);
+
+	list_for_each(this, &phyter_clocks) {
+		tmp = list_entry(this, struct dp83640_clock, list);
+		if (tmp->bus == bus) {
+			clock = tmp;
+			break;
+		}
+	}
+	if (clock)
+		goto out;
+
+	clock = kzalloc_obj(struct dp83640_clock);
+	if (!clock)
+		goto out;
+
+	clock->caps.pin_config = kzalloc_objs(struct ptp_pin_desc,
+					      DP83640_N_PINS);
+	if (!clock->caps.pin_config) {
+		kfree(clock);
+		clock = NULL;
+		goto out;
+	}
+	dp83640_clock_init(clock, bus);
+	list_add_tail(&clock->list, &phyter_clocks);
+out:
+	mutex_unlock(&phyter_clocks_lock);
+
+	return dp83640_clock_get(clock);
+}
+
+static void dp83640_clock_put(struct dp83640_clock *clock)
+{
+	mutex_unlock(&clock->clock_lock);
 }
 
 static int dp83640_soft_reset(struct phy_device *phydev)
@@ -1336,31 +1400,20 @@ static int dp83640_ts_info(struct mii_timestamper *mii_ts,
 
 static int dp83640_probe(struct phy_device *phydev)
 {
-	struct dp83640_private *dp83640;
 	struct dp83640_clock *clock;
-	int err, i;
+	struct dp83640_private *dp83640;
+	int err = -ENOMEM, i;
 
 	if (phydev->mdio.addr == BROADCAST_ADDR)
 		return 0;
 
-	err = phy_package_join(phydev, BROADCAST_ADDR, sizeof(*clock));
-	if (err)
-		return err;
-
-	clock = phy_package_get_priv(phydev);
-	/* Ensure other PHY probes wait for shared clock initialization. */
-	phy_package_lock(phydev);
-	if (phy_package_probe_once(phydev))
-		dp83640_clock_init(clock);
-	phy_package_unlock(phydev);
-
-	mutex_lock(&clock->clock_lock);
+	clock = dp83640_clock_get_bus(phydev->mdio.bus);
+	if (!clock)
+		goto no_clock;
 
 	dp83640 = kzalloc_obj(struct dp83640_private);
-	if (!dp83640) {
-		err = -ENOMEM;
+	if (!dp83640)
 		goto no_memory;
-	}
 
 	dp83640->phydev = phydev;
 	dp83640->mii_ts.rxtstamp = dp83640_rxtstamp;
@@ -1397,20 +1450,15 @@ static int dp83640_probe(struct phy_device *phydev)
 	} else
 		list_add_tail(&dp83640->list, &clock->phylist);
 
-	mutex_unlock(&clock->clock_lock);
-
+	dp83640_clock_put(clock);
 	return 0;
 
 no_register:
 	clock->chosen = NULL;
-	clock->ptp_clock = NULL;
-	phydev->default_timestamp = false;
-	phydev->mii_ts = NULL;
-	phydev->priv = NULL;
 	kfree(dp83640);
 no_memory:
-	mutex_unlock(&clock->clock_lock);
-	phy_package_leave(phydev);
+	dp83640_clock_put(clock);
+no_clock:
 	return err;
 }
 
@@ -1419,6 +1467,7 @@ static void dp83640_remove(struct phy_device *phydev)
 	struct dp83640_clock *clock;
 	struct list_head *this, *next;
 	struct dp83640_private *tmp, *dp83640 = phydev->priv;
+	bool remove_clock = false;
 
 	if (phydev->mdio.addr == BROADCAST_ADDR)
 		return;
@@ -1431,8 +1480,7 @@ static void dp83640_remove(struct phy_device *phydev)
 	skb_queue_purge(&dp83640->rx_queue);
 	skb_queue_purge(&dp83640->tx_queue);
 
-	clock = dp83640->clock;
-	mutex_lock(&clock->clock_lock);
+	clock = dp83640_clock_get(dp83640->clock);
 
 	if (dp83640 == clock->chosen) {
 		ptp_clock_unregister(clock->ptp_clock);
@@ -1447,10 +1495,23 @@ static void dp83640_remove(struct phy_device *phydev)
 		}
 	}
 
-	mutex_unlock(&clock->clock_lock);
+	if (!clock->chosen && list_empty(&clock->phylist))
+		remove_clock = true;
+
+	dp83640_clock_put(clock);
 	kfree(dp83640);
 
-	phy_package_leave(phydev);
+	if (remove_clock) {
+		mutex_lock(&phyter_clocks_lock);
+		list_del(&clock->list);
+		mutex_unlock(&phyter_clocks_lock);
+
+		mutex_destroy(&clock->extreg_lock);
+		mutex_destroy(&clock->clock_lock);
+		put_device(&clock->bus->dev);
+		kfree(clock->caps.pin_config);
+		kfree(clock);
+	}
 }
 
 static struct phy_driver dp83640_driver[] = {

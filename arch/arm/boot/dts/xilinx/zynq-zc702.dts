@@ -324,6 +324,7 @@
 
 		conf-cd {
 			groups = "gpio0_0_grp";
+			bias-high-impedance;
 			bias-pull-up;
 			slew-rate = <0>;
 			power-source = <1>;
@@ -336,6 +337,7 @@
 
 		conf-wp {
 			groups = "gpio0_15_grp";
+			bias-high-impedance;
 			bias-pull-up;
 			slew-rate = <0>;
 			power-source = <1>;

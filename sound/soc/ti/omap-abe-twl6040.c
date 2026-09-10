@@ -234,13 +234,16 @@ static int omap_abe_probe(struct platform_device *pdev)
 	card->dapm_routes = audio_map;
 	card->num_dapm_routes = ARRAY_SIZE(audio_map);
 
-	ret = snd_soc_of_parse_card_name(card, "ti,model");
-	if (ret)
-		return ret;
+	if (snd_soc_of_parse_card_name(card, "ti,model")) {
+		dev_err(&pdev->dev, "Card name is not provided\n");
+		return -ENODEV;
+	}
 
 	ret = snd_soc_of_parse_audio_routing(card, "ti,audio-routing");
-	if (ret)
+	if (ret) {
+		dev_err(&pdev->dev, "Error while parsing DAPM routing\n");
 		return ret;
+	}
 
 	dai_node = of_parse_phandle(node, "ti,mcpdm", 0);
 	if (!dai_node) {
@@ -296,8 +299,8 @@ static int omap_abe_probe(struct platform_device *pdev)
 
 	ret = devm_snd_soc_register_card(&pdev->dev, card);
 	if (ret)
-		dev_err_probe(&pdev->dev, ret,
-			      "devm_snd_soc_register_card() failed\n");
+		dev_err(&pdev->dev, "devm_snd_soc_register_card() failed: %d\n",
+			ret);
 
 	return ret;
 }

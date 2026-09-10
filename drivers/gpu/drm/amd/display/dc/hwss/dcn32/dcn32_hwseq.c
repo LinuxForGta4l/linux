@@ -443,10 +443,13 @@ void dcn32_subvp_pipe_control_lock_fast(union block_sequence_params *params)
 	}
 }
 
-bool dcn32_set_mpc_shaper_3dlut(struct dpp *dpp, struct mpc *mpc,
-	int mpcc_id, const struct dc_stream_state *stream)
+bool dcn32_set_mpc_shaper_3dlut(
+	struct pipe_ctx *pipe_ctx, const struct dc_stream_state *stream)
 {
-	struct dc *dc = dpp->ctx->dc;
+	struct dpp *dpp_base = pipe_ctx->plane_res.dpp;
+	int mpcc_id = pipe_ctx->plane_res.hubp->inst;
+	struct dc *dc = pipe_ctx->stream->ctx->dc;
+	struct mpc *mpc = pipe_ctx->stream_res.opp->ctx->dc->res_pool->mpc;
 	bool result = false;
 
 	const struct pwl_params *shaper_lut = NULL;
@@ -457,8 +460,8 @@ bool dcn32_set_mpc_shaper_3dlut(struct dpp *dpp, struct mpc *mpc,
 		else if (stream->func_shaper->type == TF_TYPE_DISTRIBUTED_POINTS) {
 			cm_helper_translate_curve_to_hw_format(stream->ctx,
 					stream->func_shaper,
-					&dpp->shaper_params, true);
-			shaper_lut = &dpp->shaper_params;
+					&dpp_base->shaper_params, true);
+			shaper_lut = &dpp_base->shaper_params;
 		}
 	}
 
@@ -487,12 +490,12 @@ bool dcn32_set_mcm_luts(
 	const struct pwl_params *lut_params = NULL;
 
 	// 1D LUT
-	if (plane_state->cm.blend_func.type == TF_TYPE_HWPWL)
-		lut_params = &plane_state->cm.blend_func.pwl;
-	else if (plane_state->cm.blend_func.type == TF_TYPE_DISTRIBUTED_POINTS) {
-		result = cm3_helper_translate_curve_to_degamma_hw_format(
-			&plane_state->cm.blend_func,
-			&dpp_base->regamma_params);
+	if (plane_state->blend_tf.type == TF_TYPE_HWPWL)
+		lut_params = &plane_state->blend_tf.pwl;
+	else if (plane_state->blend_tf.type == TF_TYPE_DISTRIBUTED_POINTS) {
+		result = cm3_helper_translate_curve_to_hw_format(plane_state->ctx,
+								 &plane_state->blend_tf,
+								 &dpp_base->regamma_params, false);
 		if (!result)
 			return result;
 
@@ -502,22 +505,21 @@ bool dcn32_set_mcm_luts(
 	lut_params = NULL;
 
 	// Shaper
-	if (plane_state->cm.shaper_func.type == TF_TYPE_HWPWL)
-		lut_params = &plane_state->cm.shaper_func.pwl;
-	else if (plane_state->cm.shaper_func.type == TF_TYPE_DISTRIBUTED_POINTS) {
+	if (plane_state->in_shaper_func.type == TF_TYPE_HWPWL)
+		lut_params = &plane_state->in_shaper_func.pwl;
+	else if (plane_state->in_shaper_func.type == TF_TYPE_DISTRIBUTED_POINTS) {
 		// TODO: dpp_base replace
 		rval = cm3_helper_translate_curve_to_hw_format(plane_state->ctx,
-			&plane_state->cm.shaper_func,
-			&dpp_base->shaper_params,
-			true);
+							&plane_state->in_shaper_func,
+							&dpp_base->shaper_params, true);
 		lut_params = rval ? &dpp_base->shaper_params : NULL;
 	}
 
 	mpc->funcs->program_shaper(mpc, lut_params, mpcc_id);
 
 	// 3D
-	if (plane_state->cm.lut3d_func.state.bits.initialized == 1)
-		result = mpc->funcs->program_3dlut(mpc, &plane_state->cm.lut3d_func.lut_3d, mpcc_id);
+	if (plane_state->lut3d_func.state.bits.initialized == 1)
+		result = mpc->funcs->program_3dlut(mpc, &plane_state->lut3d_func.lut_3d, mpcc_id);
 	else
 		result = mpc->funcs->program_3dlut(mpc, NULL, mpcc_id);
 
@@ -544,16 +546,14 @@ bool dcn32_set_input_transfer_func(struct dc *dc,
 	if (plane_state->in_transfer_func.type == TF_TYPE_PREDEFINED)
 		tf = plane_state->in_transfer_func.tf;
 
-	if (dpp_base->funcs->dpp_set_pregam_state)
-		dpp_base->funcs->dpp_set_pregam_state(dpp_base, tf, plane_state->scaling_linearity);
-	else
-		dpp_base->funcs->dpp_set_pre_degam(dpp_base, tf);
+	dpp_base->funcs->dpp_set_pre_degam(dpp_base, tf);
 
 	if (plane_state->in_transfer_func.type == TF_TYPE_HWPWL)
 		params = &plane_state->in_transfer_func.pwl;
 	else if (plane_state->in_transfer_func.type == TF_TYPE_DISTRIBUTED_POINTS &&
-		cm3_helper_translate_curve_to_degamma_hw_format(&plane_state->in_transfer_func,
-								&dpp_base->degamma_params))
+		cm3_helper_translate_curve_to_hw_format(plane_state->ctx,
+							&plane_state->in_transfer_func,
+							&dpp_base->degamma_params, false))
 		params = &dpp_base->degamma_params;
 
 	dpp_base->funcs->dpp_program_gamcor_lut(dpp_base, params);
@@ -566,24 +566,24 @@ bool dcn32_set_input_transfer_func(struct dc *dc,
 	return result;
 }
 
-bool dcn32_set_output_transfer_func(struct set_output_transfer_func_params *otf_params)
+bool dcn32_set_output_transfer_func(struct dc *dc,
+				struct pipe_ctx *pipe_ctx,
+				const struct dc_stream_state *stream)
 {
-	struct dpp *dpp = otf_params->dpp;
-	struct mpc *mpc = otf_params->mpc;
-	int mpcc_id = otf_params->mpcc_id;
-	bool is_top_pipe = otf_params->is_top_pipe;
-	const struct dc_stream_state *stream = otf_params->stream;
+	(void)dc;
+	int mpcc_id = pipe_ctx->plane_res.hubp->inst;
+	struct mpc *mpc = pipe_ctx->stream_res.opp->ctx->dc->res_pool->mpc;
 	const struct pwl_params *params = NULL;
 	bool ret = false;
 
 	/* program OGAM or 3DLUT only for the top pipe*/
-	if (is_top_pipe) {
+	if (resource_is_pipe_type(pipe_ctx, OPP_HEAD)) {
 		/*program shaper and 3dlut in MPC*/
-		ret = dcn32_set_mpc_shaper_3dlut(dpp, mpc, mpcc_id, stream);
+		ret = dcn32_set_mpc_shaper_3dlut(pipe_ctx, stream);
 		if (ret == false && mpc->funcs->set_output_gamma) {
 			if (stream->out_transfer_func.type == TF_TYPE_HWPWL)
 				params = &stream->out_transfer_func.pwl;
-			else if (stream->out_transfer_func.type ==
+			else if (pipe_ctx->stream->out_transfer_func.type ==
 					TF_TYPE_DISTRIBUTED_POINTS &&
 					cm3_helper_translate_curve_to_hw_format(stream->ctx,
 					&stream->out_transfer_func,
@@ -1463,7 +1463,7 @@ void dcn32_update_phantom_vp_position(struct dc *dc,
 
 		if (pipe->stream && dc_state_get_pipe_subvp_type(context, pipe) == SUBVP_MAIN &&
 				dc_state_get_paired_subvp_stream(context, pipe->stream) == phantom_pipe->stream) {
-			if (pipe->plane_state && pipe->plane_state->update_bits.position_change) {
+			if (pipe->plane_state && pipe->plane_state->update_flags.bits.position_change) {
 
 				phantom_plane->src_rect.x = pipe->plane_state->src_rect.x;
 				phantom_plane->src_rect.y = pipe->plane_state->src_rect.y;
@@ -1471,7 +1471,7 @@ void dcn32_update_phantom_vp_position(struct dc *dc,
 				phantom_plane->dst_rect.x = pipe->plane_state->dst_rect.x;
 				phantom_plane->dst_rect.y = pipe->plane_state->dst_rect.y;
 
-				phantom_pipe->plane_state->update_bits.position_change = 1;
+				phantom_pipe->plane_state->update_flags.bits.position_change = 1;
 				resource_build_scaling_params(phantom_pipe);
 				return;
 			}

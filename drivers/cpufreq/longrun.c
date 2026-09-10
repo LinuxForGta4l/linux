@@ -35,27 +35,27 @@ static unsigned int longrun_low_freq, longrun_high_freq;
  */
 static void longrun_get_policy(struct cpufreq_policy *policy)
 {
-	struct msr msr;
+	u32 msr_lo, msr_hi;
 
-	rdmsrq(MSR_TMTA_LONGRUN_FLAGS, msr.q);
-	pr_debug("longrun flags are %x - %x\n", msr.l, msr.h);
-	if (msr.l & 0x01)
+	rdmsr(MSR_TMTA_LONGRUN_FLAGS, msr_lo, msr_hi);
+	pr_debug("longrun flags are %x - %x\n", msr_lo, msr_hi);
+	if (msr_lo & 0x01)
 		policy->policy = CPUFREQ_POLICY_PERFORMANCE;
 	else
 		policy->policy = CPUFREQ_POLICY_POWERSAVE;
 
-	rdmsrq(MSR_TMTA_LONGRUN_CTRL, msr.q);
-	pr_debug("longrun ctrl is %x - %x\n", msr.l, msr.h);
-	msr.l &= 0x0000007F;
-	msr.h &= 0x0000007F;
+	rdmsr(MSR_TMTA_LONGRUN_CTRL, msr_lo, msr_hi);
+	pr_debug("longrun ctrl is %x - %x\n", msr_lo, msr_hi);
+	msr_lo &= 0x0000007F;
+	msr_hi &= 0x0000007F;
 
 	if (longrun_high_freq <= longrun_low_freq) {
 		/* Assume degenerate Longrun table */
 		policy->min = policy->max = longrun_high_freq;
 	} else {
-		policy->min = longrun_low_freq + msr.l *
+		policy->min = longrun_low_freq + msr_lo *
 			((longrun_high_freq - longrun_low_freq) / 100);
-		policy->max = longrun_low_freq + msr.h *
+		policy->max = longrun_low_freq + msr_hi *
 			((longrun_high_freq - longrun_low_freq) / 100);
 	}
 	policy->cpu = 0;
@@ -71,7 +71,7 @@ static void longrun_get_policy(struct cpufreq_policy *policy)
  */
 static int longrun_set_policy(struct cpufreq_policy *policy)
 {
-	struct msr msr;
+	u32 msr_lo, msr_hi;
 	u32 pctg_lo, pctg_hi;
 
 	if (!policy)
@@ -93,24 +93,24 @@ static int longrun_set_policy(struct cpufreq_policy *policy)
 		pctg_lo = pctg_hi;
 
 	/* performance or economy mode */
-	rdmsrq(MSR_TMTA_LONGRUN_FLAGS, msr.q);
-	msr.l &= 0xFFFFFFFE;
+	rdmsr(MSR_TMTA_LONGRUN_FLAGS, msr_lo, msr_hi);
+	msr_lo &= 0xFFFFFFFE;
 	switch (policy->policy) {
 	case CPUFREQ_POLICY_PERFORMANCE:
-		msr.l |= 0x00000001;
+		msr_lo |= 0x00000001;
 		break;
 	case CPUFREQ_POLICY_POWERSAVE:
 		break;
 	}
-	wrmsrq(MSR_TMTA_LONGRUN_FLAGS, msr.q);
+	wrmsr(MSR_TMTA_LONGRUN_FLAGS, msr_lo, msr_hi);
 
 	/* lower and upper boundary */
-	rdmsrq(MSR_TMTA_LONGRUN_CTRL, msr.q);
-	msr.l &= 0xFFFFFF80;
-	msr.h &= 0xFFFFFF80;
-	msr.l |= pctg_lo;
-	msr.h |= pctg_hi;
-	wrmsrq(MSR_TMTA_LONGRUN_CTRL, msr.q);
+	rdmsr(MSR_TMTA_LONGRUN_CTRL, msr_lo, msr_hi);
+	msr_lo &= 0xFFFFFF80;
+	msr_hi &= 0xFFFFFF80;
+	msr_lo |= pctg_lo;
+	msr_hi |= pctg_hi;
+	wrmsr(MSR_TMTA_LONGRUN_CTRL, msr_lo, msr_hi);
 
 	return 0;
 }
@@ -160,7 +160,8 @@ static unsigned int longrun_get(unsigned int cpu)
 static int longrun_determine_freqs(unsigned int *low_freq,
 						      unsigned int *high_freq)
 {
-	struct msr msr, save;
+	u32 msr_lo, msr_hi;
+	u32 save_lo, save_hi;
 	u32 eax, ebx, ecx, edx;
 	u32 try_hi;
 	struct cpuinfo_x86 *c = &cpu_data(0);
@@ -177,17 +178,15 @@ static int longrun_determine_freqs(unsigned int *low_freq,
 		 * For maximum frequency, read out level zero.
 		 */
 		/* minimum */
-		rdmsrq(MSR_TMTA_LRTI_READOUT, msr.q);
-		msr.l = msr.h;
-		wrmsrq(MSR_TMTA_LRTI_READOUT, msr.q);
-		rdmsrq(MSR_TMTA_LRTI_VOLT_MHZ, msr.q);
-		*low_freq = msr.l * 1000; /* to kHz */
+		rdmsr(MSR_TMTA_LRTI_READOUT, msr_lo, msr_hi);
+		wrmsr(MSR_TMTA_LRTI_READOUT, msr_hi, msr_hi);
+		rdmsr(MSR_TMTA_LRTI_VOLT_MHZ, msr_lo, msr_hi);
+		*low_freq = msr_lo * 1000; /* to kHz */
 
 		/* maximum */
-		msr.l = 0;
-		wrmsrq(MSR_TMTA_LRTI_READOUT, msr.q);
-		rdmsrq(MSR_TMTA_LRTI_VOLT_MHZ, msr.q);
-		*high_freq = msr.l * 1000; /* to kHz */
+		wrmsr(MSR_TMTA_LRTI_READOUT, 0, msr_hi);
+		rdmsr(MSR_TMTA_LRTI_VOLT_MHZ, msr_lo, msr_hi);
+		*high_freq = msr_lo * 1000; /* to kHz */
 
 		pr_debug("longrun table interface told %u - %u kHz\n",
 				*low_freq, *high_freq);
@@ -203,9 +202,9 @@ static int longrun_determine_freqs(unsigned int *low_freq,
 	pr_debug("high frequency is %u kHz\n", *high_freq);
 
 	/* get current borders */
-	rdmsrq(MSR_TMTA_LONGRUN_CTRL, msr.q);
-	save.l = msr.l & 0x0000007F;
-	save.h = msr.h & 0x0000007F;
+	rdmsr(MSR_TMTA_LONGRUN_CTRL, msr_lo, msr_hi);
+	save_lo = msr_lo & 0x0000007F;
+	save_hi = msr_hi & 0x0000007F;
 
 	/* if current perf_pctg is larger than 90%, we need to decrease the
 	 * upper limit to make the calculation more accurate.
@@ -215,16 +214,16 @@ static int longrun_determine_freqs(unsigned int *low_freq,
 	 * on some barrier values */
 	for (try_hi = 80; try_hi > 0 && ecx > 90; try_hi -= 10) {
 		/* set to 0 to try_hi perf_pctg */
-		msr.l &= 0xFFFFFF80;
-		msr.h &= 0xFFFFFF80;
-		msr.h |= try_hi;
-		wrmsrq(MSR_TMTA_LONGRUN_CTRL, msr.q);
+		msr_lo &= 0xFFFFFF80;
+		msr_hi &= 0xFFFFFF80;
+		msr_hi |= try_hi;
+		wrmsr(MSR_TMTA_LONGRUN_CTRL, msr_lo, msr_hi);
 
 		/* read out current core MHz and current perf_pctg */
 		cpuid(0x80860007, &eax, &ebx, &ecx, &edx);
 
 		/* restore values */
-		wrmsrq(MSR_TMTA_LONGRUN_CTRL, save.q);
+		wrmsr(MSR_TMTA_LONGRUN_CTRL, save_lo, save_hi);
 	}
 	pr_debug("percentage is %u %%, freq is %u MHz\n", ecx, eax);
 

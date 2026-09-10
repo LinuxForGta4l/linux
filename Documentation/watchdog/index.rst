@@ -25,5 +25,4 @@ Driver specific
     hpwdt
     ics-wdt
     mlx-wdt
-    npcm_wdt
     pcwd-watchdog

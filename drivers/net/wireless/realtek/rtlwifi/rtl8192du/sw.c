@@ -145,10 +145,8 @@ static int rtl92du_init_sw_vars(struct ieee80211_hw *hw)
 
 	/* for firmware buf */
 	rtlpriv->rtlhal.pfirmware = kmalloc(0x8000, GFP_KERNEL);
-	if (!rtlpriv->rtlhal.pfirmware) {
-		err = -ENOMEM;
-		goto error;
-	}
+	if (!rtlpriv->rtlhal.pfirmware)
+		return -ENOMEM;
 
 	rtlpriv->max_fw_size = 0x8000;
 	pr_info("Driver for Realtek RTL8192DU WLAN interface\n");
@@ -162,14 +160,10 @@ static int rtl92du_init_sw_vars(struct ieee80211_hw *hw)
 		pr_err("Failed to request firmware!\n");
 		kfree(rtlpriv->rtlhal.pfirmware);
 		rtlpriv->rtlhal.pfirmware = NULL;
-		goto error;
+		return err;
 	}
 
 	return 0;
-
-error:
-	rtl92du_deinit_shared_data(hw);
-	return err;
 }
 
 static void rtl92du_deinit_sw_vars(struct ieee80211_hw *hw)

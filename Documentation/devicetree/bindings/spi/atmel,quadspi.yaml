@@ -22,7 +22,6 @@ properties:
       - microchip,sama7d65-ospi
       - microchip,sama7g5-qspi
       - microchip,sama7g5-ospi
-      - microchip,lan9691-qspi
 
   reg:
     items:

@@ -58,7 +58,7 @@
 //!     },
 //!     num::Bounded,
 //! };
-//! # use kernel::io::{Mmio, Region};
+//! # use kernel::io::Mmio;
 //! # register! {
 //! #     pub BOOT_0(u32) @ 0x00000100 {
 //! #         15:8 vendor_id;
@@ -66,7 +66,7 @@
 //! #         3:0 minor_revision;
 //! #     }
 //! # }
-//! # fn test(io: Mmio<'_, Region<0x1000>>) {
+//! # fn test(io: &Mmio<0x1000>) {
 //! # fn obtain_vendor_id() -> u8 { 0xff }
 //!
 //! // Read from the register's defined offset (0x100).
@@ -113,8 +113,6 @@ use crate::{
     io::IoLoc, //
 };
 
-use super::Region;
-
 /// Trait implemented by all registers.
 pub trait Register: Sized {
     /// Backing primitive type of the register.
@@ -131,7 +129,7 @@ pub trait FixedRegister: Register {}
 
 /// Allows `()` to be used as the `location` parameter of [`Io::write`](super::Io::write) when
 /// passing a [`FixedRegister`] value.
-impl<const SIZE: usize, T> IoLoc<Region<SIZE>, T> for ()
+impl<T> IoLoc<T> for ()
 where
     T: FixedRegister,
 {
@@ -145,7 +143,7 @@ where
 
 /// A [`FixedRegister`] carries its location in its type. Thus `FixedRegister` values can be used
 /// as an [`IoLoc`].
-impl<const SIZE: usize, T> IoLoc<Region<SIZE>, T> for T
+impl<T> IoLoc<T> for T
 where
     T: FixedRegister,
 {
@@ -170,7 +168,7 @@ impl<T: FixedRegister> FixedRegisterLoc<T> {
     }
 }
 
-impl<const SIZE: usize, T> IoLoc<Region<SIZE>, T> for FixedRegisterLoc<T>
+impl<T> IoLoc<T> for FixedRegisterLoc<T>
 where
     T: FixedRegister,
 {
@@ -241,7 +239,7 @@ where
     }
 }
 
-impl<const SIZE: usize, T, B> IoLoc<Region<SIZE>, T> for RelativeRegisterLoc<T, B>
+impl<T, B> IoLoc<T> for RelativeRegisterLoc<T, B>
 where
     T: RelativeRegister,
     B: RegisterBase<T::BaseFamily> + ?Sized,
@@ -285,7 +283,7 @@ impl<T: RegisterArray> RegisterArrayLoc<T> {
     }
 }
 
-impl<const SIZE: usize, T> IoLoc<Region<SIZE>, T> for RegisterArrayLoc<T>
+impl<T> IoLoc<T> for RegisterArrayLoc<T>
 where
     T: RegisterArray,
 {
@@ -372,7 +370,7 @@ where
     }
 }
 
-impl<const SIZE: usize, T, B> IoLoc<Region<SIZE>, T> for RelativeRegisterArrayLoc<T, B>
+impl<T, B> IoLoc<T> for RelativeRegisterArrayLoc<T, B>
 where
     T: RelativeRegisterArray,
     B: RegisterBase<T::BaseFamily> + ?Sized,
@@ -389,18 +387,18 @@ where
 /// which to write it.
 ///
 /// Implementors can be used with [`Io::write_reg`](super::Io::write_reg).
-pub trait LocatedRegister<Base: ?Sized> {
+pub trait LocatedRegister {
     /// Register value to write.
     type Value: Register;
     /// Full location information at which to write the value.
-    type Location: IoLoc<Base, Self::Value>;
+    type Location: IoLoc<Self::Value>;
 
     /// Consumes `self` and returns a `(location, value)` tuple describing a valid I/O write
     /// operation.
     fn into_io_op(self) -> (Self::Location, Self::Value);
 }
 
-impl<const SIZE: usize, T> LocatedRegister<Region<SIZE>> for T
+impl<T> LocatedRegister for T
 where
     T: FixedRegister,
 {
@@ -446,16 +444,16 @@ where
 ///         Io,
 ///     },
 /// };
-/// # use kernel::io::{Mmio, Region};
+/// # use kernel::io::Mmio;
 ///
 /// register! {
 ///     FIXED_REG(u32) @ 0x100 {
-///         15:8 high_byte;
+///         16:8 high_byte;
 ///         7:0  low_byte;
 ///     }
 /// }
 ///
-/// # fn test(io: Mmio<'_, Region<0x1000>>) {
+/// # fn test(io: &Mmio<0x1000>) {
 /// let val = io.read(FIXED_REG);
 ///
 /// // Write from an already-existing value.
@@ -559,7 +557,7 @@ where
 ///         Io,
 ///     },
 /// };
-/// # use kernel::io::{Mmio, Region};
+/// # use kernel::io::Mmio;
 ///
 /// // Type used to identify the base.
 /// pub struct CpuCtlBase;
@@ -584,7 +582,7 @@ where
 ///     }
 /// }
 ///
-/// # fn test(io: Mmio<'_, Region<0x1000>>) {
+/// # fn test(io: Mmio<0x1000>) {
 /// // Read the status of `Cpu0`.
 /// let cpu0_started = io.read(CPU_CTL::of::<Cpu0>());
 ///
@@ -601,7 +599,7 @@ where
 ///     }
 /// }
 ///
-/// # fn test2(io: Mmio<'_, Region<0x1000>>) {
+/// # fn test2(io: Mmio<0x1000>) {
 /// // Start the aliased `CPU0`, leaving its other fields untouched.
 /// io.update(CPU_CTL_ALIAS::of::<Cpu0>(), |r| r.with_alias_start(true));
 /// # }
@@ -638,7 +636,7 @@ where
 ///         Io,
 ///     },
 /// };
-/// # use kernel::io::{Mmio, Region};
+/// # use kernel::io::Mmio;
 /// # fn get_scratch_idx() -> usize {
 /// #   0x15
 /// # }
@@ -651,7 +649,7 @@ where
 ///     }
 /// }
 ///
-/// # fn test(io: Mmio<'_, Region<0x1000>>)
+/// # fn test(io: &Mmio<0x1000>)
 /// #     -> Result<(), Error>{
 /// // Read scratch register 0, i.e. I/O address `0x80`.
 /// let scratch_0 = io.read(SCRATCH::at(0)).value();
@@ -724,7 +722,7 @@ where
 ///         Io,
 ///     },
 /// };
-/// # use kernel::io::{Mmio, Region};
+/// # use kernel::io::Mmio;
 /// # fn get_scratch_idx() -> usize {
 /// #   0x15
 /// # }
@@ -752,7 +750,7 @@ where
 ///     }
 /// }
 ///
-/// # fn test(io: Mmio<'_, Region<0x1000>>) -> Result<(), Error> {
+/// # fn test(io: &Mmio<0x1000>) -> Result<(), Error> {
 /// // Read scratch register 0 of CPU0.
 /// let scratch = io.read(CPU_SCRATCH::of::<Cpu0>().at(0));
 ///
@@ -794,7 +792,7 @@ where
 ///     }
 /// }
 ///
-/// # fn test2(io: Mmio<'_, Region<0x1000>>) -> Result<(), Error> {
+/// # fn test2(io: &Mmio<0x1000>) -> Result<(), Error> {
 /// let cpu0_status = io.read(CPU_FIRMWARE_STATUS::of::<Cpu0>()).status();
 /// # Ok(())
 /// # }
@@ -804,9 +802,6 @@ macro_rules! register {
     // Entry point for the macro, allowing multiple registers to be defined in one call.
     // It matches all possible register declaration patterns to dispatch them to corresponding
     // `@reg` rule that defines a single register.
-    //
-    // TODO: change `alias:ident` to `alias:path` once relative registers are replaced by I/O
-    // projections.
     (
         $(
             $(#[$attr:meta])* $vis:vis $name:ident ($storage:ty)
@@ -835,12 +830,12 @@ macro_rules! register {
     ) => {
         $crate::register!(@bitfield $(#[$attr])* $vis struct $name($storage) { $($fields)* });
         $crate::register!(@io_base $name($storage) @ $offset);
-        $crate::register!(@io_fixed $(#[$attr])* $vis $name);
+        $crate::register!(@io_fixed $(#[$attr])* $vis $name($storage));
     };
 
     // Creates an alias register of fixed offset register `alias` with its own fields.
     (
-        @reg $(#[$attr:meta])* $vis:vis $name:ident ($storage:ty) => $alias:path
+        @reg $(#[$attr:meta])* $vis:vis $name:ident ($storage:ty) => $alias:ident
             { $($fields:tt)* }
     ) => {
         $crate::register!(@bitfield $(#[$attr])* $vis struct $name($storage) { $($fields)* });
@@ -848,7 +843,7 @@ macro_rules! register {
             @io_base $name($storage) @
             <$alias as $crate::io::register::Register>::OFFSET
         );
-        $crate::register!(@io_fixed $(#[$attr])* $vis $name);
+        $crate::register!(@io_fixed $(#[$attr])* $vis $name($storage));
     };
 
     // Creates a register at a relative offset from a base address provider.
@@ -858,7 +853,7 @@ macro_rules! register {
     ) => {
         $crate::register!(@bitfield $(#[$attr])* $vis struct $name($storage) { $($fields)* });
         $crate::register!(@io_base $name($storage) @ $offset);
-        $crate::register!(@io_relative $name @ $base);
+        $crate::register!(@io_relative $vis $name($storage) @ $base);
     };
 
     // Creates an alias register of relative offset register `alias` with its own fields.
@@ -870,7 +865,7 @@ macro_rules! register {
         $crate::register!(
             @io_base $name($storage) @ <$alias as $crate::io::register::Register>::OFFSET
         );
-        $crate::register!(@io_relative $name @ $base);
+        $crate::register!(@io_relative $vis $name($storage) @ $base);
     };
 
     // Creates an array of registers at a fixed offset of the MMIO space.
@@ -882,7 +877,7 @@ macro_rules! register {
 
         $crate::register!(@bitfield $(#[$attr])* $vis struct $name($storage) { $($fields)* });
         $crate::register!(@io_base $name($storage) @ $offset);
-        $crate::register!(@io_array $name [ $size, stride = $stride ]);
+        $crate::register!(@io_array $vis $name($storage) [ $size, stride = $stride ]);
     };
 
     // Shortcut for contiguous array of registers (stride == size of element).
@@ -891,15 +886,14 @@ macro_rules! register {
             { $($fields:tt)* }
     ) => {
         $crate::register!(
-            @reg $(#[$attr])* $vis $name($storage)
-                [ $size, stride = ::core::mem::size_of::<$storage>() ]
+            $(#[$attr])* $vis $name($storage) [ $size, stride = ::core::mem::size_of::<$storage>() ]
                 @ $offset { $($fields)* }
         );
     };
 
     // Creates an alias of register `idx` of array of registers `alias` with its own fields.
     (
-        @reg $(#[$attr:meta])* $vis:vis $name:ident ($storage:ty) => $alias:path [ $idx:expr ]
+        @reg $(#[$attr:meta])* $vis:vis $name:ident ($storage:ty) => $alias:ident [ $idx:expr ]
             { $($fields:tt)* }
     ) => {
         $crate::build_assert::static_assert!(
@@ -912,7 +906,7 @@ macro_rules! register {
             <$alias as $crate::io::register::Register>::OFFSET
                 + $idx * <$alias as $crate::io::register::RegisterArray>::STRIDE
         );
-        $crate::register!(@io_fixed $(#[$attr])* $vis $name);
+        $crate::register!(@io_fixed $(#[$attr])* $vis $name($storage));
     };
 
     // Creates an array of registers at a relative offset from a base address provider.
@@ -925,7 +919,9 @@ macro_rules! register {
 
         $crate::register!(@bitfield $(#[$attr])* $vis struct $name($storage) { $($fields)* });
         $crate::register!(@io_base $name($storage) @ $offset);
-        $crate::register!(@io_relative_array $name [ $size, stride = $stride ] @ $base);
+        $crate::register!(
+            @io_relative_array $vis $name($storage) [ $size, stride = $stride ] @ $base + $offset
+        );
     };
 
     // Shortcut for contiguous array of relative registers (stride == size of element).
@@ -934,8 +930,7 @@ macro_rules! register {
             @ $base:ident + $offset:literal { $($fields:tt)* }
     ) => {
         $crate::register!(
-            @reg $(#[$attr])* $vis $name($storage)
-                [ $size, stride = ::core::mem::size_of::<$storage>() ]
+            $(#[$attr])* $vis $name($storage) [ $size, stride = ::core::mem::size_of::<$storage>() ]
                 @ $base + $offset { $($fields)* }
         );
     };
@@ -956,7 +951,7 @@ macro_rules! register {
                 <$alias as $crate::io::register::Register>::OFFSET +
                 $idx * <$alias as $crate::io::register::RegisterArray>::STRIDE
         );
-        $crate::register!(@io_relative $name @ $base);
+        $crate::register!(@io_relative $vis $name($storage) @ $base);
     };
 
     // Generates the bitfield for the register.
@@ -982,7 +977,7 @@ macro_rules! register {
     };
 
     // Implementations of fixed registers.
-    (@io_fixed $(#[$attr:meta])* $vis:vis $name:ident) => {
+    (@io_fixed $(#[$attr:meta])* $vis:vis $name:ident ($storage:ty)) => {
         impl $crate::io::register::FixedRegister for $name {}
 
         $(#[$attr])*
@@ -991,7 +986,7 @@ macro_rules! register {
     };
 
     // Implementations of relative registers.
-    (@io_relative $name:ident @ $base:ident) => {
+    (@io_relative $vis:vis $name:ident ($storage:ty) @ $base:ident) => {
         impl $crate::io::register::WithBase for $name {
             type BaseFamily = $base;
         }
@@ -1000,7 +995,7 @@ macro_rules! register {
     };
 
     // Implementations of register arrays.
-    (@io_array $name:ident [ $size:expr, stride = $stride:expr ]) => {
+    (@io_array $vis:vis $name:ident ($storage:ty) [ $size:expr, stride = $stride:expr ]) => {
         impl $crate::io::register::Array for $name {}
 
         impl $crate::io::register::RegisterArray for $name {
@@ -1011,7 +1006,8 @@ macro_rules! register {
 
     // Implementations of relative array registers.
     (
-        @io_relative_array $name:ident [ $size:expr, stride = $stride:expr ] @ $base:ident
+        @io_relative_array $vis:vis $name:ident ($storage:ty) [ $size:expr, stride = $stride:expr ]
+            @ $base:ident + $offset:literal
     ) => {
         impl $crate::io::register::WithBase for $name {
             type BaseFamily = $base;

@@ -611,7 +611,7 @@ static int img_spfi_probe(struct platform_device *pdev)
 		ret = PTR_ERR(spfi->tx_ch);
 		spfi->tx_ch = NULL;
 		if (ret == -EPROBE_DEFER)
-			goto free_dma;
+			goto disable_pm;
 	}
 
 	spfi->rx_ch = dma_request_chan(spfi->dev, "rx");
@@ -619,7 +619,7 @@ static int img_spfi_probe(struct platform_device *pdev)
 		ret = PTR_ERR(spfi->rx_ch);
 		spfi->rx_ch = NULL;
 		if (ret == -EPROBE_DEFER)
-			goto free_dma;
+			goto disable_pm;
 	}
 
 	if (!spfi->tx_ch || !spfi->rx_ch) {
@@ -647,7 +647,6 @@ static int img_spfi_probe(struct platform_device *pdev)
 
 disable_pm:
 	pm_runtime_disable(spfi->dev);
-free_dma:
 	if (spfi->rx_ch)
 		dma_release_channel(spfi->rx_ch);
 	if (spfi->tx_ch)
@@ -678,6 +677,7 @@ static void img_spfi_remove(struct platform_device *pdev)
 	}
 }
 
+#ifdef CONFIG_PM
 static int img_spfi_runtime_suspend(struct device *dev)
 {
 	struct spi_controller *host = dev_get_drvdata(dev);
@@ -706,7 +706,9 @@ static int img_spfi_runtime_resume(struct device *dev)
 
 	return 0;
 }
+#endif /* CONFIG_PM */
 
+#ifdef CONFIG_PM_SLEEP
 static int img_spfi_suspend(struct device *dev)
 {
 	struct spi_controller *host = dev_get_drvdata(dev);
@@ -728,10 +730,12 @@ static int img_spfi_resume(struct device *dev)
 
 	return spi_controller_resume(host);
 }
+#endif /* CONFIG_PM_SLEEP */
 
 static const struct dev_pm_ops img_spfi_pm_ops = {
-	RUNTIME_PM_OPS(img_spfi_runtime_suspend, img_spfi_runtime_resume, NULL)
-	SYSTEM_SLEEP_PM_OPS(img_spfi_suspend, img_spfi_resume)
+	SET_RUNTIME_PM_OPS(img_spfi_runtime_suspend, img_spfi_runtime_resume,
+			   NULL)
+	SET_SYSTEM_SLEEP_PM_OPS(img_spfi_suspend, img_spfi_resume)
 };
 
 static const struct of_device_id img_spfi_of_match[] = {
@@ -743,7 +747,7 @@ MODULE_DEVICE_TABLE(of, img_spfi_of_match);
 static struct platform_driver img_spfi_driver = {
 	.driver = {
 		.name = "img-spfi",
-		.pm = pm_ptr(&img_spfi_pm_ops),
+		.pm = &img_spfi_pm_ops,
 		.of_match_table = of_match_ptr(img_spfi_of_match),
 	},
 	.probe = img_spfi_probe,

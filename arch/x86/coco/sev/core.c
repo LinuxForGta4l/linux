@@ -25,7 +25,7 @@
 #include <linux/psp-sev.h>
 #include <linux/dmi.h>
 #include <uapi/linux/sev-guest.h>
-#include <crypto/aes-gcm.h>
+#include <crypto/gcm.h>
 
 #include <asm/init.h>
 #include <asm/cpu_entry_area.h>
@@ -1535,21 +1535,21 @@ static u8 *get_vmpck(int id, struct snp_secrets_page *secrets, u32 **seqno)
 	return key;
 }
 
-static struct aes_gcm_key *snp_init_crypto(const u8 *key, size_t keylen)
+static struct aesgcm_ctx *snp_init_crypto(u8 *key, size_t keylen)
 {
-	struct aes_gcm_key *gcm_key;
+	struct aesgcm_ctx *ctx;
 
-	gcm_key = kzalloc_obj(*gcm_key);
-	if (!gcm_key)
+	ctx = kzalloc_obj(*ctx);
+	if (!ctx)
 		return NULL;
 
-	if (aes_gcm_preparekey(gcm_key, key, keylen, AUTHTAG_LEN)) {
-		pr_err("AES-GCM key preparation failed\n");
-		kfree_sensitive(gcm_key);
+	if (aesgcm_expandkey(ctx, key, keylen, AUTHTAG_LEN)) {
+		pr_err("Crypto context initialization failed\n");
+		kfree(ctx);
 		return NULL;
 	}
 
-	return gcm_key;
+	return ctx;
 }
 
 int snp_msg_init(struct snp_msg_desc *mdesc, int vmpck_id)
@@ -1572,8 +1572,8 @@ int snp_msg_init(struct snp_msg_desc *mdesc, int vmpck_id)
 
 	mdesc->vmpck_id = vmpck_id;
 
-	mdesc->gcm_key = snp_init_crypto(mdesc->vmpck, VMPCK_KEY_LEN);
-	if (!mdesc->gcm_key)
+	mdesc->ctx = snp_init_crypto(mdesc->vmpck, VMPCK_KEY_LEN);
+	if (!mdesc->ctx)
 		return -ENOMEM;
 
 	return 0;
@@ -1624,7 +1624,7 @@ void snp_msg_free(struct snp_msg_desc *mdesc)
 	if (!mdesc)
 		return;
 
-	kfree_sensitive(mdesc->gcm_key);
+	kfree(mdesc->ctx);
 	free_shared_pages(mdesc->response, sizeof(struct snp_guest_msg));
 	free_shared_pages(mdesc->request, sizeof(struct snp_guest_msg));
 	iounmap((__force void __iomem *)mdesc->secrets);
@@ -1709,7 +1709,7 @@ static int verify_and_dec_payload(struct snp_msg_desc *mdesc, struct snp_guest_r
 	struct snp_guest_msg *req_msg = &mdesc->secret_request;
 	struct snp_guest_msg_hdr *req_msg_hdr = &req_msg->hdr;
 	struct snp_guest_msg_hdr *resp_msg_hdr = &resp_msg->hdr;
-	struct aes_gcm_key *gcm_key = mdesc->gcm_key;
+	struct aesgcm_ctx *ctx = mdesc->ctx;
 	u8 iv[GCM_AES_IV_SIZE] = {};
 
 	pr_debug("response [seqno %lld type %d version %d sz %d]\n",
@@ -1732,21 +1732,23 @@ static int verify_and_dec_payload(struct snp_msg_desc *mdesc, struct snp_guest_r
 	 * If the message size is greater than our buffer length then return
 	 * an error.
 	 */
-	if (unlikely(resp_msg_hdr->msg_sz + AUTHTAG_LEN > req->resp_sz))
+	if (unlikely((resp_msg_hdr->msg_sz + ctx->authsize) > req->resp_sz))
 		return -EBADMSG;
 
 	/* Decrypt the payload */
 	memcpy(iv, &resp_msg_hdr->msg_seqno, min(sizeof(iv), sizeof(resp_msg_hdr->msg_seqno)));
-	return aes_gcm_decrypt(req->resp_buf, resp_msg->payload,
-			       resp_msg_hdr->msg_sz, resp_msg_hdr->authtag,
-			       &resp_msg_hdr->algo, AAD_LEN, iv, gcm_key);
+	if (!aesgcm_decrypt(ctx, req->resp_buf, resp_msg->payload, resp_msg_hdr->msg_sz,
+			    &resp_msg_hdr->algo, AAD_LEN, iv, resp_msg_hdr->authtag))
+		return -EBADMSG;
+
+	return 0;
 }
 
 static int enc_payload(struct snp_msg_desc *mdesc, u64 seqno, struct snp_guest_req *req)
 {
 	struct snp_guest_msg *msg = &mdesc->secret_request;
 	struct snp_guest_msg_hdr *hdr = &msg->hdr;
-	struct aes_gcm_key *gcm_key = mdesc->gcm_key;
+	struct aesgcm_ctx *ctx = mdesc->ctx;
 	u8 iv[GCM_AES_IV_SIZE] = {};
 
 	memset(msg, 0, sizeof(*msg));
@@ -1767,12 +1769,12 @@ static int enc_payload(struct snp_msg_desc *mdesc, u64 seqno, struct snp_guest_r
 	pr_debug("request [seqno %lld type %d version %d sz %d]\n",
 		 hdr->msg_seqno, hdr->msg_type, hdr->msg_version, hdr->msg_sz);
 
-	if (WARN_ON(req->req_sz + AUTHTAG_LEN > sizeof(msg->payload)))
+	if (WARN_ON((req->req_sz + ctx->authsize) > sizeof(msg->payload)))
 		return -EBADMSG;
 
 	memcpy(iv, &hdr->msg_seqno, min(sizeof(iv), sizeof(hdr->msg_seqno)));
-	aes_gcm_encrypt(msg->payload, req->req_buf, req->req_sz, hdr->authtag,
-			&hdr->algo, AAD_LEN, iv, gcm_key);
+	aesgcm_encrypt(ctx, msg->payload, req->req_buf, req->req_sz, &hdr->algo,
+		       AAD_LEN, iv, hdr->authtag);
 
 	return 0;
 }
@@ -1866,6 +1868,15 @@ int snp_send_guest_request(struct snp_msg_desc *mdesc, struct snp_guest_req *req
 {
 	u64 seqno;
 	int rc;
+
+	/*
+	 * enc_payload() calls aesgcm_encrypt(), which can potentially offload to HW.
+	 * The offload's DMA SG list of data to encrypt has to be in linear mapping.
+	 */
+	if (!virt_addr_valid(req->req_buf) || !virt_addr_valid(req->resp_buf)) {
+		pr_warn("AES-GSM buffers must be in linear mapping");
+		return -EINVAL;
+	}
 
 	guard(mutex)(&snp_cmd_mutex);
 

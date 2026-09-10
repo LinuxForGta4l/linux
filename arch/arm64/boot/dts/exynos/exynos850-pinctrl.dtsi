@@ -509,7 +509,6 @@
 		interrupt-controller;
 		#interrupt-cells = <2>;
 	};
-
 	gpp1: gpp1-gpio-bank {
 		gpio-controller;
 		#gpio-cells = <2>;

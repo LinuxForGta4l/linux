@@ -2,7 +2,6 @@
 /* Copyright (C) 2021-2022, Intel Corporation. */
 
 #include "ice.h"
-#include <linux/slab.h>
 #include "ice_lib.h"
 
 /**
@@ -125,7 +124,7 @@ static void ice_gnss_read(struct kthread_work *work)
 
 	data_len = min_t(typeof(data_len), data_len, PAGE_SIZE);
 
-	buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
+	buf = (char *)get_zeroed_page(GFP_KERNEL);
 	if (!buf) {
 		err = -ENOMEM;
 		goto requeue;
@@ -152,7 +151,7 @@ static void ice_gnss_read(struct kthread_work *work)
 			 count, i);
 	delay = ICE_GNSS_TIMER_DELAY_TIME;
 free_buf:
-	kfree(buf);
+	free_page((unsigned long)buf);
 requeue:
 	kthread_queue_delayed_work(gnss->kworker, &gnss->read_work, delay);
 	if (err)

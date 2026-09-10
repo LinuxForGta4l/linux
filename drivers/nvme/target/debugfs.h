@@ -14,8 +14,6 @@ int nvmet_debugfs_subsys_setup(struct nvmet_subsys *subsys);
 void nvmet_debugfs_subsys_free(struct nvmet_subsys *subsys);
 int nvmet_debugfs_ctrl_setup(struct nvmet_ctrl *ctrl);
 void nvmet_debugfs_ctrl_free(struct nvmet_ctrl *ctrl);
-void nvmet_debugfs_ns_setup(struct nvmet_ns *ns);
-void nvmet_debugfs_ns_free(struct nvmet_ns *ns);
 
 int __init nvmet_init_debugfs(void);
 void nvmet_exit_debugfs(void);
@@ -31,9 +29,6 @@ static inline int nvmet_debugfs_ctrl_setup(struct nvmet_ctrl *ctrl)
 	return 0;
 }
 static inline void nvmet_debugfs_ctrl_free(struct nvmet_ctrl *ctrl) {}
-
-static inline void nvmet_debugfs_ns_setup(struct nvmet_ns *ns) {}
-static inline void nvmet_debugfs_ns_free(struct nvmet_ns *ns) {}
 
 static inline int __init nvmet_init_debugfs(void)
 {

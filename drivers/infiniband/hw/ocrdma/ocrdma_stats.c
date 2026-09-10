@@ -635,29 +635,39 @@ static ssize_t ocrdma_dbgfs_ops_write(struct file *filp,
 					const char __user *buffer,
 					size_t count, loff_t *ppos)
 {
-	bool reset;
+	char tmp_str[32];
+	long reset;
 	int status;
 	struct ocrdma_stats *pstats = filp->private_data;
 	struct ocrdma_dev *dev = pstats->dev;
 
-	status = kstrtobool_from_user(buffer, count, &reset);
-	if (status)
-		return status;
+	if (*ppos != 0 || count == 0 || count > sizeof(tmp_str))
+		goto err;
+
+	if (copy_from_user(tmp_str, buffer, count))
+		goto err;
+
+	tmp_str[count-1] = '\0';
+	if (kstrtol(tmp_str, 10, &reset))
+		goto err;
 
 	switch (pstats->type) {
 	case OCRDMA_RESET_STATS:
 		if (reset) {
 			status = ocrdma_mbx_rdma_stats(dev, true);
-			if (status)
+			if (status) {
 				pr_err("Failed to reset stats = %d\n", status);
+				goto err;
+			}
 		}
 		break;
 	default:
-		status = -EINVAL;
-		break;
+		goto err;
 	}
 
-	return status ? status : count;
+	return count;
+err:
+	return -EFAULT;
 }
 
 void ocrdma_pma_counters(struct ocrdma_dev *dev, struct ib_mad *out_mad)

@@ -117,19 +117,11 @@ int tegra_output_probe(struct tegra_output *output)
 		 */
 		WARN_ON(output->panel || output->bridge);
 
-		if (output->panel) {
-			drm_panel_put(output->panel);
-			output->panel = NULL;
-		}
-
 		output->panel = of_drm_find_panel(panel);
 		of_node_put(panel);
 
-		if (IS_ERR(output->panel)) {
-			err = PTR_ERR(output->panel);
-			output->panel = NULL;
-			return err;
-		}
+		if (IS_ERR(output->panel))
+			return PTR_ERR(output->panel);
 	}
 
 	ddc = of_parse_phandle(output->of_node, "nvidia,ddc-i2c-bus", 0);
@@ -139,7 +131,7 @@ int tegra_output_probe(struct tegra_output *output)
 
 		if (!output->ddc) {
 			err = -EPROBE_DEFER;
-			goto put_i2c;
+			return err;
 		}
 	}
 
@@ -193,11 +185,6 @@ int tegra_output_probe(struct tegra_output *output)
 	return 0;
 
 put_i2c:
-	if (output->panel) {
-		drm_panel_put(output->panel);
-		output->panel = NULL;
-	}
-
 	if (output->ddc)
 		i2c_put_adapter(output->ddc);
 
@@ -208,11 +195,6 @@ put_i2c:
 
 void tegra_output_remove(struct tegra_output *output)
 {
-	if (output->panel) {
-		drm_panel_put(output->panel);
-		output->panel = NULL;
-	}
-
 	if (output->hpd_gpio)
 		free_irq(output->hpd_irq, output);
 

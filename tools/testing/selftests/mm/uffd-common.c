@@ -639,13 +639,8 @@ int __copy_page(uffd_global_test_opts_t *gopts, unsigned long offset, bool retry
 		uffdio_copy.mode = 0;
 	uffdio_copy.copy = 0;
 	if (ioctl(gopts->uffd, UFFDIO_COPY, &uffdio_copy)) {
-		/*
-		 * real retval in uffdio_copy.copy
-		 *
-		 * -EEXIST: the page was faulted in concurrently
-		 * -ENOENT: the destination range was concurrently removed
-		 */
-		if (uffdio_copy.copy != -EEXIST && uffdio_copy.copy != -ENOENT)
+		/* real retval in ufdio_copy.copy */
+		if (uffdio_copy.copy != -EEXIST)
 			err("UFFDIO_COPY error: %"PRId64,
 			    (int64_t)uffdio_copy.copy);
 		wake_range(gopts->uffd, uffdio_copy.dst, gopts->page_size);

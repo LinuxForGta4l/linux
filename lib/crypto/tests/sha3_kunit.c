@@ -273,9 +273,11 @@ static void test_shake_all_lens_up_to_4096(struct kunit *test)
 {
 	struct sha3_ctx main_ctx;
 	const size_t max_len = 4096;
-	u8 *const in = alloc_buf(test, max_len);
-	u8 *const out = alloc_buf(test, max_len);
+	u8 *const in = test_buf;
+	u8 *const out = &test_buf[TEST_BUF_LEN - max_len];
 	u8 main_hash[SHA3_256_DIGEST_SIZE];
+
+	KUNIT_ASSERT_LE(test, 2 * max_len, TEST_BUF_LEN);
 
 	rand_bytes_seeded_from_len(in, max_len);
 	for (int alg = 0; alg < 2; alg++) {
@@ -307,8 +309,12 @@ static void test_shake_all_lens_up_to_4096(struct kunit *test)
 static void test_shake_multiple_squeezes(struct kunit *test)
 {
 	const size_t max_len = 512;
-	u8 *buf = alloc_buf(test, max_len);
-	u8 *ref_out = alloc_buf(test, max_len);
+	u8 *ref_out;
+
+	KUNIT_ASSERT_GE(test, TEST_BUF_LEN, 2 * max_len);
+
+	ref_out = kunit_kzalloc(test, max_len, GFP_KERNEL);
+	KUNIT_ASSERT_NOT_NULL(test, ref_out);
 
 	for (int i = 0; i < 2000; i++) {
 		const int alg = rand32() % 2;
@@ -316,8 +322,8 @@ static void test_shake_multiple_squeezes(struct kunit *test)
 		const size_t out_len = rand_length(max_len);
 		const size_t in_offs = rand_offset(max_len - in_len);
 		const size_t out_offs = rand_offset(max_len - out_len);
-		u8 *const in = &buf[in_offs];
-		u8 *const out = &buf[out_offs];
+		u8 *const in = &test_buf[in_offs];
+		u8 *const out = &test_buf[out_offs];
 		struct shake_ctx ctx;
 		size_t remaining_len, j, num_parts;
 
@@ -362,12 +368,16 @@ static void test_shake_multiple_squeezes(struct kunit *test)
 static void test_shake_with_guarded_bufs(struct kunit *test)
 {
 	const size_t max_len = 512;
-	u8 *buf = alloc_guarded_buf(test, max_len);
-	u8 *reg_buf = alloc_buf(test, max_len);
+	u8 *reg_buf;
+
+	KUNIT_ASSERT_GE(test, TEST_BUF_LEN, max_len);
+
+	reg_buf = kunit_kzalloc(test, max_len, GFP_KERNEL);
+	KUNIT_ASSERT_NOT_NULL(test, reg_buf);
 
 	for (int alg = 0; alg < 2; alg++) {
 		for (size_t len = 0; len <= max_len; len++) {
-			u8 *guarded_buf = &buf[max_len - len];
+			u8 *guarded_buf = &test_buf[TEST_BUF_LEN - len];
 
 			rand_bytes(reg_buf, len);
 			memcpy(guarded_buf, reg_buf, len);
@@ -403,6 +413,8 @@ static struct kunit_case sha3_test_cases[] = {
 static struct kunit_suite sha3_test_suite = {
 	.name = "sha3",
 	.test_cases = sha3_test_cases,
+	.suite_init = hash_suite_init,
+	.suite_exit = hash_suite_exit,
 };
 kunit_test_suite(sha3_test_suite);
 

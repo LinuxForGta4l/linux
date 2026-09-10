@@ -351,10 +351,8 @@ void mt7921_mcu_rx_event(struct mt792x_dev *dev, struct sk_buff *skb)
 {
 	struct mt76_connac2_mcu_rxd *rxd;
 
-	if (skb_linearize(skb)) {
-		dev_kfree_skb(skb);
+	if (skb_linearize(skb))
 		return;
-	}
 
 	rxd = (struct mt76_connac2_mcu_rxd *)skb->data;
 
@@ -417,8 +415,7 @@ static int mt7921_load_clc(struct mt792x_dev *dev, const char *fw_name)
 	struct mt76_dev *mdev = &dev->mt76;
 	struct mt792x_phy *phy = &dev->phy;
 	const struct firmware *fw;
-	size_t clc_len, fw_data_len, len, offset = 0;
-	int ret, i;
+	int ret, i, len, offset = 0;
 	u8 *clc_base = NULL, hw_encap = 0;
 
 	dev->phy.clc_chan_conf = 0xff;
@@ -444,21 +441,13 @@ static int mt7921_load_clc(struct mt792x_dev *dev, const char *fw_name)
 	}
 
 	hdr = (const void *)(fw->data + fw->size - sizeof(*hdr));
-	if (hdr->n_region > (fw->size - sizeof(*hdr)) / sizeof(*region)) {
-		dev_err(mdev->dev, "Invalid firmware region table\n");
-		ret = -EINVAL;
-		goto out;
-	}
-	fw_data_len = fw->size - sizeof(*hdr) -
-		      hdr->n_region * sizeof(*region);
-
 	for (i = 0; i < hdr->n_region; i++) {
 		region = (const void *)((const u8 *)hdr -
 					(hdr->n_region - i) * sizeof(*region));
 		len = le32_to_cpu(region->len);
 
 		/* check if we have valid buffer size */
-		if (len > fw_data_len - offset) {
+		if (offset + len > fw->size) {
 			dev_err(mdev->dev, "Invalid firmware region\n");
 			ret = -EINVAL;
 			goto out;
@@ -475,19 +464,8 @@ static int mt7921_load_clc(struct mt792x_dev *dev, const char *fw_name)
 	if (!clc_base)
 		goto out;
 
-	for (offset = 0; offset < len; offset += clc_len) {
-		if (len - offset < sizeof(*clc)) {
-			ret = -EINVAL;
-			goto out;
-		}
-
+	for (offset = 0; offset < len; offset += le32_to_cpu(clc->len)) {
 		clc = (const struct mt7921_clc *)(clc_base + offset);
-		clc_len = le32_to_cpu(clc->len);
-		if (clc_len < sizeof(*clc) || clc_len > len - offset ||
-		    clc->idx >= ARRAY_SIZE(phy->clc)) {
-			ret = -EINVAL;
-			goto out;
-		}
 
 		/* do not init buf again if chip reset triggered */
 		if (phy->clc[clc->idx])
@@ -499,7 +477,7 @@ static int mt7921_load_clc(struct mt792x_dev *dev, const char *fw_name)
 			continue;
 
 		phy->clc[clc->idx] = devm_kmemdup(mdev->dev, clc,
-						  clc_len,
+						  le32_to_cpu(clc->len),
 						  GFP_KERNEL);
 
 		if (!phy->clc[clc->idx]) {
@@ -1425,9 +1403,6 @@ int mt7921_mcu_set_clc(struct mt792x_dev *dev, u8 *alpha2,
 
 	/* submit all clc config */
 	for (i = 0; i < ARRAY_SIZE(phy->clc); i++) {
-		if (i == MT792x_CLC_REGD)
-			continue;
-
 		ret = __mt7921_mcu_set_clc(dev, alpha2, env_cap,
 					   phy->clc[i], i);
 

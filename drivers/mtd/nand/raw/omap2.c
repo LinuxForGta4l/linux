@@ -2318,11 +2318,7 @@ static void omap_nand_remove(struct platform_device *pdev)
 	nand_cleanup(nand_chip);
 }
 
-static const struct of_device_id omap_nand_ids[] = {
-        { .compatible = "ti,omap2-nand" },
-        { .compatible = "ti,am64-nand" },
-        { }
-};
+/* omap_nand_ids defined in linux/platform_data/mtd-nand-omap2.h */
 MODULE_DEVICE_TABLE(of, omap_nand_ids);
 
 static struct platform_driver omap_nand_driver = {

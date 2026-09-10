@@ -23,9 +23,9 @@ allOf:
     then:
       properties:
         clocks:
-          minItems: 6
+          minItems: 7
         clock-names:
-          minItems: 6
+          minItems: 7
     else:
       properties:
         clocks:
@@ -43,50 +43,26 @@ properties:
     maxItems: 1
 
   clocks:
-    oneOf:
-      - items:
-          - description: clock for I2S sysclk
-          - description: clock for I2S bclk
-          - description: clock for I2S bus
-          - description: clock for I2S controller
-      - items:
-          - description: clock for I2S sysclk
-          - description: clock for I2S bclk
-          - description: clock for I2S bus
-          - description: clock for I2S controller
-          - description: clock for I2S common sysclk
-          - description: clock for I2S common bclk
-      - items:
-          - description: clock for I2S sysclk
-          - description: clock for I2S bclk
-          - description: clock for I2S bus
-          - description: clock for I2S controller
-          - description: clock for I2S sysclk divider
-          - description: clock for I2S common sysclk
-          - description: clock for I2S common bclk
+    minItems: 4
+    items:
+      - description: clock for I2S sysclk
+      - description: clock for I2S bclk
+      - description: clock for I2S bus
+      - description: clock for I2S controller
+      - description: clock for I2S sysclk divider
+      - description: clock for I2S common sysclk
+      - description: clock for I2S common bclk
 
   clock-names:
-    oneOf:
-      - items:
-          - const: sysclk
-          - const: bclk
-          - const: bus
-          - const: func
-      - items:
-          - const: sysclk
-          - const: bclk
-          - const: bus
-          - const: func
-          - const: c_sysclk
-          - const: c_bclk
-      - items:
-          - const: sysclk
-          - const: bclk
-          - const: bus
-          - const: func
-          - const: sysclk_div
-          - const: c_sysclk
-          - const: c_bclk
+    minItems: 4
+    items:
+      - const: sysclk
+      - const: bclk
+      - const: bus
+      - const: func
+      - const: sysclk_div
+      - const: c_sysclk
+      - const: c_bclk
 
   dmas:
     minItems: 1

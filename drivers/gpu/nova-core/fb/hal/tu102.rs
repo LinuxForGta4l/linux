@@ -9,10 +9,8 @@ use kernel::{
 
 use crate::{
     driver::Bar0,
-    fb::{
-        hal::FbHal,
-        regs, //
-    },
+    fb::hal::FbHal,
+    regs, //
 };
 
 /// Shift applied to the sysmem address before it is written into `NV_PFB_NISO_FLUSH_SYSMEM_ADDR`,
@@ -33,7 +31,7 @@ pub(super) fn write_sysmem_flush_page_gm107(bar: Bar0<'_>, addr: u64) -> Result 
 }
 
 pub(super) fn display_enabled_gm107(bar: Bar0<'_>) -> bool {
-    !bar.read(crate::regs::gm107::NV_FUSE_STATUS_OPT_DISPLAY)
+    !bar.read(regs::gm107::NV_FUSE_STATUS_OPT_DISPLAY)
         .display_disabled()
 }
 
@@ -46,8 +44,8 @@ pub(super) const fn pmu_reserved_size_tu102() -> u32 {
     0
 }
 
-pub(super) const fn non_wpr_heap_size_tu102() -> u64 {
-    u64::SZ_1M
+pub(super) const fn non_wpr_heap_size_tu102() -> u32 {
+    u32::SZ_1M
 }
 
 pub(super) const fn frts_size_tu102() -> u64 {
@@ -77,7 +75,7 @@ impl FbHal for Tu102 {
         pmu_reserved_size_tu102()
     }
 
-    fn non_wpr_heap_size(&self) -> u64 {
+    fn non_wpr_heap_size(&self) -> u32 {
         non_wpr_heap_size_tu102()
     }
 

@@ -12,7 +12,6 @@ enum fwctl_bnxt_commands {
 	FWCTL_BNXT_INLINE_COMMANDS = 0,
 	FWCTL_BNXT_QUERY_COMMANDS,
 	FWCTL_BNXT_SEND_COMMANDS,
-	FWCTL_BNXT_DMA_COMMANDS,
 };
 
 /**
@@ -24,7 +23,4 @@ enum fwctl_bnxt_commands {
 struct fwctl_info_bnxt {
 	__u32 uctx_caps;
 };
-
-#define FWCTL_BNXT_MAX_DMABUF	0x10000   /* 64 KiB */
-
 #endif

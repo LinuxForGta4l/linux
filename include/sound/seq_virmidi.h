@@ -46,6 +46,7 @@ struct snd_virmidi_dev {
 	int client;			/* created/attached client */
 	int port;			/* created/attached port */
 	unsigned int flags;		/* SNDRV_VIRMIDI_* */
+	rwlock_t filelist_lock;
 	struct rw_semaphore filelist_sem;
 	struct list_head filelist;
 };

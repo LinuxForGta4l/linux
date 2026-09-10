@@ -17,7 +17,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <sys/sysmacros.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include "lsm_bdev.skel.h"
@@ -173,7 +172,7 @@ void test_lsm_bdev(void)
 	if (!ASSERT_OK(stat(DM_DEV_PATH, &st), "stat dm dev"))
 		goto remove_dm;
 
-	dev_key = (major(st.st_rdev) << 20) | minor(st.st_rdev);
+	dev_key = (__u32)st.st_rdev;
 
 	/* Look up the device in the BPF map and verify. */
 	err = bpf_map__lookup_elem(skel->maps.verity_devices,

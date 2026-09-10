@@ -7,7 +7,6 @@
  * Copyright (C) 2010		SUSE Linux Products GmbH
  * Copyright (C) 2010		Tejun Heo <tj@kernel.org>
  */
-#include <linux/bug.h>
 #include <linux/compiler.h>
 #include <linux/completion.h>
 #include <linux/cpu.h>
@@ -377,14 +376,17 @@ int stop_two_cpus(unsigned int cpu1, unsigned int cpu2, cpu_stop_fn_t fn, void *
  * and will remain untouched until stopper starts executing @fn.
  *
  * CONTEXT:
- * Don't care, but the caller must ensure @cpu's stopper stays enabled
- * until the work is queued, e.g. by preempt_disable().
+ * Don't care.
+ *
+ * RETURNS:
+ * true if cpu_stop_work was queued successfully and @fn will be called,
+ * false otherwise.
  */
-void stop_one_cpu_nowait(unsigned int cpu, cpu_stop_fn_t fn, void *arg,
-			 struct cpu_stop_work *work_buf)
+bool stop_one_cpu_nowait(unsigned int cpu, cpu_stop_fn_t fn, void *arg,
+			struct cpu_stop_work *work_buf)
 {
 	*work_buf = (struct cpu_stop_work){ .fn = fn, .arg = arg, .caller = _RET_IP_, };
-	WARN_ON_ONCE(!cpu_stop_queue_work(cpu, work_buf));
+	return cpu_stop_queue_work(cpu, work_buf);
 }
 
 static bool queue_stop_cpus_work(const struct cpumask *cpumask,

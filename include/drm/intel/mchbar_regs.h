@@ -6,6 +6,8 @@
 #ifndef __INTEL_MCHBAR_REGS__
 #define __INTEL_MCHBAR_REGS__
 
+#include "i915_reg_defs.h"
+
 /*
  * MCHBAR mirror.
  *

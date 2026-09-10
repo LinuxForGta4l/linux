@@ -48,7 +48,6 @@ struct ionic_ctx_resp {
 	__u8 expdb_qtypes;
 
 	__u8 rsvd2[3];
-	__aligned_u64 phc_offset;
 };
 
 struct ionic_qdesc {

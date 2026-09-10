@@ -586,6 +586,7 @@ out_owner_change:
 	}
 
 	ASSERT(bp->b_mount == mp);
+	bp->b_flags |= _XBF_LOGRECOVERY;
 	xfs_buf_delwri_queue(bp, buffer_list);
 
 out_release:

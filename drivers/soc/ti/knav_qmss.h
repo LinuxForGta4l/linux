@@ -304,7 +304,6 @@ struct knav_device {
 	struct list_head			pools;
 	struct list_head			pdsps;
 	struct list_head			qmgrs;
-	struct dentry				*debugfs_file;
 	enum qmss_version			version;
 };
 

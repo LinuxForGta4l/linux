@@ -25,6 +25,10 @@ unsafe impl RawDeviceId for DeviceId {
 // SAFETY: `DRIVER_DATA_OFFSET` is the offset to the `driver_data` field.
 unsafe impl RawDeviceIdIndex for DeviceId {
     const DRIVER_DATA_OFFSET: usize = core::mem::offset_of!(bindings::acpi_device_id, driver_data);
+
+    fn index(&self) -> usize {
+        self.0.driver_data
+    }
 }
 
 impl DeviceId {
@@ -49,7 +53,13 @@ impl DeviceId {
 /// Create an ACPI `IdTable` with an "alias" for modpost.
 #[macro_export]
 macro_rules! acpi_device_table {
-    ($($tt:tt)*) => {
-        $crate::module_device_table!("acpi", $crate::acpi::DeviceId, $($tt)*);
+    ($table_name:ident, $module_table_name:ident, $id_info_type: ty, $table_data: expr) => {
+        const $table_name: $crate::device_id::IdArray<
+            $crate::acpi::DeviceId,
+            $id_info_type,
+            { $table_data.len() },
+        > = $crate::device_id::IdArray::new($table_data);
+
+        $crate::module_device_table!("acpi", $module_table_name, $table_name);
     };
 }

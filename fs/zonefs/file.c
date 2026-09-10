@@ -57,10 +57,8 @@ static int zonefs_read_iomap_begin(struct inode *inode, loff_t offset,
 	return 0;
 }
 
-static DEFINE_IOMAP_ITER_NEXT(zonefs_read_iomap_next, zonefs_read_iomap_begin);
-
 static const struct iomap_ops zonefs_read_iomap_ops = {
-	.iomap_next	= zonefs_read_iomap_next,
+	.iomap_begin	= zonefs_read_iomap_begin,
 };
 
 static int zonefs_write_iomap_begin(struct inode *inode, loff_t offset,
@@ -108,11 +106,8 @@ static int zonefs_write_iomap_begin(struct inode *inode, loff_t offset,
 	return 0;
 }
 
-static DEFINE_IOMAP_ITER_NEXT(zonefs_write_iomap_next,
-			      zonefs_write_iomap_begin);
-
 static const struct iomap_ops zonefs_write_iomap_ops = {
-	.iomap_next	= zonefs_write_iomap_next,
+	.iomap_begin	= zonefs_write_iomap_begin,
 };
 
 static int zonefs_read_folio(struct file *unused, struct folio *folio)

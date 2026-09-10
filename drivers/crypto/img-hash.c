@@ -966,8 +966,10 @@ static int img_hash_probe(struct platform_device *pdev)
 
 	err = devm_request_irq(dev, irq, img_irq_handler, 0,
 			       dev_name(dev), hdev);
-	if (err)
+	if (err) {
+		dev_err(dev, "unable to request irq\n");
 		goto res_err;
+	}
 	dev_dbg(dev, "using IRQ channel %d\n", irq);
 
 	hdev->hash_clk = devm_clk_get_enabled(&pdev->dev, "hash");

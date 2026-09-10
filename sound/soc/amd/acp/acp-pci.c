@@ -118,9 +118,16 @@ static int acp_pci_probe(struct pci_dev *pci, const struct pci_device_id *pci_id
 	if (!chip)
 		return -ENOMEM;
 
-	if (pcim_enable_device(pci))
+	if (pci_enable_device(pci))
 		return dev_err_probe(&pci->dev, -ENODEV,
 				     "pci_enable_device failed\n");
+
+	ret = pci_request_regions(pci, "AMD ACP3x audio");
+	if (ret < 0) {
+		dev_err(&pci->dev, "pci_request_regions failed\n");
+		ret = -ENOMEM;
+		goto disable_pci;
+	}
 
 	pci_set_master(pci);
 
@@ -154,21 +161,24 @@ static int acp_pci_probe(struct pci_dev *pci, const struct pci_device_id *pci_id
 		break;
 	default:
 		dev_err(dev, "Unsupported device revision:0x%x\n", pci->revision);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto release_regions;
 	}
 	chip->flag = flag;
 
 	addr = pci_resource_start(pci, 0);
-	chip->base = pcim_iomap_region(pci, 0, "AMD ACP3x audio");
-	if (IS_ERR(chip->base))
-		return PTR_ERR(chip->base);
+	chip->base = devm_ioremap(&pci->dev, addr, pci_resource_len(pci, 0));
+	if (!chip->base) {
+		ret = -ENOMEM;
+		goto release_regions;
+	}
 
 	chip->addr = addr;
 
 	chip->acp_hw_ops_init(chip);
 	ret = acp_hw_init(chip);
 	if (ret)
-		goto de_init;
+		goto release_regions;
 
 	ret = devm_request_irq(dev, pci->irq, irq_handler,
 			       IRQF_SHARED, "ACP_I2S_IRQ", chip);
@@ -204,6 +214,10 @@ skip_pdev_creation:
 
 de_init:
 	acp_hw_deinit(chip);
+release_regions:
+	pci_release_regions(pci);
+disable_pci:
+	pci_disable_device(pci);
 
 	return ret;
 };

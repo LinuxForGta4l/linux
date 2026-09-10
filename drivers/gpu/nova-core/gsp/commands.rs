@@ -5,7 +5,6 @@ use core::{
     array,
     convert::Infallible,
     ffi::FromBytesUntilNulError,
-    ops::Range,
     str::Utf8Error, //
 };
 
@@ -34,7 +33,6 @@ use crate::{
         },
     },
     sbuffer::SBufferIter,
-    vgpu::VgpuState, //
 };
 
 /// The `GspSetSystemInfo` command.
@@ -68,55 +66,37 @@ struct RegistryEntry {
 
 /// The `SetRegistry` command.
 pub(crate) struct SetRegistry {
-    entries: KVec<RegistryEntry>,
+    entries: [RegistryEntry; Self::NUM_ENTRIES],
 }
 
 impl SetRegistry {
+    // For now we hard-code the registry entries. Future work will allow others to
+    // be added as module parameters.
+    const NUM_ENTRIES: usize = 3;
+
     /// Creates a new `SetRegistry` command, using a set of hardcoded entries.
-    pub(crate) fn new(vgpu_state: VgpuState) -> Result<Self> {
-        let mut entries = KVec::new();
-
-        // RMSecBusResetEnable - enables PCI secondary bus reset
-        entries.push(
-            RegistryEntry {
-                key: "RMSecBusResetEnable",
-                value: 1,
-            },
-            GFP_KERNEL,
-        )?;
-
-        // RMForcePcieConfigSave - forces GSP-RM to preserve PCI configuration registers on
-        // any PCI reset.
-        entries.push(
-            RegistryEntry {
-                key: "RMForcePcieConfigSave",
-                value: 1,
-            },
-            GFP_KERNEL,
-        )?;
-
-        // RMDevidCheckIgnore - allows GSP-RM to boot even if the PCI dev ID is not found
-        // in the internal product name database.
-        entries.push(
-            RegistryEntry {
-                key: "RMDevidCheckIgnore",
-                value: 1,
-            },
-            GFP_KERNEL,
-        )?;
-
-        if matches!(vgpu_state, VgpuState::Enabled { .. }) {
-            // RMSetSriovMode - required when vGPU is enabled.
-            entries.push(
+    pub(crate) fn new() -> Self {
+        Self {
+            entries: [
+                // RMSecBusResetEnable - enables PCI secondary bus reset
                 RegistryEntry {
-                    key: "RMSetSriovMode",
+                    key: "RMSecBusResetEnable",
                     value: 1,
                 },
-                GFP_KERNEL,
-            )?;
+                // RMForcePcieConfigSave - forces GSP-RM to preserve PCI configuration registers on
+                // any PCI reset.
+                RegistryEntry {
+                    key: "RMForcePcieConfigSave",
+                    value: 1,
+                },
+                // RMDevidCheckIgnore - allows GSP-RM to boot even if the PCI dev ID is not found
+                // in the internal product name database.
+                RegistryEntry {
+                    key: "RMDevidCheckIgnore",
+                    value: 1,
+                },
+            ],
         }
-
-        Ok(Self { entries })
     }
 }
 
@@ -127,15 +107,15 @@ impl CommandToGsp for SetRegistry {
     type InitError = Infallible;
 
     fn init(&self) -> impl Init<Self::Command, Self::InitError> {
-        Self::Command::init(self.entries.len() as u32, self.size() as u32)
+        Self::Command::init(Self::NUM_ENTRIES as u32, self.variable_payload_len() as u32)
     }
 
     fn variable_payload_len(&self) -> usize {
         let mut key_size = 0;
-        for entry in self.entries.iter() {
-            key_size += entry.key.len() + 1; // +1 for NULL terminator
+        for i in 0..Self::NUM_ENTRIES {
+            key_size += self.entries[i].key.len() + 1; // +1 for NULL terminator
         }
-        self.entries.len() * size_of::<fw::commands::PackedRegistryEntry>() + key_size
+        Self::NUM_ENTRIES * size_of::<fw::commands::PackedRegistryEntry>() + key_size
     }
 
     fn init_variable_payload(
@@ -143,12 +123,12 @@ impl CommandToGsp for SetRegistry {
         dst: &mut SBufferIter<core::array::IntoIter<&mut [u8], 2>>,
     ) -> Result {
         let string_data_start_offset = size_of::<Self::Command>()
-            + self.entries.len() * size_of::<fw::commands::PackedRegistryEntry>();
+            + Self::NUM_ENTRIES * size_of::<fw::commands::PackedRegistryEntry>();
 
         // Array for string data.
         let mut string_data = KVec::new();
 
-        for entry in self.entries.iter() {
+        for entry in self.entries.iter().take(Self::NUM_ENTRIES) {
             dst.write_all(
                 fw::commands::PackedRegistryEntry::new(
                     (string_data_start_offset + string_data.len()) as u32,
@@ -211,30 +191,22 @@ impl CommandToGsp for GetGspStaticInfo {
     }
 }
 
-/// The reply from the GSP to the [`GetGspStaticInfo`] command.
+/// The reply from the GSP to the [`GetGspInfo`] command.
 pub(crate) struct GetGspStaticInfoReply {
     gpu_name: [u8; 64],
-    /// Usable FB (VRAM) regions for driver memory allocation.
-    pub(crate) usable_fb_regions: KVec<Range<u64>>,
 }
 
 impl MessageFromGsp for GetGspStaticInfoReply {
     const FUNCTION: MsgFunction = MsgFunction::GetGspStaticInfo;
     type Message = fw::commands::GspStaticConfigInfo;
-    type InitError = Error;
+    type InitError = Infallible;
 
     fn read(
         msg: &Self::Message,
         _sbuffer: &mut SBufferIter<array::IntoIter<&[u8], 2>>,
     ) -> Result<Self, Self::InitError> {
-        let mut usable_fb_regions = KVec::new();
-        for region in msg.usable_fb_regions() {
-            usable_fb_regions.push(region, GFP_KERNEL)?;
-        }
-
         Ok(GetGspStaticInfoReply {
             gpu_name: msg.gpu_name_str(),
-            usable_fb_regions,
         })
     }
 }

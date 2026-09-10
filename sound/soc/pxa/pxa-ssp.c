@@ -769,10 +769,13 @@ static int pxa_ssp_probe(struct snd_soc_dai *dai)
 			goto err_priv;
 		}
 
-		priv->extclk = devm_clk_get_optional(dev, "extclk");
+		priv->extclk = devm_clk_get(dev, "extclk");
 		if (IS_ERR(priv->extclk)) {
 			ret = PTR_ERR(priv->extclk);
-			goto err_priv;
+			if (ret == -EPROBE_DEFER)
+				goto err_priv;
+
+			priv->extclk = NULL;
 		}
 	} else {
 		priv->ssp = pxa_ssp_request(dai->id + 1, "SoC audio");

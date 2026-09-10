@@ -9,6 +9,7 @@
 
 #include "book3s_hv_exits.h"
 #include "book3s_hcalls.h"
+#include <subcmd/parse-options.h>
 
 #define NR_TPS 4
 
@@ -176,15 +177,35 @@ int __cpu_isa_init_powerpc(struct perf_kvm_stat *kvm)
  */
 int __kvm_add_default_arch_event_powerpc(int *argc, const char **argv)
 {
-	int j = *argc;
+	const char **tmp;
+	bool event = false;
+	int i, j = *argc;
 
-	if (!perf_pmus__have_event("trace_imc", "trace_cycles"))
+	const struct option event_options[] = {
+		OPT_BOOLEAN('e', "event", &event, NULL),
+		OPT_END()
+	};
+
+	tmp = calloc(j + 1, sizeof(char *));
+	if (!tmp)
 		return -EINVAL;
 
-	argv[j++] = "-e";
-	argv[j++] = "trace_imc/trace_cycles/";
-	*argc += 2;
+	for (i = 0; i < j; i++)
+		tmp[i] = argv[i];
 
+	parse_options(j, tmp, event_options, NULL, PARSE_OPT_KEEP_UNKNOWN);
+	if (!event) {
+		if (perf_pmus__have_event("trace_imc", "trace_cycles")) {
+			argv[j++] = strdup("-e");
+			argv[j++] = strdup("trace_imc/trace_cycles/");
+			*argc += 2;
+		} else {
+			free(tmp);
+			return -EINVAL;
+		}
+	}
+
+	free(tmp);
 	return 0;
 }
 

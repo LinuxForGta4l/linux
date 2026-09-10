@@ -428,8 +428,11 @@ static int snd_rk_mc_probe(struct platform_device *pdev)
 
 	/* Parse card name. */
 	ret = snd_soc_of_parse_card_name(card, "rockchip,model");
-	if (ret)
+	if (ret) {
+		dev_err(&pdev->dev,
+			"Soc parse card name failed %d\n", ret);
 		return ret;
+	}
 
 	/* register the soc card */
 	ret = devm_snd_soc_register_card(&pdev->dev, card);

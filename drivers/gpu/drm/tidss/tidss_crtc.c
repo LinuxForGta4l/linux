@@ -357,17 +357,20 @@ static void tidss_crtc_destroy_state(struct drm_crtc *crtc,
 	kfree(tstate);
 }
 
-static struct drm_crtc_state *tidss_crtc_create_state(struct drm_crtc *crtc)
+static void tidss_crtc_reset(struct drm_crtc *crtc)
 {
 	struct tidss_crtc_state *tstate;
 
+	if (crtc->state)
+		tidss_crtc_destroy_state(crtc, crtc->state);
+
 	tstate = kzalloc_obj(*tstate);
-	if (!tstate)
-		return ERR_PTR(-ENOMEM);
+	if (!tstate) {
+		crtc->state = NULL;
+		return;
+	}
 
-	__drm_atomic_helper_crtc_state_init(&tstate->base, crtc);
-
-	return &tstate->base;
+	__drm_atomic_helper_crtc_reset(crtc, &tstate->base);
 }
 
 static struct drm_crtc_state *tidss_crtc_duplicate_state(struct drm_crtc *crtc)
@@ -402,10 +405,10 @@ static void tidss_crtc_destroy(struct drm_crtc *crtc)
 }
 
 static const struct drm_crtc_funcs tidss_crtc_funcs = {
+	.reset = tidss_crtc_reset,
 	.destroy = tidss_crtc_destroy,
 	.set_config = drm_atomic_helper_set_config,
 	.page_flip = drm_atomic_helper_page_flip,
-	.atomic_create_state = tidss_crtc_create_state,
 	.atomic_duplicate_state = tidss_crtc_duplicate_state,
 	.atomic_destroy_state = tidss_crtc_destroy_state,
 	.enable_vblank = tidss_crtc_enable_vblank,

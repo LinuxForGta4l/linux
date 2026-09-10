@@ -40,13 +40,10 @@ void pci_ats_init(struct pci_dev *dev)
  */
 bool pci_ats_supported(struct pci_dev *dev)
 {
-	if (!dev->ats_cap || dev->untrusted)
+	if (!dev->ats_cap)
 		return false;
 
-	if (dev->is_virtfn)
-		return pci_ats_supported(pci_physfn(dev));
-
-	return true;
+	return (dev->untrusted == 0);
 }
 EXPORT_SYMBOL_GPL(pci_ats_supported);
 
@@ -73,12 +70,8 @@ int pci_prepare_ats(struct pci_dev *dev, int ps)
 	if (ps < PCI_ATS_MIN_STU)
 		return -EINVAL;
 
-	if (dev->is_virtfn) {
-		if (pci_physfn(dev)->ats_stu != ps)
-			return -EINVAL;
-
+	if (dev->is_virtfn)
 		return 0;
-	}
 
 	dev->ats_stu = ps;
 	ctrl = PCI_ATS_CTRL_STU(dev->ats_stu - PCI_ATS_MIN_STU);

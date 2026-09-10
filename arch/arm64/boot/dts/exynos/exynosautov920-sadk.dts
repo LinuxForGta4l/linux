@@ -71,7 +71,6 @@
 &pwm {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pwm_tout0>;
-
 	status = "okay";
 };
 
@@ -81,7 +80,6 @@
 
 &usi_0 {
 	samsung,clkreq-on; /* needed for UART mode */
-
 	status = "okay";
 };
 

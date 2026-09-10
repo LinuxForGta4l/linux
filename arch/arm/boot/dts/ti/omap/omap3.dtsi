@@ -116,7 +116,7 @@
 				};
 
 				scm_conf: scm_conf@270 {
-					compatible = "ti,omap3-scm-conf", "syscon", "simple-bus";
+					compatible = "syscon", "simple-bus";
 					reg = <0x270 0x330>;
 					#address-cells = <1>;
 					#size-cells = <1>;

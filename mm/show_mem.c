@@ -16,7 +16,6 @@
 #include <linux/vmstat.h>
 
 #include "internal.h"
-#include "page_alloc.h"
 #include "swap.h"
 
 atomic_long_t _totalram_pages __read_mostly;
@@ -117,8 +116,7 @@ void si_meminfo_node(struct sysinfo *val, int nid)
  * Determine whether the node should be displayed or not, depending on whether
  * SHOW_MEM_FILTER_NODES was passed to show_free_areas().
  */
-static bool show_mem_node_skip(unsigned int flags, int nid,
-			       const nodemask_t *nodemask)
+static bool show_mem_node_skip(unsigned int flags, int nid, nodemask_t *nodemask)
 {
 	if (!(flags & SHOW_MEM_FILTER_NODES))
 		return false;
@@ -179,8 +177,7 @@ static bool node_has_managed_zones(pg_data_t *pgdat, int max_zone_idx)
  * SHOW_MEM_FILTER_NODES: suppress nodes that are not allowed by current's
  *   cpuset.
  */
-static void show_free_areas(unsigned int filter, const nodemask_t *nodemask,
-			    int max_zone_idx)
+static void show_free_areas(unsigned int filter, nodemask_t *nodemask, int max_zone_idx)
 {
 	unsigned long free_pcp = 0;
 	int cpu, nid;
@@ -405,8 +402,7 @@ static void show_free_areas(unsigned int filter, const nodemask_t *nodemask,
 	show_swap_cache_info();
 }
 
-void __show_mem(unsigned int filter, const nodemask_t *nodemask,
-		int max_zone_idx)
+void __show_mem(unsigned int filter, nodemask_t *nodemask, int max_zone_idx)
 {
 	unsigned long total = 0, reserved = 0, highmem = 0;
 	struct zone *zone;

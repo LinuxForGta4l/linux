@@ -678,22 +678,20 @@ static int nouveau_range_fault(struct nouveau_svmm *svmm,
 	range.end = notifier->notifier.interval_tree.last + 1;
 
 	while (true) {
-		long remaining = timeout - jiffies;
-
-		/*
-		 * The HMM timeout only bounds retries while HMM is walking and
-		 * faulting the range. This fault is handled by a kernel worker,
-		 * so fatal signals from the faulting process cannot stop an
-		 * endless stream of invalidations here.
-		 */
-		if (time_after_eq(jiffies, timeout)) {
+		if (time_after(jiffies, timeout)) {
 			ret = -EBUSY;
 			goto out;
 		}
 
-		ret = hmm_range_fault_unlocked_timeout(&range, remaining);
-		if (ret)
+		range.notifier_seq = mmu_interval_read_begin(range.notifier);
+		mmap_read_lock(mm);
+		ret = hmm_range_fault(&range);
+		mmap_read_unlock(mm);
+		if (ret) {
+			if (ret == -EBUSY)
+				continue;
 			goto out;
+		}
 
 		mutex_lock(&svmm->mutex);
 		if (mmu_interval_read_retry(range.notifier,

@@ -248,7 +248,10 @@ static int __init pnpacpi_add_device(struct acpi_device *device)
 	if (acpi_has_method(device->handle, "_DIS"))
 		dev->capabilities |= PNP_DISABLE;
 
-	strscpy(dev->name, acpi_device_bid(device), sizeof(dev->name));
+	if (strlen(acpi_device_name(device)))
+		strscpy(dev->name, acpi_device_name(device), sizeof(dev->name));
+	else
+		strscpy(dev->name, acpi_device_bid(device), sizeof(dev->name));
 
 	if (dev->active)
 		pnpacpi_parse_allocated_resource(dev);

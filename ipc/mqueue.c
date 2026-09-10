@@ -608,7 +608,7 @@ out_unlock:
 }
 
 static int mqueue_create(struct mnt_idmap *idmap, struct inode *dir,
-			 struct dentry *dentry, umode_t mode)
+			 struct dentry *dentry, umode_t mode, bool excl)
 {
 	return mqueue_create_attr(dentry, mode, NULL);
 }
@@ -790,6 +790,7 @@ static void __do_notify(struct mqueue_inode_info *info)
 			struct kernel_siginfo sig_i;
 			struct task_struct *task;
 
+			/* do_mq_notify() accepts sigev_signo == 0, why?? */
 			if (!info->notify.sigev_signo)
 				break;
 
@@ -1280,9 +1281,9 @@ static int do_mq_notify(mqd_t mqdes, const struct sigevent *notification)
 			     notification->sigev_notify != SIGEV_THREAD))
 			return -EINVAL;
 		if (notification->sigev_notify == SIGEV_SIGNAL &&
-		    (!notification->sigev_signo ||
-		     !valid_signal(notification->sigev_signo)))
+			!valid_signal(notification->sigev_signo)) {
 			return -EINVAL;
+		}
 		if (notification->sigev_notify == SIGEV_THREAD) {
 			long timeo;
 

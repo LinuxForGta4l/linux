@@ -28,7 +28,6 @@ struct nh_config {
 	u8		nh_protocol;
 	u8		nh_blackhole;
 	u8		nh_fdb;
-	__be16		nh_dst_port;
 	u32		nh_flags;
 
 	int		nh_ifindex;
@@ -64,7 +63,6 @@ struct nh_info {
 	u8			family;
 	bool			reject_nh;
 	bool			fdb_nh;
-	__be16			dst_port;
 
 	union {
 		struct fib_nh_common	fib_nhc;
@@ -576,8 +574,7 @@ struct fib_nh_common *nexthop_fdb_nhc(struct nexthop *nh)
 }
 
 static inline struct fib_nh_common *nexthop_path_fdb_result(struct nexthop *nh,
-							    int hash,
-							    __be16 *dst_port)
+							    int hash)
 {
 	struct nh_info *nhi;
 	struct nexthop *nhp;
@@ -586,7 +583,6 @@ static inline struct fib_nh_common *nexthop_path_fdb_result(struct nexthop *nh,
 	if (unlikely(!nhp))
 		return NULL;
 	nhi = rcu_dereference(nhp->nh_info);
-	*dst_port = nhi->dst_port;
 	return &nhi->fib_nhc;
 }
 #endif

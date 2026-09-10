@@ -1681,8 +1681,7 @@ out:
 static int
 iwl_mld_scan_abort(struct iwl_mld *mld, int type, int uid, bool *wait)
 {
-	enum iwl_umac_scan_abort_status status =
-		IWL_UMAC_SCAN_ABORT_STATUS_NOT_FOUND;
+	enum iwl_umac_scan_abort_status status;
 	int ret;
 
 	*wait = true;

@@ -54,11 +54,11 @@ static int pin_control_gpio_direction_output(struct gpio_chip *chip,
 {
 	int ret;
 
-	ret = pin_control_gpio_set(chip, offset, val);
+	ret = pinctrl_gpio_direction_output(chip, offset);
 	if (ret)
 		return ret;
 
-	return pinctrl_gpio_direction_output(chip, offset);
+	return pin_control_gpio_set(chip, offset, val);
 }
 
 static int pin_control_gpio_probe(struct platform_device *pdev)

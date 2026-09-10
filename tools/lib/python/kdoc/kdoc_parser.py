@@ -11,7 +11,6 @@ and extract embedded documentation comments from it.
 
 import sys
 import re
-import difflib
 from pprint import pformat
 
 from kdoc.c_lex import CTokenizer, tokenizer_set_log
@@ -559,51 +558,6 @@ class KernelDoc:
                         self.push_parameter(ln, decl_type, param, dtype,
                                             arg, declaration_name)
 
-    def get_suggestions_hint(self, decl_name, possible_names):
-        # For decl name 'flags' or 'flgas', suggests 'substruct.flags'
-        submember_exact = []
-        submember_substrings = []
-        submember_suggestions = []
-        for possible_name in possible_names:
-            parts = possible_name.strip().split('.')
-            if len(parts) < 2:
-                continue
-
-            final_part = parts[-1]
-            if decl_name == final_part:
-                submember_exact.append(possible_name)
-            elif decl_name in final_part:
-                submember_substrings.append(possible_name)
-            elif difflib.get_close_matches(decl_name, [final_part]):
-                submember_suggestions.append(possible_name)
-
-        # For decl name 'flgas', suggests 'flags'
-        full_suggestions = difflib.get_close_matches(decl_name, possible_names)
-
-        # For decl name 'member', suggests 'longer_member'
-        full_substrings = [name for name in possible_names if decl_name in name]
-
-        ordered_lists = [
-            submember_exact,
-            submember_substrings,
-            submember_suggestions,
-            full_suggestions,
-            full_substrings,
-        ]
-
-        # Deduplicate but maintain order from most to least likely:
-        unique_suggestions = {}
-        for suggestion_list in ordered_lists:
-            for suggestion in suggestion_list:
-                unique_suggestions[suggestion] = None
-
-        suggestions = list(unique_suggestions.keys())
-        if not suggestions:
-            return ""
-
-        joined_suggestions = "', '".join(suggestions)
-        return f"(did you mean one of: '{joined_suggestions}')"
-
     def check_sections(self, ln, decl_name, decl_type):
         """
         Check for errors inside sections, emitting warnings if not found
@@ -612,13 +566,12 @@ class KernelDoc:
         for section in self.entry.sections:
             if section not in self.entry.parameterlist and \
                not known_sections.search(section):
-                hint = self.get_suggestions_hint(section, self.entry.parameterlist)
                 if decl_type == 'function':
                     dname = f"{decl_type} parameter"
                 else:
                     dname = f"{decl_type} member"
                 self.emit_msg(ln,
-                              f"Excess {dname} '{section}' description in '{decl_name}' {hint}".strip())
+                              f"Excess {dname} '{section}' description in '{decl_name}'")
 
         #
         # Check that documented parameter names (from doc comments, including
@@ -638,13 +591,12 @@ class KernelDoc:
             if param_name in self.entry.parameterlist:
                 continue
 
-            hint = self.get_suggestions_hint(param_name, self.entry.parameterlist)
             if decl_type == 'function':
                 dname = f"{decl_type} parameter"
             else:
                 dname = f"{decl_type} member"
             self.emit_msg(ln,
-                          f"Excess {dname} '{param_name}' description in '{decl_name}' {hint}".strip())
+                          f"Excess {dname} '{param_name}' description in '{decl_name}'")
 
     def check_return_section(self, ln, declaration_name, return_type):
         """
@@ -839,7 +791,7 @@ class KernelDoc:
 
         if self.entry.identifier != declaration_name:
             self.emit_msg(ln, f"expecting prototype for {decl_type} {self.entry.identifier}. "
-                          f"Prototype was for {decl_type} {declaration_name} instead")
+                          f"Prototype was for {decl_type} {declaration_name} instead\n")
             return
         #
         # Go through the list of members applying all of our transformations.
@@ -1156,7 +1108,7 @@ class KernelDoc:
 
             if self.entry.identifier != declaration_name:
                 self.emit_msg(ln,
-                              f"expecting prototype for typedef {self.entry.identifier}. Prototype was for typedef {declaration_name} instead")
+                              f"expecting prototype for typedef {self.entry.identifier}. Prototype was for typedef {declaration_name} instead\n")
                 return
 
             self.create_parameter_list(ln, 'function', args, ',', declaration_name)
@@ -1176,7 +1128,7 @@ class KernelDoc:
 
             if self.entry.identifier != declaration_name:
                 self.emit_msg(ln,
-                              f"expecting prototype for typedef {self.entry.identifier}. Prototype was for typedef {declaration_name} instead")
+                              f"expecting prototype for typedef {self.entry.identifier}. Prototype was for typedef {declaration_name} instead\n")
                 return
 
             self.output_declaration('typedef', declaration_name,

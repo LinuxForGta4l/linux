@@ -3,7 +3,7 @@
 use super::*;
 
 /// The actual data that gets threaded through the callbacks.
-struct SmData<'a, 'ctx, T: DriverGpuVm + 'ctx> {
+struct SmData<'a, 'ctx, T: DriverGpuVm> {
     gpuvm: &'a mut UniqueRefGpuVm<T>,
     user_context: &'a mut T::SmContext<'ctx>,
 }
@@ -20,7 +20,7 @@ struct SmMapData<'a, 'ctx, T: DriverGpuVm> {
 }
 
 /// The argument for [`UniqueRefGpuVm::sm_map`].
-pub struct OpMapRequest<'a, 'ctx, T: DriverGpuVm + 'ctx> {
+pub struct OpMapRequest<'a, 'ctx, T: DriverGpuVm> {
     /// Address in GPU virtual address space.
     pub addr: u64,
     /// Length of mapping to create.

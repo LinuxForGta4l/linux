@@ -23,7 +23,7 @@ properties:
     const: 0
 
   '#interrupt-cells':
-    const: 2
+    const: 1
 
   interrupts:
     maxItems: 1
@@ -45,7 +45,7 @@ examples:
       reg = <0xc00 0x18>;
       interrupt-controller;
       #address-cells = <0>;
-      #interrupt-cells = <2>;
+      #interrupt-cells = <1>;
       interrupts = <74 0x8>;
       interrupt-parent = <&ipic>;
     };

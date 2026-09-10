@@ -9,8 +9,9 @@
 
 #include <linux/io.h>
 #include <linux/module.h>
+#include <linux/of.h>
+#include <linux/of_platform.h>
 #include <linux/platform_device.h>
-#include <linux/property.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
 
@@ -173,6 +174,7 @@ static int xlnx_i2s_probe(struct platform_device *pdev)
 	int ret;
 	u32 format;
 	struct device *dev = &pdev->dev;
+	struct device_node *node = dev->of_node;
 
 	drv_data = devm_kzalloc(&pdev->dev, sizeof(*drv_data), GFP_KERNEL);
 	if (!drv_data)
@@ -182,16 +184,18 @@ static int xlnx_i2s_probe(struct platform_device *pdev)
 	if (IS_ERR(drv_data->base))
 		return PTR_ERR(drv_data->base);
 
-	ret = device_property_read_u32(dev, "xlnx,num-channels", &drv_data->channels);
-	if (ret < 0)
-		return dev_err_probe(dev, ret, "cannot get supported channels\n");
-
+	ret = of_property_read_u32(node, "xlnx,num-channels", &drv_data->channels);
+	if (ret < 0) {
+		dev_err(dev, "cannot get supported channels\n");
+		return ret;
+	}
 	drv_data->channels *= 2;
 
-	ret = device_property_read_u32(dev, "xlnx,dwidth", &drv_data->data_width);
-	if (ret < 0)
-		return dev_err_probe(dev, ret, "cannot get data width\n");
-
+	ret = of_property_read_u32(node, "xlnx,dwidth", &drv_data->data_width);
+	if (ret < 0) {
+		dev_err(dev, "cannot get data width\n");
+		return ret;
+	}
 	switch (drv_data->data_width) {
 	case 16:
 		format = SNDRV_PCM_FMTBIT_S16_LE;
@@ -203,7 +207,7 @@ static int xlnx_i2s_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	if (device_is_compatible(dev, "xlnx,i2s-transmitter-1.0")) {
+	if (of_device_is_compatible(node, "xlnx,i2s-transmitter-1.0")) {
 		drv_data->dai_drv.name = "xlnx_i2s_playback";
 		drv_data->dai_drv.playback.stream_name = "Playback";
 		drv_data->dai_drv.playback.formats = format;
@@ -211,7 +215,7 @@ static int xlnx_i2s_probe(struct platform_device *pdev)
 		drv_data->dai_drv.playback.channels_max = drv_data->channels;
 		drv_data->dai_drv.playback.rates	= SNDRV_PCM_RATE_8000_192000;
 		drv_data->dai_drv.ops = &xlnx_i2s_dai_ops;
-	} else if (device_is_compatible(dev, "xlnx,i2s-receiver-1.0")) {
+	} else if (of_device_is_compatible(node, "xlnx,i2s-receiver-1.0")) {
 		drv_data->dai_drv.name = "xlnx_i2s_capture";
 		drv_data->dai_drv.capture.stream_name = "Capture";
 		drv_data->dai_drv.capture.formats = format;
@@ -229,8 +233,10 @@ static int xlnx_i2s_probe(struct platform_device *pdev)
 
 	ret = devm_snd_soc_register_component(&pdev->dev, &xlnx_i2s_component,
 					      &drv_data->dai_drv, 1);
-	if (ret)
+	if (ret) {
+		dev_err(&pdev->dev, "i2s component registration failed\n");
 		return ret;
+	}
 
 	dev_info(&pdev->dev, "%s DAI registered\n", drv_data->dai_drv.name);
 

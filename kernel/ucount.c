@@ -4,7 +4,6 @@
 #include <linux/sysctl.h>
 #include <linux/slab.h>
 #include <linux/cred.h>
-#include <linux/export.h>
 #include <linux/hash.h>
 #include <linux/kmemleak.h>
 #include <linux/user_namespace.h>
@@ -89,9 +88,6 @@ static const struct ctl_table user_table[] = {
 #ifdef CONFIG_FANOTIFY
 	UCOUNT_ENTRY("max_fanotify_groups"),
 	UCOUNT_ENTRY("max_fanotify_marks"),
-#endif
-#if IS_ENABLED(CONFIG_BINFMT_MISC)
-	UCOUNT_ENTRY("max_binfmt_misc_interpreters"),
 #endif
 };
 #endif /* CONFIG_SYSCTL */
@@ -237,7 +233,6 @@ fail:
 	put_ucounts(ucounts);
 	return NULL;
 }
-EXPORT_SYMBOL_FOR_MODULES(inc_ucount, "binfmt_misc");
 
 void dec_ucount(struct ucounts *ucounts, enum ucount_type type)
 {
@@ -248,7 +243,6 @@ void dec_ucount(struct ucounts *ucounts, enum ucount_type type)
 	}
 	put_ucounts(ucounts);
 }
-EXPORT_SYMBOL_FOR_MODULES(dec_ucount, "binfmt_misc");
 
 long inc_rlimit_ucounts(struct ucounts *ucounts, enum rlimit_type type, long v)
 {

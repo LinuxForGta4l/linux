@@ -321,7 +321,7 @@ void rtl83xx_reset_assert(struct realtek_priv *priv)
 			 "Failed to assert the switch reset control: %pe\n",
 			 ERR_PTR(ret));
 
-	gpiod_set_value_cansleep(priv->reset, true);
+	gpiod_set_value(priv->reset, true);
 }
 
 void rtl83xx_reset_deassert(struct realtek_priv *priv)
@@ -334,7 +334,7 @@ void rtl83xx_reset_deassert(struct realtek_priv *priv)
 			 "Failed to deassert the switch reset control: %pe\n",
 			 ERR_PTR(ret));
 
-	gpiod_set_value_cansleep(priv->reset, false);
+	gpiod_set_value(priv->reset, false);
 }
 
 /**
@@ -362,6 +362,9 @@ int rtl83xx_port_bridge_join(struct dsa_switch *ds, int port,
 	int ret;
 
 	if (!priv->ops->port_add_isolation)
+		return -EOPNOTSUPP;
+
+	if (!priv->ops->port_set_learning)
 		return -EOPNOTSUPP;
 
 	dev_dbg(priv->dev, "bridge %d join port %d\n", bridge.num, port);
@@ -401,11 +404,9 @@ int rtl83xx_port_bridge_join(struct dsa_switch *ds, int port,
 			goto undo_self_isolation;
 	}
 
-	if (priv->ops->port_set_learning) {
-		ret = priv->ops->port_set_learning(priv, port, true);
-		if (ret)
-			goto undo_efid;
-	}
+	ret = priv->ops->port_set_learning(priv, port, true);
+	if (ret)
+		goto undo_efid;
 
 	return 0;
 
@@ -450,6 +451,9 @@ void rtl83xx_port_bridge_leave(struct dsa_switch *ds, int port,
 	if (!priv->ops->port_remove_isolation)
 		return;
 
+	if (!priv->ops->port_set_learning)
+		return;
+
 	dev_dbg(priv->dev, "bridge %d leave port %d\n", bridge.num, port);
 
 	/* Remove this port from the isolation group of every other
@@ -478,13 +482,11 @@ void rtl83xx_port_bridge_leave(struct dsa_switch *ds, int port,
 	 * downstream DSA ports from the isolation group.
 	 */
 
-	if (priv->ops->port_set_learning) {
-		ret = priv->ops->port_set_learning(priv, port, false);
-		if (ret)
-			dev_err(priv->dev,
-				"failed to disable learning on port %d: %pe\n",
-				port, ERR_PTR(ret));
-	}
+	ret = priv->ops->port_set_learning(priv, port, false);
+	if (ret)
+		dev_err(priv->dev,
+			"failed to disable learning on port %d: %pe\n",
+			port, ERR_PTR(ret));
 
 	/* Remove those ports from the isolation group of this port */
 	ret = priv->ops->port_remove_isolation(priv, port, mask);

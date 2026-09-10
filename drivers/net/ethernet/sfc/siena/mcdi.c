@@ -7,7 +7,6 @@
 #include <linux/delay.h>
 #include <linux/moduleparam.h>
 #include <linux/atomic.h>
-#include <linux/slab.h>
 #include "net_driver.h"
 #include "nic.h"
 #include "io.h"
@@ -74,7 +73,7 @@ int efx_siena_mcdi_init(struct efx_nic *efx)
 	mcdi->efx = efx;
 #ifdef CONFIG_SFC_SIENA_MCDI_LOGGING
 	/* consuming code assumes buffer is page-sized */
-	mcdi->logging_buffer = kmalloc(PAGE_SIZE, GFP_KERNEL);
+	mcdi->logging_buffer = (char *)__get_free_page(GFP_KERNEL);
 	if (!mcdi->logging_buffer)
 		goto fail1;
 	mcdi->logging_enabled = efx_siena_mcdi_logging_default;
@@ -117,7 +116,7 @@ int efx_siena_mcdi_init(struct efx_nic *efx)
 	return 0;
 fail2:
 #ifdef CONFIG_SFC_SIENA_MCDI_LOGGING
-	kfree(mcdi->logging_buffer);
+	free_page((unsigned long)mcdi->logging_buffer);
 fail1:
 #endif
 	kfree(efx->mcdi);
@@ -143,7 +142,7 @@ void efx_siena_mcdi_fini(struct efx_nic *efx)
 		return;
 
 #ifdef CONFIG_SFC_SIENA_MCDI_LOGGING
-	kfree(efx->mcdi->iface.logging_buffer);
+	free_page((unsigned long)efx->mcdi->iface.logging_buffer);
 #endif
 
 	kfree(efx->mcdi);

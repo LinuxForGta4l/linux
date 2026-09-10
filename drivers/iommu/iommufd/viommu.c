@@ -25,7 +25,6 @@ int iommufd_viommu_alloc_ioctl(struct iommufd_ucmd *ucmd)
 	struct iommufd_hwpt_paging *hwpt_paging;
 	struct iommufd_viommu *viommu;
 	struct iommufd_device *idev;
-	struct iommu_device *iommu_dev;
 	const struct iommu_ops *ops;
 	size_t viommu_size;
 	int rc;
@@ -37,12 +36,7 @@ int iommufd_viommu_alloc_ioctl(struct iommufd_ucmd *ucmd)
 	if (IS_ERR(idev))
 		return PTR_ERR(idev);
 
-	iommu_dev = iommufd_device_get_iommu_dev(idev);
-	if (!iommu_dev) {
-		rc = -EOPNOTSUPP;
-		goto out_put_idev;
-	}
-	ops = iommu_dev->ops;
+	ops = dev_iommu_ops(idev->dev);
 	if (!ops->get_viommu_size || !ops->viommu_init) {
 		rc = -EOPNOTSUPP;
 		goto out_put_idev;
@@ -93,7 +87,7 @@ int iommufd_viommu_alloc_ioctl(struct iommufd_ucmd *ucmd)
 	 * pluggable IOMMU instance (if exists) is responsible for refcounting
 	 * on its own.
 	 */
-	viommu->iommu_dev = iommu_dev;
+	viommu->iommu_dev = __iommu_get_iommu_dev(idev->dev);
 
 	rc = ops->viommu_init(viommu, hwpt_paging->common.domain,
 			      user_data.len ? &user_data : NULL);
@@ -152,7 +146,6 @@ int iommufd_vdevice_alloc_ioctl(struct iommufd_ucmd *ucmd)
 	struct iommufd_vdevice *vdev;
 	size_t vdev_size = sizeof(*vdev);
 	struct iommufd_viommu *viommu;
-	struct iommu_device *iommu_dev;
 	struct iommufd_device *idev;
 	u64 virt_id = cmd->virt_id;
 	int rc = 0;
@@ -171,8 +164,7 @@ int iommufd_vdevice_alloc_ioctl(struct iommufd_ucmd *ucmd)
 		goto out_put_viommu;
 	}
 
-	iommu_dev = iommufd_device_get_iommu_dev(idev);
-	if (!iommu_dev || viommu->iommu_dev != iommu_dev) {
+	if (viommu->iommu_dev != __iommu_get_iommu_dev(idev->dev)) {
 		rc = -EINVAL;
 		goto out_put_idev;
 	}

@@ -109,26 +109,14 @@ static int ipvtap_newlink(struct net_device *dev,
 	return err;
 }
 
-static void __ipvtap_dellink(struct net *net, struct net_device *dev,
-			     struct list_head *head)
-{
-	struct ipvtap_dev *vlantap = netdev_priv(dev);
-
-	netdev_rx_handler_unregister(dev);
-	tap_del_queues(&vlantap->tap);
-	__ipvlan_link_delete(net, dev, head);
-}
-
 static void ipvtap_dellink(struct net_device *dev,
 			   struct list_head *head)
 {
-	struct ipvtap_dev *vlantap = netdev_priv(dev);
-	struct ipvl_port *port = vlantap->vlan.port;
+	struct ipvtap_dev *vlan = netdev_priv(dev);
 
-	mutex_lock(&port->pnodes_lock);
-	if (!vlantap->vlan.dying)
-		__ipvtap_dellink(dev_net(dev), dev, head);
-	mutex_unlock(&port->pnodes_lock);
+	netdev_rx_handler_unregister(dev);
+	tap_del_queues(&vlan->tap);
+	ipvlan_link_delete(dev, head);
 }
 
 static void ipvtap_setup(struct net_device *dev)
@@ -210,8 +198,6 @@ static int __init ipvtap_init(void)
 {
 	int err;
 
-	__ipvtap_dellink_ptr = __ipvtap_dellink;
-
 	err = tap_create_cdev(&ipvtap_cdev, &ipvtap_major, "ipvtap",
 			      THIS_MODULE);
 	if (err)
@@ -238,8 +224,6 @@ out3:
 out2:
 	tap_destroy_cdev(ipvtap_major, &ipvtap_cdev);
 out1:
-	__ipvtap_dellink_ptr = NULL;
-
 	return err;
 }
 module_init(ipvtap_init);
@@ -250,7 +234,6 @@ static void __exit ipvtap_exit(void)
 	unregister_netdevice_notifier(&ipvtap_notifier_block);
 	class_unregister(&ipvtap_class);
 	tap_destroy_cdev(ipvtap_major, &ipvtap_cdev);
-	__ipvtap_dellink_ptr = NULL;
 }
 module_exit(ipvtap_exit);
 MODULE_ALIAS_RTNL_LINK("ipvtap");

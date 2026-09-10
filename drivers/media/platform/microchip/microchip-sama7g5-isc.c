@@ -598,8 +598,13 @@ static int __maybe_unused xisc_runtime_suspend(struct device *dev)
 static int __maybe_unused xisc_runtime_resume(struct device *dev)
 {
 	struct isc_device *isc = dev_get_drvdata(dev);
+	int ret;
 
-	return clk_prepare_enable(isc->hclock);
+	ret = clk_prepare_enable(isc->hclock);
+	if (ret)
+		return ret;
+
+	return ret;
 }
 
 static const struct dev_pm_ops microchip_xisc_dev_pm_ops = {

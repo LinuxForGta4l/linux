@@ -11,7 +11,6 @@ kunit-objs +=				test.o \
 					attributes.o \
 					device.o \
 					platform.o \
-					fwnode.o \
 					bug.o
 
 ifeq ($(CONFIG_KUNIT_DEBUGFS),y)

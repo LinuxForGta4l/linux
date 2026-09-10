@@ -21,13 +21,12 @@
 /**
  * rsi_usb_rx_thread() - This is a kernel thread to receive the packets from
  *			 the USB device.
- * @data: Pointer to the driver private structure.
+ * @common: Pointer to the driver private structure.
  *
- * Return: 0.
+ * Return: None.
  */
-int rsi_usb_rx_thread(void *data)
+void rsi_usb_rx_thread(struct rsi_common *common)
 {
-	struct rsi_common *common = data;
 	struct rsi_hw *adapter = common->priv;
 	struct rsi_91x_usbdev *dev = adapter->rsi_dev;
 	int status;

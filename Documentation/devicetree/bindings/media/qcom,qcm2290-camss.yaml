@@ -14,11 +14,7 @@ description:
 
 properties:
   compatible:
-    oneOf:
-      - items:
-          - const: qcom,shikra-camss
-          - const: qcom,qcm2290-camss
-      - const: qcom,qcm2290-camss
+    const: qcom,qcm2290-camss
 
   reg:
     maxItems: 9
@@ -80,14 +76,7 @@ properties:
       - const: sf_mnoc
 
   iommus:
-    oneOf:
-      - items:
-          - description: S1 HLOS VFE non-protected (VFE only)
-      - items:
-          - description: S1 HLOS VFE non-protected
-          - description: S1 HLOS CDM non-protected
-          - description: S1 HLOS OPE read non-protected
-          - description: S1 HLOS OPE write non-protected
+    maxItems: 4
 
   power-domains:
     items:

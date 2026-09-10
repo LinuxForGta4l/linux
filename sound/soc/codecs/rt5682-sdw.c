@@ -6,7 +6,6 @@
 // Author: Oder Chiou <oder_chiou@realtek.com>
 //
 
-#include <linux/cleanup.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/init.h>
@@ -411,9 +410,7 @@ static int rt5682_io_init(struct device *dev, struct sdw_slave *slave)
 	if (rt5682->first_hw_init) {
 		regcache_cache_bypass(rt5682->regmap, false);
 		regcache_mark_dirty(rt5682->regmap);
-		ret = regcache_sync(rt5682->regmap);
-		if (ret)
-			goto err_sync;
+		regcache_sync(rt5682->regmap);
 
 		/* volatile registers */
 		regmap_update_bits(rt5682->regmap, RT5682_CBJ_CTRL_2,
@@ -475,16 +472,8 @@ reinit:
 	/* Mark Slave initialization complete */
 	rt5682->hw_init = true;
 	rt5682->first_hw_init = true;
-	goto out;
-
-err_sync:
-	regcache_cache_bypass(rt5682->regmap, false);
-	regcache_cache_only(rt5682->sdw_regmap, true);
-	regcache_cache_only(rt5682->regmap, true);
-	regcache_mark_dirty(rt5682->regmap);
 
 err_nodev:
-out:
 	pm_runtime_put_autosuspend(&slave->dev);
 
 	dev_dbg(&slave->dev, "%s hw_init complete: %d\n", __func__, ret);
@@ -671,11 +660,12 @@ static int rt5682_interrupt_callback(struct sdw_slave *slave,
 	dev_dbg(&slave->dev,
 		"%s control_port_stat=%x", __func__, status->control_port);
 
-	guard(mutex)(&rt5682->disable_irq_lock);
+	mutex_lock(&rt5682->disable_irq_lock);
 	if (status->control_port & 0x4 && !rt5682->disable_irq) {
 		mod_delayed_work(system_power_efficient_wq,
 			&rt5682->jack_detect_work, msecs_to_jiffies(rt5682->irq_work_delay_time));
 	}
+	mutex_unlock(&rt5682->disable_irq_lock);
 
 	return 0;
 }
@@ -746,11 +736,11 @@ static int rt5682_dev_system_suspend(struct device *dev)
 	 * deferred work completes and before the parent disables
 	 * interrupts on the link
 	 */
-	scoped_guard(mutex, &rt5682->disable_irq_lock) {
-		rt5682->disable_irq = true;
-		ret = sdw_update_no_pm(slave, SDW_SCP_INTMASK1,
-				       SDW_SCP_INT1_IMPL_DEF, 0);
-	}
+	mutex_lock(&rt5682->disable_irq_lock);
+	rt5682->disable_irq = true;
+	ret = sdw_update_no_pm(slave, SDW_SCP_INTMASK1,
+			       SDW_SCP_INT1_IMPL_DEF, 0);
+	mutex_unlock(&rt5682->disable_irq_lock);
 
 	if (ret < 0) {
 		/* log but don't prevent suspend from happening */
@@ -770,12 +760,12 @@ static int rt5682_dev_resume(struct device *dev)
 		return 0;
 
 	if (!slave->unattach_request) {
-		scoped_guard(mutex, &rt5682->disable_irq_lock) {
-			if (rt5682->disable_irq) {
-				sdw_write_no_pm(slave, SDW_SCP_INTMASK1, SDW_SCP_INT1_IMPL_DEF);
-				rt5682->disable_irq = false;
-			}
+		mutex_lock(&rt5682->disable_irq_lock);
+		if (rt5682->disable_irq == true) {
+			sdw_write_no_pm(slave, SDW_SCP_INTMASK1, SDW_SCP_INT1_IMPL_DEF);
+			rt5682->disable_irq = false;
 		}
+		mutex_unlock(&rt5682->disable_irq_lock);
 	}
 
 	ret = sdw_slave_wait_for_init(slave, RT5682_PROBE_TIMEOUT);
@@ -786,13 +776,7 @@ static int rt5682_dev_resume(struct device *dev)
 
 	regcache_cache_only(rt5682->sdw_regmap, false);
 	regcache_cache_only(rt5682->regmap, false);
-	ret = regcache_sync(rt5682->regmap);
-	if (ret) {
-		regcache_cache_only(rt5682->sdw_regmap, true);
-		regcache_cache_only(rt5682->regmap, true);
-		regcache_mark_dirty(rt5682->regmap);
-		return ret;
-	}
+	regcache_sync(rt5682->regmap);
 
 	return 0;
 }

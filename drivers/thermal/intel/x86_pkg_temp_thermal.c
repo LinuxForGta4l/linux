@@ -51,7 +51,8 @@ MODULE_PARM_DESC(notify_delay_ms,
 struct zone_device {
 	int				cpu;
 	bool				work_scheduled;
-	u64				msr_pkg_therm;
+	u32				msr_pkg_therm_low;
+	u32				msr_pkg_therm_high;
 	struct delayed_work		work;
 	struct thermal_zone_device	*tzone;
 	struct cpumask			cpumask;
@@ -185,28 +186,28 @@ static bool pkg_thermal_rate_control(void)
 static inline void enable_pkg_thres_interrupt(void)
 {
 	u8 thres_0, thres_1;
-	struct msr val;
+	u32 l, h;
 
-	rdmsrq(MSR_IA32_PACKAGE_THERM_INTERRUPT, val.q);
+	rdmsr(MSR_IA32_PACKAGE_THERM_INTERRUPT, l, h);
 	/* only enable/disable if it had valid threshold value */
-	thres_0 = (val.l & THERM_MASK_THRESHOLD0) >> THERM_SHIFT_THRESHOLD0;
-	thres_1 = (val.l & THERM_MASK_THRESHOLD1) >> THERM_SHIFT_THRESHOLD1;
+	thres_0 = (l & THERM_MASK_THRESHOLD0) >> THERM_SHIFT_THRESHOLD0;
+	thres_1 = (l & THERM_MASK_THRESHOLD1) >> THERM_SHIFT_THRESHOLD1;
 	if (thres_0)
-		val.l |= THERM_INT_THRESHOLD0_ENABLE;
+		l |= THERM_INT_THRESHOLD0_ENABLE;
 	if (thres_1)
-		val.l |= THERM_INT_THRESHOLD1_ENABLE;
-	wrmsrq(MSR_IA32_PACKAGE_THERM_INTERRUPT, val.q);
+		l |= THERM_INT_THRESHOLD1_ENABLE;
+	wrmsr(MSR_IA32_PACKAGE_THERM_INTERRUPT, l, h);
 }
 
 /* Disable threshold interrupt on local package/cpu */
 static inline void disable_pkg_thres_interrupt(void)
 {
-	struct msr val;
+	u32 l, h;
 
-	rdmsrq(MSR_IA32_PACKAGE_THERM_INTERRUPT, val.q);
+	rdmsr(MSR_IA32_PACKAGE_THERM_INTERRUPT, l, h);
 
-	val.l &= ~(THERM_INT_THRESHOLD0_ENABLE | THERM_INT_THRESHOLD1_ENABLE);
-	wrmsrq(MSR_IA32_PACKAGE_THERM_INTERRUPT, val.q);
+	l &= ~(THERM_INT_THRESHOLD0_ENABLE | THERM_INT_THRESHOLD1_ENABLE);
+	wrmsr(MSR_IA32_PACKAGE_THERM_INTERRUPT, l, h);
 }
 
 static void pkg_temp_thermal_threshold_work_fn(struct work_struct *work)
@@ -356,7 +357,8 @@ static int pkg_temp_thermal_device_add(unsigned int cpu)
 		goto out_unregister_tz;
 
 	/* Store MSR value for package thermal interrupt, to restore at exit */
-	rdmsrq(MSR_IA32_PACKAGE_THERM_INTERRUPT, zonedev->msr_pkg_therm);
+	rdmsr(MSR_IA32_PACKAGE_THERM_INTERRUPT, zonedev->msr_pkg_therm_low,
+	      zonedev->msr_pkg_therm_high);
 
 	cpumask_set_cpu(cpu, &zonedev->cpumask);
 	raw_spin_lock_irq(&pkg_temp_lock);
@@ -424,8 +426,8 @@ static int pkg_thermal_cpu_offline(unsigned int cpu)
 	if (lastcpu) {
 		zones[topology_logical_die_id(cpu)] = NULL;
 		/* After this point nothing touches the MSR anymore. */
-		wrmsrq(MSR_IA32_PACKAGE_THERM_INTERRUPT,
-		       zonedev->msr_pkg_therm);
+		wrmsr(MSR_IA32_PACKAGE_THERM_INTERRUPT,
+		      zonedev->msr_pkg_therm_low, zonedev->msr_pkg_therm_high);
 	}
 
 	/*

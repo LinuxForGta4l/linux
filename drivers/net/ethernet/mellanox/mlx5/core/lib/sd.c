@@ -19,7 +19,7 @@
 
 struct mlx5_sd {
 	u32 group_id;
-	u8 group_size;
+	u8 host_buses;
 	struct mlx5_devcom_comp_dev *devcom;
 	struct dentry *dfs;
 	u8 state;
@@ -46,14 +46,14 @@ enum mlx5_sd_state {
 	MLX5_SD_STATE_UP,
 };
 
-static int mlx5_sd_get_group_size(struct mlx5_core_dev *dev)
+static int mlx5_sd_get_host_buses(struct mlx5_core_dev *dev)
 {
 	struct mlx5_sd *sd = mlx5_get_sd(dev);
 
 	if (!sd)
 		return 1;
 
-	return sd->group_size;
+	return sd->host_buses;
 }
 
 struct mlx5_core_dev *mlx5_sd_get_primary(struct mlx5_core_dev *dev)
@@ -107,7 +107,7 @@ int mlx5_sd_pf_num_get(struct mlx5_core_dev *dev)
 		if (pos == dev)
 			break;
 
-	return pf_num * sd->group_size + i;
+	return pf_num * sd->host_buses + i;
 }
 
 struct mlx5_core_dev *
@@ -118,7 +118,7 @@ mlx5_sd_primary_get_peer(struct mlx5_core_dev *primary, int idx)
 	if (idx == 0)
 		return primary;
 
-	if (idx >= mlx5_sd_get_group_size(primary))
+	if (idx >= mlx5_sd_get_host_buses(primary))
 		return NULL;
 
 	sd = mlx5_get_sd(primary);
@@ -130,7 +130,7 @@ int mlx5_sd_ch_ix_get_dev_ix(struct mlx5_core_dev *dev, int ch_ix)
 	if (is_mdev_switchdev_mode(dev))
 		return 0;
 
-	return ch_ix % mlx5_sd_get_group_size(dev);
+	return ch_ix % mlx5_sd_get_host_buses(dev);
 }
 
 int mlx5_sd_ch_ix_get_vec_ix(struct mlx5_core_dev *dev, int ch_ix)
@@ -138,7 +138,7 @@ int mlx5_sd_ch_ix_get_vec_ix(struct mlx5_core_dev *dev, int ch_ix)
 	if (is_mdev_switchdev_mode(dev))
 		return ch_ix;
 
-	return ch_ix / mlx5_sd_get_group_size(dev);
+	return ch_ix / mlx5_sd_get_host_buses(dev);
 }
 
 struct mlx5_core_dev *mlx5_sd_ch_ix_get_dev(struct mlx5_core_dev *primary, int ch_ix)
@@ -164,7 +164,7 @@ static bool ft_create_alias_supported(struct mlx5_core_dev *dev)
 }
 
 static int mlx5_query_sd(struct mlx5_core_dev *dev, bool *sdm,
-			 u8 *group_size)
+			 u8 *host_buses)
 {
 	u32 out[MLX5_ST_SZ_DW(mpir_reg)];
 	int err;
@@ -174,7 +174,7 @@ static int mlx5_query_sd(struct mlx5_core_dev *dev, bool *sdm,
 		return err;
 
 	*sdm = MLX5_GET(mpir_reg, out, sdm);
-	*group_size = MLX5_GET(mpir_reg, out, host_buses);
+	*host_buses = MLX5_GET(mpir_reg, out, host_buses);
 
 	return 0;
 }
@@ -184,10 +184,10 @@ static u32 mlx5_sd_group_id(struct mlx5_core_dev *dev, u8 sd_group)
 	return (u32)((MLX5_CAP_GEN(dev, native_port_num) << 8) | sd_group);
 }
 
-static bool mlx5_sd_caps_supported(struct mlx5_core_dev *dev, u8 group_size)
+static bool mlx5_sd_caps_supported(struct mlx5_core_dev *dev, u8 host_buses)
 {
 	/* Honor the SW implementation limit */
-	if (group_size > MLX5_SD_MAX_GROUP_SZ)
+	if (host_buses > MLX5_SD_MAX_GROUP_SZ)
 		return false;
 
 	/* Disconnect secondaries from the network */
@@ -200,7 +200,7 @@ static bool mlx5_sd_caps_supported(struct mlx5_core_dev *dev, u8 group_size)
 	/* RX steering from primary to secondaries */
 	if (!MLX5_CAP_GEN(dev, cross_vhca_rqt))
 		return false;
-	if (group_size > MLX5_CAP_GEN_2(dev, max_rqt_vhca_id))
+	if (host_buses > MLX5_CAP_GEN_2(dev, max_rqt_vhca_id))
 		return false;
 
 	/* TX steering from secondaries to primary */
@@ -214,7 +214,7 @@ static bool mlx5_sd_caps_supported(struct mlx5_core_dev *dev, u8 group_size)
 
 bool mlx5_sd_is_supported(struct mlx5_core_dev *dev)
 {
-	u8 group_size = U8_MAX, sd_group;
+	u8 host_buses, sd_group;
 	bool sdm;
 	int err;
 
@@ -222,25 +222,23 @@ bool mlx5_sd_is_supported(struct mlx5_core_dev *dev)
 	if (!mlx5_core_is_pf(dev))
 		return false;
 
-	err = mlx5_query_nic_vport_sd_group(dev, &sd_group, &group_size);
-	if (err || !sd_group || group_size < MLX5_SD_MIN_GROUP_SZ)
+	err = mlx5_query_nic_vport_sd_group(dev, &sd_group);
+	if (err || !sd_group)
 		return false;
 
-	if (group_size == U8_MAX) {
-		if (!MLX5_CAP_MCAM_REG(dev, mpir))
-			return false;
+	if (!MLX5_CAP_MCAM_REG(dev, mpir))
+		return false;
 
-		err = mlx5_query_sd(dev, &sdm, &group_size);
-		if (err || !sdm)
-			return false;
-	}
+	err = mlx5_query_sd(dev, &sdm, &host_buses);
+	if (err || !sdm)
+		return false;
 
-	return mlx5_sd_caps_supported(dev, group_size);
+	return mlx5_sd_caps_supported(dev, host_buses);
 }
 
 static int sd_init(struct mlx5_core_dev *dev)
 {
-	u8 group_size = U8_MAX, sd_group;
+	u8 host_buses, sd_group;
 	struct mlx5_sd *sd;
 	u32 group_id;
 	bool sdm;
@@ -250,27 +248,26 @@ static int sd_init(struct mlx5_core_dev *dev)
 	if (!mlx5_core_is_pf(dev))
 		return 0;
 
-	err = mlx5_query_nic_vport_sd_group(dev, &sd_group, &group_size);
+	err = mlx5_query_nic_vport_sd_group(dev, &sd_group);
 	if (err)
 		return err;
 
-	if (!sd_group || group_size < MLX5_SD_MIN_GROUP_SZ)
+	if (!sd_group)
 		return 0;
 
-	if (group_size == U8_MAX) {
-		if (!MLX5_CAP_MCAM_REG(dev, mpir))
-			return 0;
+	if (!MLX5_CAP_MCAM_REG(dev, mpir))
+		return 0;
 
-		err = mlx5_query_sd(dev, &sdm, &group_size);
-		if (err)
-			return err;
+	err = mlx5_query_sd(dev, &sdm, &host_buses);
+	if (err)
+		return err;
 
-		if (!sdm)
-			return 0;
-	}
+	if (!sdm)
+		return 0;
+
 	group_id = mlx5_sd_group_id(dev, sd_group);
 
-	if (!mlx5_sd_caps_supported(dev, group_size)) {
+	if (!mlx5_sd_caps_supported(dev, host_buses)) {
 		sd_warn(dev, "can't support requested netdev combining for group id 0x%x, skipping\n",
 			group_id);
 		return 0;
@@ -280,7 +277,7 @@ static int sd_init(struct mlx5_core_dev *dev)
 	if (!sd)
 		return -ENOMEM;
 
-	sd->group_size = group_size;
+	sd->host_buses = host_buses;
 	sd->group_id = group_id;
 
 	mlx5_set_sd(dev, sd);
@@ -543,7 +540,7 @@ static int sd_register(struct mlx5_core_dev *dev)
 	sd->devcom = devcom;
 
 	mlx5_devcom_comp_lock(devcom);
-	if (mlx5_devcom_comp_get_size(devcom) != sd->group_size ||
+	if (mlx5_devcom_comp_get_size(devcom) != sd->host_buses ||
 	    mlx5_devcom_comp_is_ready(devcom))
 		goto out;
 
@@ -579,7 +576,7 @@ static int sd_register(struct mlx5_core_dev *dev)
 				      DEVCOM_CANT_FAIL, primary);
 
 	primary_sd = mlx5_get_sd(primary);
-	if (primary_sd->next_secondary_idx + 1 == sd->group_size)
+	if (primary_sd->next_secondary_idx + 1 == sd->host_buses)
 		mlx5_devcom_comp_set_ready(devcom, true);
 out:
 	mlx5_devcom_comp_unlock(devcom);

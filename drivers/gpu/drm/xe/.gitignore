@@ -2,4 +2,3 @@
 *.hdrtest
 /generated
 /xe_gen_wa_oob
-!.kunitconfig-display

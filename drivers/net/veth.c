@@ -77,7 +77,6 @@ struct veth_priv {
 	struct bpf_prog		*_xdp_prog;
 	struct veth_rq		*rq;
 	unsigned int		requested_headroom;
-	netdevice_tracker	peer_tracker;
 };
 
 struct veth_xdp_tx_bq {
@@ -1908,17 +1907,15 @@ static int veth_newlink(struct net_device *dev,
 
 	priv = netdev_priv(dev);
 	rcu_assign_pointer(priv->peer, peer);
-	netdev_hold(peer, &priv->peer_tracker, GFP_KERNEL);
 	err = veth_init_queues(dev, tb);
 	if (err)
 		goto err_queues;
 
 	priv = netdev_priv(peer);
 	rcu_assign_pointer(priv->peer, dev);
-	netdev_hold(dev, &priv->peer_tracker, GFP_KERNEL);
 	err = veth_init_queues(peer, tb);
 	if (err)
-		goto err_peer_queues;
+		goto err_queues;
 
 	veth_disable_gro(dev);
 	/* update XDP supported features */
@@ -1927,11 +1924,7 @@ static int veth_newlink(struct net_device *dev,
 
 	return 0;
 
-err_peer_queues:
-	netdev_put(dev, &priv->peer_tracker);
-	priv = netdev_priv(dev);
 err_queues:
-	netdev_put(peer, &priv->peer_tracker);
 	unregister_netdevice(dev);
 err_register_dev:
 	/* nothing to do */
@@ -1946,25 +1939,24 @@ err_register_peer:
 
 static void veth_dellink(struct net_device *dev, struct list_head *head)
 {
-	netdevice_tracker *peer_tracker;
-	struct net_device *peer;
 	struct veth_priv *priv;
+	struct net_device *peer;
 
 	priv = netdev_priv(dev);
-	peer_tracker = &priv->peer_tracker;
-	peer = unrcu_pointer(xchg(&priv->peer, NULL));
-	if (!peer)
-		return;
+	peer = rtnl_dereference(priv->peer);
 
+	/* Note : dellink() is called from default_device_exit_batch(),
+	 * before a rcu_synchronize() point. The devices are guaranteed
+	 * not being freed before one RCU grace period.
+	 */
+	RCU_INIT_POINTER(priv->peer, NULL);
 	unregister_netdevice_queue(dev, head);
 
-	priv = netdev_priv(peer);
-	dev = unrcu_pointer(xchg(&priv->peer, NULL));
-	if (dev)
-		unregister_netdevice_queue_net(dev_net(dev), peer, head);
-
-	netdev_put(peer, peer_tracker);
-	netdev_put(dev, &priv->peer_tracker);
+	if (peer) {
+		priv = netdev_priv(peer);
+		RCU_INIT_POINTER(priv->peer, NULL);
+		unregister_netdevice_queue(peer, head);
+	}
 }
 
 static const struct nla_policy veth_policy[VETH_INFO_MAX + 1] = {

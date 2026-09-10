@@ -462,9 +462,15 @@ static int pmic8xxx_kp_enable(struct pmic8xxx_kp *kp)
 
 static int pmic8xxx_kp_disable(struct pmic8xxx_kp *kp)
 {
+	int rc;
+
 	kp->ctrl_reg &= ~KEYP_CTRL_KEYP_EN;
 
-	return regmap_write(kp->regmap, KEYP_CTRL, kp->ctrl_reg);
+	rc = regmap_write(kp->regmap, KEYP_CTRL, kp->ctrl_reg);
+	if (rc < 0)
+		return rc;
+
+	return rc;
 }
 
 static int pmic8xxx_kp_open(struct input_dev *dev)

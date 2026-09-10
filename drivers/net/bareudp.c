@@ -36,7 +36,6 @@ static unsigned int bareudp_net_id;
 
 struct bareudp_net {
 	struct list_head        bareudp_list;
-	struct mutex		lock;
 };
 
 struct bareudp_conf {
@@ -637,15 +636,10 @@ static struct bareudp_dev *bareudp_find_dev(struct bareudp_net *bn,
 {
 	struct bareudp_dev *bareudp, *t = NULL;
 
-	mutex_lock(&bn->lock);
-
 	list_for_each_entry(bareudp, &bn->bareudp_list, next) {
 		if (conf->port == bareudp->port)
 			t = bareudp;
 	}
-
-	mutex_unlock(&bn->lock);
-
 	return t;
 }
 
@@ -681,10 +675,7 @@ static int bareudp_configure(struct net *net, struct net_device *dev,
 	if (err)
 		return err;
 
-	mutex_lock(&bn->lock);
 	list_add(&bareudp->next, &bn->bareudp_list);
-	mutex_unlock(&bn->lock);
-
 	return 0;
 }
 
@@ -701,26 +692,12 @@ static int bareudp_link_config(struct net_device *dev,
 	return 0;
 }
 
-static void __bareudp_dellink(struct net *net, struct net_device *dev,
-			      struct list_head *head)
-{
-	struct bareudp_dev *bareudp = netdev_priv(dev);
-
-	list_del_init(&bareudp->next);
-	unregister_netdevice_queue_net(net, dev, head);
-}
-
 static void bareudp_dellink(struct net_device *dev, struct list_head *head)
 {
 	struct bareudp_dev *bareudp = netdev_priv(dev);
-	struct bareudp_net *bn;
 
-	bn = net_generic(bareudp->net, bareudp_net_id);
-
-	mutex_lock(&bn->lock);
-	if (!list_empty(&bareudp->next))
-		__bareudp_dellink(dev_net(dev), dev, head);
-	mutex_unlock(&bn->lock);
+	list_del(&bareudp->next);
+	unregister_netdevice_queue(dev, head);
 }
 
 static int bareudp_newlink(struct net_device *dev,
@@ -799,8 +776,6 @@ static __net_init int bareudp_init_net(struct net *net)
 	struct bareudp_net *bn = net_generic(net, bareudp_net_id);
 
 	INIT_LIST_HEAD(&bn->bareudp_list);
-	mutex_init(&bn->lock);
-
 	return 0;
 }
 
@@ -810,25 +785,13 @@ static void __net_exit bareudp_exit_rtnl_net(struct net *net,
 	struct bareudp_net *bn = net_generic(net, bareudp_net_id);
 	struct bareudp_dev *bareudp, *next;
 
-	mutex_lock(&bn->lock);
-
 	list_for_each_entry_safe(bareudp, next, &bn->bareudp_list, next)
-		__bareudp_dellink(net, bareudp->dev, dev_kill_list);
-
-	mutex_unlock(&bn->lock);
-}
-
-static void __net_exit bareudp_exit_net(struct net *net)
-{
-	struct bareudp_net *bn = net_generic(net, bareudp_net_id);
-
-	WARN_ON_ONCE(!list_empty(&bn->bareudp_list));
+		bareudp_dellink(bareudp->dev, dev_kill_list);
 }
 
 static struct pernet_operations bareudp_net_ops = {
 	.init = bareudp_init_net,
 	.exit_rtnl = bareudp_exit_rtnl_net,
-	.exit = bareudp_exit_net,
 	.id   = &bareudp_net_id,
 	.size = sizeof(struct bareudp_net),
 };

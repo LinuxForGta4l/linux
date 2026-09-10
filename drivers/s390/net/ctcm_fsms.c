@@ -545,7 +545,6 @@ static void chx_rxidle(fsm_instance *fi, int event, void *arg)
  * arg		Generic pointer, casted from channel * upon call.
  */
 static void ctcm_chx_setmode(fsm_instance *fi, int event, void *arg)
-__context_unsafe(/* Conditional locking */)
 {
 	struct channel *ch = arg;
 	int rc;
@@ -564,6 +563,8 @@ __context_unsafe(/* Conditional locking */)
 
 	if (event == CTC_EVENT_TIMER)	/* only for timer not yet locked */
 		spin_lock_irqsave(get_ccwdev_lock(ch->cdev), saveflags);
+			/* Such conditional locking is undeterministic in
+			 * static view. => ignore sparse warnings here. */
 
 	rc = ccw_device_start(ch->cdev, &ch->ccw[6], 0, 0xff, 0);
 	if (event == CTC_EVENT_TIMER)	/* see above comments */
@@ -647,7 +648,6 @@ static void ctcm_chx_start(fsm_instance *fi, int event, void *arg)
  * arg		Generic pointer, casted from channel * upon call.
  */
 static void ctcm_chx_haltio(fsm_instance *fi, int event, void *arg)
-__context_unsafe(/* Conditional locking */)
 {
 	struct channel *ch = arg;
 	unsigned long saveflags = 0;
@@ -662,12 +662,15 @@ __context_unsafe(/* Conditional locking */)
 
 	if (event == CTC_EVENT_STOP)	/* only for STOP not yet locked */
 		spin_lock_irqsave(get_ccwdev_lock(ch->cdev), saveflags);
+			/* Such conditional locking is undeterministic in
+			 * static view. => ignore sparse warnings here. */
 	oldstate = fsm_getstate(fi);
 	fsm_newstate(fi, CTC_STATE_TERM);
 	rc = ccw_device_halt(ch->cdev, 0);
 
 	if (event == CTC_EVENT_STOP)
 		spin_unlock_irqrestore(get_ccwdev_lock(ch->cdev), saveflags);
+			/* see remark above about conditional locking */
 
 	if (rc != 0 && rc != -EBUSY) {
 		fsm_deltimer(&ch->timer);
@@ -821,7 +824,6 @@ static void ctcm_chx_setuperr(fsm_instance *fi, int event, void *arg)
  * arg		Generic pointer, casted from channel * upon call.
  */
 static void ctcm_chx_restart(fsm_instance *fi, int event, void *arg)
-__context_unsafe(/* Conditional locking */)
 {
 	struct channel *ch = arg;
 	struct net_device *dev = ch->netdev;
@@ -840,6 +842,9 @@ __context_unsafe(/* Conditional locking */)
 	fsm_newstate(fi, CTC_STATE_STARTWAIT);
 	if (event == CTC_EVENT_TIMER)	/* only for timer not yet locked */
 		spin_lock_irqsave(get_ccwdev_lock(ch->cdev), saveflags);
+			/* Such conditional locking is a known problem for
+			 * sparse because its undeterministic in static view.
+			 * Warnings should be ignored here. */
 	rc = ccw_device_halt(ch->cdev, 0);
 	if (event == CTC_EVENT_TIMER)
 		spin_unlock_irqrestore(get_ccwdev_lock(ch->cdev), saveflags);
@@ -994,7 +999,6 @@ static void ctcm_chx_txiniterr(fsm_instance *fi, int event, void *arg)
  * arg		Generic pointer, casted from channel * upon call.
  */
 static void ctcm_chx_txretry(fsm_instance *fi, int event, void *arg)
-__context_unsafe(/* Conditional locking */)
 {
 	struct channel *ch = arg;
 	struct net_device *dev = ch->netdev;
@@ -1038,6 +1042,9 @@ __context_unsafe(/* Conditional locking */)
 		fsm_addtimer(&ch->timer, 1000, CTC_EVENT_TIMER, ch);
 		if (event == CTC_EVENT_TIMER) /* for TIMER not yet locked */
 			spin_lock_irqsave(get_ccwdev_lock(ch->cdev), saveflags);
+			/* Such conditional locking is a known problem for
+			 * sparse because its undeterministic in static view.
+			 * Warnings should be ignored here. */
 		if (do_debug_ccw)
 			ctcmpc_dumpit((char *)&ch->ccw[3],
 					sizeof(struct ccw1) * 3);
@@ -1376,7 +1383,6 @@ done:
  * arg		Generic pointer, casted from channel * upon call.
  */
 static void ctcmpc_chx_rx(fsm_instance *fi, int event, void *arg)
-__context_unsafe(/* Conditional locking */)
 {
 	struct channel		*ch = arg;
 	struct net_device	*dev = ch->netdev;
@@ -1456,7 +1462,7 @@ again:
 			spin_lock_irqsave(
 				get_ccwdev_lock(ch->cdev), saveflags);
 		rc = ccw_device_start(ch->cdev, &ch->ccw[0], 0, 0xff, 0);
-		if (dolock)
+		if (dolock) /* see remark about conditional locking */
 			spin_unlock_irqrestore(
 				get_ccwdev_lock(ch->cdev), saveflags);
 		if (rc != 0)
@@ -1533,7 +1539,6 @@ done:
  * arg		Generic pointer, casted from channel * upon call.
  */
 void ctcmpc_chx_rxidle(fsm_instance *fi, int event, void *arg)
-__context_unsafe(/* Conditional locking */)
 {
 	struct channel *ch = arg;
 	struct net_device *dev = ch->netdev;
@@ -1561,6 +1566,7 @@ __context_unsafe(/* Conditional locking */)
 		ch->ccw[1].count = ch->max_bufsize;
 		CTCM_CCW_DUMP((char *)&ch->ccw[0], sizeof(struct ccw1) * 3);
 		if (event == CTC_EVENT_START)
+			/* see remark about conditional locking */
 			spin_lock_irqsave(get_ccwdev_lock(ch->cdev), saveflags);
 		rc = ccw_device_start(ch->cdev, &ch->ccw[0], 0, 0xff, 0);
 		if (event == CTC_EVENT_START)

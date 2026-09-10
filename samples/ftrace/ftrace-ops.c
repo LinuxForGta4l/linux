@@ -223,7 +223,7 @@ static int __init ftrace_ops_sample_init(void)
 
 	pr_info("Attempted %u calls to %ps in %lluns (%lluns / call)\n",
 		nr_function_calls, tracee_relevant,
-		period, nr_function_calls ? div_u64(period, nr_function_calls) : -1LL);
+		period, div_u64(period, nr_function_calls));
 
 	if (persist)
 		return 0;

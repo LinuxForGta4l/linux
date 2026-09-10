@@ -34,8 +34,6 @@ properties:
               - renesas,r9a09g047-fcpvd # RZ/G3E
               - renesas,r9a09g056-fcpvd # RZ/V2N
               - renesas,r9a09g057-fcpvd # RZ/V2H(P)
-              - renesas,r9a09g077-fcpvd # RZ/T2H
-              - renesas,r9a09g087-fcpvd # RZ/N2H
           - const: renesas,fcpv         # Generic FCP for VSP fallback
 
   reg:
@@ -68,6 +66,7 @@ required:
   - reg
   - clocks
   - power-domains
+  - resets
 
 additionalProperties: false
 
@@ -84,8 +83,6 @@ allOf:
               - renesas,r9a09g047-fcpvd
               - renesas,r9a09g056-fcpvd
               - renesas,r9a09g057-fcpvd
-              - renesas,r9a09g077-fcpvd
-              - renesas,r9a09g087-fcpvd
     then:
       properties:
         clocks:
@@ -97,19 +94,6 @@ allOf:
         clocks:
           maxItems: 1
         clock-names: false
-  - if:
-      properties:
-        compatible:
-          contains:
-            enum:
-              - renesas,r9a09g077-fcpvd
-              - renesas,r9a09g087-fcpvd
-    then:
-      properties:
-        resets: false
-    else:
-      required:
-        - resets
 
 examples:
   # R8A7795 (R-Car H3) FCP for VSP-D1

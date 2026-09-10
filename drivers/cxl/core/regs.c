@@ -4,7 +4,6 @@
 #include <linux/device.h>
 #include <linux/slab.h>
 #include <linux/pci.h>
-#include <cxl/pci.h>
 #include <cxlmem.h>
 #include <cxlpci.h>
 #include <pmu.h>

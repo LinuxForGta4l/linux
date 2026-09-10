@@ -875,14 +875,13 @@ impl<Container, Data> ItemType<Container, Data> {
 ///                 configfs::Subsystem<Configuration>,
 ///                 Configuration
 ///                 >::new_with_child_ctor::<N,Child>(
-///             ::kernel::module::this_module::<crate::LocalModule>(),
+///             &THIS_MODULE,
 ///             &CONFIGURATION_ATTRS
 ///         );
 ///
 ///     &CONFIGURATION_TPE
 /// }
 /// ```
-#[allow(clippy::crate_in_macro_def)]
 #[macro_export]
 macro_rules! configfs_attrs {
     (
@@ -1022,8 +1021,7 @@ macro_rules! configfs_attrs {
 
                     static [< $data:upper _TPE >] : $crate::configfs::ItemType<$container, $data>  =
                         $crate::configfs::ItemType::<$container, $data>::new::<N>(
-                            $crate::module::this_module::<crate::LocalModule>(),
-                            &[<$ data:upper _ATTRS >]
+                            &THIS_MODULE, &[<$ data:upper _ATTRS >]
                         );
                 )?
 
@@ -1032,8 +1030,7 @@ macro_rules! configfs_attrs {
                         $crate::configfs::ItemType<$container, $data>  =
                             $crate::configfs::ItemType::<$container, $data>::
                             new_with_child_ctor::<N, $child>(
-                                $crate::module::this_module::<crate::LocalModule>(),
-                                &[<$ data:upper _ATTRS >]
+                                &THIS_MODULE, &[<$ data:upper _ATTRS >]
                             );
                 )?
 

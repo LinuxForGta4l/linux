@@ -20,10 +20,9 @@ static int jumbo_frm(struct stmmac_tx_queue *tx_q, struct sk_buff *skb,
 	unsigned int nopaged_len = skb_headlen(skb);
 	struct stmmac_priv *priv = tx_q->priv_data;
 	unsigned int entry = tx_q->cur_tx;
-	unsigned int bmax, buf_len;
+	unsigned int bmax, buf_len, des2;
 	unsigned int i = 1, len;
 	struct dma_desc *desc;
-	dma_addr_t des2;
 
 	desc = tx_q->dma_tx + entry;
 
@@ -37,7 +36,7 @@ static int jumbo_frm(struct stmmac_tx_queue *tx_q, struct sk_buff *skb,
 
 	des2 = dma_map_single(priv->device, skb->data,
 			      buf_len, DMA_TO_DEVICE);
-	desc->des2 = cpu_to_le32(lower_32_bits(des2));
+	desc->des2 = cpu_to_le32(des2);
 	if (dma_mapping_error(priv->device, des2))
 		return -1;
 	tx_q->tx_skbuff_dma[entry].buf = des2;
@@ -55,7 +54,7 @@ static int jumbo_frm(struct stmmac_tx_queue *tx_q, struct sk_buff *skb,
 			des2 = dma_map_single(priv->device,
 					      (skb->data + bmax * i),
 					      bmax, DMA_TO_DEVICE);
-			desc->des2 = cpu_to_le32(lower_32_bits(des2));
+			desc->des2 = cpu_to_le32(des2);
 			if (dma_mapping_error(priv->device, des2))
 				return -1;
 			tx_q->tx_skbuff_dma[entry].buf = des2;
@@ -68,7 +67,7 @@ static int jumbo_frm(struct stmmac_tx_queue *tx_q, struct sk_buff *skb,
 			des2 = dma_map_single(priv->device,
 					      (skb->data + bmax * i), len,
 					      DMA_TO_DEVICE);
-			desc->des2 = cpu_to_le32(lower_32_bits(des2));
+			desc->des2 = cpu_to_le32(des2);
 			if (dma_mapping_error(priv->device, des2))
 				return -1;
 			tx_q->tx_skbuff_dma[entry].buf = des2;

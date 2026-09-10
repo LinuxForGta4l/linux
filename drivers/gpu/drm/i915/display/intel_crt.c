@@ -397,8 +397,7 @@ intel_crt_mode_valid(struct drm_connector *connector,
 	return MODE_OK;
 }
 
-static int intel_crt_compute_config(struct intel_atomic_state *state,
-				    struct intel_encoder *encoder,
+static int intel_crt_compute_config(struct intel_encoder *encoder,
 				    struct intel_crtc_state *crtc_state,
 				    struct drm_connector_state *conn_state)
 {
@@ -414,8 +413,7 @@ static int intel_crt_compute_config(struct intel_atomic_state *state,
 	return 0;
 }
 
-static int pch_crt_compute_config(struct intel_atomic_state *state,
-				  struct intel_encoder *encoder,
+static int pch_crt_compute_config(struct intel_encoder *encoder,
 				  struct intel_crtc_state *crtc_state,
 				  struct drm_connector_state *conn_state)
 {
@@ -434,8 +432,7 @@ static int pch_crt_compute_config(struct intel_atomic_state *state,
 	return 0;
 }
 
-static int hsw_crt_compute_config(struct intel_atomic_state *state,
-				  struct intel_encoder *encoder,
+static int hsw_crt_compute_config(struct intel_encoder *encoder,
 				  struct intel_crtc_state *crtc_state,
 				  struct drm_connector_state *conn_state)
 {

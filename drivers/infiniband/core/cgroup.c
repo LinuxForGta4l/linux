@@ -17,7 +17,6 @@
 void ib_device_register_rdmacg(struct ib_device *device)
 {
 	device->cg_device.name = device->name;
-	device->cg_device.index = device->index;
 	rdmacg_register_device(&device->cg_device);
 }
 

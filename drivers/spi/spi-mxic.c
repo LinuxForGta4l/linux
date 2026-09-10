@@ -721,7 +721,7 @@ static int mxic_spi_mem_ecc_probe(struct platform_device *pdev,
 	return 0;
 }
 
-static int mxic_spi_runtime_suspend(struct device *dev)
+static int __maybe_unused mxic_spi_runtime_suspend(struct device *dev)
 {
 	struct spi_controller *host = dev_get_drvdata(dev);
 	struct mxic_spi *mxic = spi_controller_get_devdata(host);
@@ -732,7 +732,7 @@ static int mxic_spi_runtime_suspend(struct device *dev)
 	return 0;
 }
 
-static int mxic_spi_runtime_resume(struct device *dev)
+static int __maybe_unused mxic_spi_runtime_resume(struct device *dev)
 {
 	struct spi_controller *host = dev_get_drvdata(dev);
 	struct mxic_spi *mxic = spi_controller_get_devdata(host);
@@ -748,7 +748,8 @@ static int mxic_spi_runtime_resume(struct device *dev)
 }
 
 static const struct dev_pm_ops mxic_spi_dev_pm_ops = {
-	RUNTIME_PM_OPS(mxic_spi_runtime_suspend, mxic_spi_runtime_resume, NULL)
+	SET_RUNTIME_PM_OPS(mxic_spi_runtime_suspend,
+			   mxic_spi_runtime_resume, NULL)
 };
 
 static int mxic_spi_probe(struct platform_device *pdev)
@@ -849,7 +850,7 @@ static struct platform_driver mxic_spi_driver = {
 	.driver = {
 		.name = "mxic-spi",
 		.of_match_table = mxic_spi_of_ids,
-		.pm = pm_ptr(&mxic_spi_dev_pm_ops),
+		.pm = &mxic_spi_dev_pm_ops,
 	},
 };
 module_platform_driver(mxic_spi_driver);

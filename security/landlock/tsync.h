@@ -9,10 +9,8 @@
 #define _SECURITY_LANDLOCK_TSYNC_H
 
 #include <linux/cred.h>
-#include <linux/types.h>
 
 int landlock_restrict_sibling_threads(const struct cred *old_cred,
-				      const struct cred *new_cred,
-				      u32 restrict_flags);
+				      const struct cred *new_cred);
 
 #endif /* _SECURITY_LANDLOCK_TSYNC_H */

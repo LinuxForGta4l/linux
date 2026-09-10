@@ -4,4 +4,3 @@
 #
 
 obj-$(CONFIG_ADIN1110) += adin1110.o
-obj-$(CONFIG_ADIN1140) += adin1140.o

@@ -74,5 +74,3 @@
 &i2c2 {
 	status = "okay";
 };
-
-#include "hwmon-mini.dtsi"

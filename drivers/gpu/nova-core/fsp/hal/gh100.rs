@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-use kernel::{
-    io::Io,
-    sizes::SizeConstants, //
-};
+use kernel::io::Io;
 
 use crate::{
     driver::Bar0,
@@ -28,10 +25,6 @@ impl FspHal for Gh100 {
 
     fn cot_version(&self) -> u16 {
         1
-    }
-
-    fn fb_end_reserved_size(&self) -> u64 {
-        u64::SZ_2M
     }
 }
 

@@ -7,7 +7,9 @@
 # https://doi.org/10.1007/978-0-387-34892-6_1
 # With extra optimizations
 
-import lark
+from ply.lex import lex
+from ply.yacc import yacc
+from .automata import AutomataError
 
 # Grammar:
 # 	ltl ::= opd | ( ltl ) | ltl binop ltl | unop ltl
@@ -28,41 +30,42 @@ import lark
 #       imply
 #       equivalent
 
-GRAMMAR = r'''
-start: assign+
+tokens = (
+   'AND',
+   'OR',
+   'IMPLY',
+   'UNTIL',
+   'ALWAYS',
+   'EVENTUALLY',
+   'NEXT',
+   'VARIABLE',
+   'LITERAL',
+   'NOT',
+   'LPAREN',
+   'RPAREN',
+   'ASSIGN',
+)
 
-assign: VARIABLE "=" _ltl
+t_AND = r'and'
+t_OR = r'or'
+t_IMPLY = r'imply'
+t_UNTIL = r'until'
+t_ALWAYS = r'always'
+t_NEXT = r'next'
+t_EVENTUALLY = r'eventually'
+t_VARIABLE = r'[A-Z_0-9]+'
+t_LITERAL = r'true|false'
+t_NOT = r'not'
+t_LPAREN = r'\('
+t_RPAREN = r'\)'
+t_ASSIGN = r'='
+t_ignore_COMMENT = r'\#.*'
+t_ignore = ' \t\n'
 
-_ltl: _opd | binop | unop
+def t_error(t):
+    raise AutomataError(f"Illegal character '{t.value[0]}'")
 
-_opd : VARIABLE
-     | LITERAL
-     | "(" _ltl ")"
-
-unop: UNOP _ltl
-UNOP: "always"
-     | "eventually"
-     | "next"
-     | "not"
-
-binop: _opd BINOP _ltl
-BINOP: "until"
-      | "and"
-      | "or"
-      | "imply"
-
-VARIABLE: /[A-Z_][A-Z0-9_]*/
-LITERAL: "true" | "false"
-
-COMMENT: "#" /.*/ "\n"
-%ignore COMMENT
-
-%import common.WS
-%ignore WS
-'''
-
-class LTLError(Exception):
-    "Exception raised for malformed linear temporal logic"
+lexer = lex()
 
 class GraphNode:
     uid = 0
@@ -94,7 +97,7 @@ class GraphNode:
         return self.id < other.id
 
 class ASTNode:
-    uid = 0
+    uid = 1
 
     def __init__(self, op):
         self.op = op
@@ -430,49 +433,90 @@ class Literal:
         node.old |= {n}
         return node.expand(node_set)
 
-class Transform(lark.visitors.Transformer):
-    def unop(self, node):
-        if node[0] == "always":
-            return ASTNode(AlwaysOp(node[1]))
-        if node[0] == "eventually":
-            return ASTNode(EventuallyOp(node[1]))
-        if node[0] == "next":
-            return ASTNode(NextOp(node[1]))
-        if node[0] == "not":
-            return ASTNode(NotOp(node[1]))
-        raise ValueError("Unknown operator %s" % node[0])
+def p_spec(p):
+    '''
+    spec : assign
+         | assign spec
+    '''
+    if len(p) == 3:
+        p[2].append(p[1])
+        p[0] = p[2]
+    else:
+        p[0] = [p[1]]
 
-    def binop(self, node):
-        if node[1] == "until":
-            return ASTNode(UntilOp(node[0], node[2]))
-        if node[1] == "and":
-            return ASTNode(AndOp(node[0], node[2]))
-        if node[1] == "or":
-            return ASTNode(OrOp(node[0], node[2]))
-        if node[1] == "imply":
-            return ASTNode(ImplyOp(node[0], node[2]))
-        raise ValueError("Unknown operator %s" % node[1])
+def p_assign(p):
+    '''
+    assign : VARIABLE ASSIGN ltl
+    '''
+    p[0] = (p[1], p[3])
 
-    def VARIABLE(self, args):
-        return ASTNode(Variable(args))
+def p_ltl(p):
+    '''
+    ltl : opd
+        | binop
+        | unop
+    '''
+    p[0] = p[1]
 
-    def LITERAL(self, args):
-        return ASTNode(Literal(args == "true"))
+def p_opd(p):
+    '''
+    opd : VARIABLE
+        | LITERAL
+        | LPAREN ltl RPAREN
+    '''
+    if p[1] == "true":
+        p[0] = ASTNode(Literal(True))
+    elif p[1] == "false":
+        p[0] = ASTNode(Literal(False))
+    elif p[1] == '(':
+        p[0] = p[2]
+    else:
+        p[0] = ASTNode(Variable(p[1]))
 
-    def start(self, node):
-        return node
+def p_unop(p):
+    '''
+    unop : ALWAYS ltl
+         | EVENTUALLY ltl
+         | NEXT ltl
+         | NOT ltl
+    '''
+    if p[1] == "always":
+        op = AlwaysOp(p[2])
+    elif p[1] == "eventually":
+        op = EventuallyOp(p[2])
+    elif p[1] == "next":
+        op = NextOp(p[2])
+    elif p[1] == "not":
+        op = NotOp(p[2])
+    else:
+        raise AutomataError(f"Invalid unary operator {p[1]}")
 
-    def assign(self, node):
-        return node[0].op.name, node[1]
+    p[0] = ASTNode(op)
 
-parser = lark.Lark(GRAMMAR)
+def p_binop(p):
+    '''
+    binop : opd UNTIL ltl
+          | opd AND ltl
+          | opd OR ltl
+          | opd IMPLY ltl
+    '''
+    if p[2] == "and":
+        op = AndOp(p[1], p[3])
+    elif p[2] == "until":
+        op = UntilOp(p[1], p[3])
+    elif p[2] == "or":
+        op = OrOp(p[1], p[3])
+    elif p[2] == "imply":
+        op = ImplyOp(p[1], p[3])
+    else:
+        raise AutomataError(f"Invalid binary operator {p[2]}")
+
+    p[0] = ASTNode(op)
+
+parser = yacc()
 
 def parse_ltl(s: str) -> ASTNode:
-    try:
-        spec = parser.parse(s)
-    except lark.exceptions.UnexpectedInput as e:
-        raise LTLError(str(e))
-    spec = Transform().transform(spec)
+    spec = parser.parse(s)
 
     rule = None
     subexpr = {}
@@ -484,7 +528,7 @@ def parse_ltl(s: str) -> ASTNode:
             subexpr[assign[0]] = assign[1]
 
     if rule is None:
-        raise LTLError("Please define your specification in the \"RULE = <LTL spec>\" format")
+        raise AutomataError("Please define your specification in the \"RULE = <LTL spec>\" format")
 
     for node in rule:
         if not isinstance(node.op, Variable):

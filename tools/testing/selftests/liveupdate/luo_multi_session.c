@@ -9,7 +9,7 @@
  * files.
  */
 
-#include <libliveupdate.h>
+#include "luo_test_utils.h"
 
 #define SESSION_EMPTY_1 "multi-test-empty-1"
 #define SESSION_EMPTY_2 "multi-test-empty-2"

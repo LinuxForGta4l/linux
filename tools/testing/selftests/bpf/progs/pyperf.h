@@ -85,11 +85,9 @@ static void *get_thread_state(void *tls_base, PidData *pidData)
 	return thread_state;
 }
 
-__weak bool __get_frame_data(long frame_ptr_, PidData *pidData __arg_nonnull,
-			     FrameData *frame __arg_nonnull, Symbol *symbol __arg_nonnull)
+static __always_inline bool get_frame_data(void *frame_ptr, PidData *pidData,
+					   FrameData *frame, Symbol *symbol)
 {
-	void *frame_ptr = (void *)frame_ptr_;
-
 	// read data from PyFrameObject
 	bpf_probe_read_user(&frame->f_back,
 			    sizeof(frame->f_back),
@@ -119,12 +117,6 @@ __weak bool __get_frame_data(long frame_ptr_, PidData *pidData __arg_nonnull,
 					frame->co_name +
 					pidData->offsets.String_data);
 	return true;
-}
-
-static __always_inline bool get_frame_data(void *frame_ptr, PidData *pidData,
-					   FrameData *frame, Symbol *symbol)
-{
-	return __get_frame_data((long)frame_ptr, pidData, frame, symbol);
 }
 
 struct {

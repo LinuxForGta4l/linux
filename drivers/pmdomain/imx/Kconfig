@@ -10,21 +10,18 @@ config IMX_GPCV2_PM_DOMAINS
 	default y if SOC_IMX7D
 
 config IMX8M_BLK_CTRL
-	tristate "i.MX8M BLK CTRL driver"
-	depends on SOC_IMX8M
-	depends on IMX_GPCV2_PM_DOMAINS
+	bool
+	default SOC_IMX8M && IMX_GPCV2_PM_DOMAINS
 	depends on PM_GENERIC_DOMAINS
 	depends on COMMON_CLK
-	default y
 
 config IMX9_BLK_CTRL
-	tristate "i.MX93 BLK CTRL driver"
-	depends on SOC_IMX9
+	bool
+	default SOC_IMX9 && IMX_GPCV2_PM_DOMAINS
 	depends on PM_GENERIC_DOMAINS
-	default y
 
 config IMX_SCU_PD
-	tristate "IMX SCU Power Domain driver"
+	bool "IMX SCU Power Domain driver"
 	depends on IMX_SCU
 	help
 	  The System Controller Firmware (SCFW) based power domain driver.

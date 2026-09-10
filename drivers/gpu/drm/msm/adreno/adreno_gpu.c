@@ -8,7 +8,6 @@
 
 #include <linux/ascii85.h>
 #include <linux/interconnect.h>
-#include <linux/firmware/qcom/qcom_pas.h>
 #include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/kernel.h>
 #include <linux/of_reserved_mem.h>
@@ -132,8 +131,22 @@ static int zap_shader_load_mdt(struct msm_gpu *gpu, const char *fwname,
 	 * we know which of the two cases it is:
 	 */
 	if (signed_fwname || (to_adreno_gpu(gpu)->fwloc == FW_LOCATION_LEGACY)) {
-		ret = qcom_mdt_load(dev, fw, fwname, pasid,
-				mem_region, mem_phys, mem_size, NULL);
+		struct qcom_scm_pas_context *ctx;
+		phys_addr_t reloc = 0;
+
+		ctx = devm_qcom_scm_pas_context_alloc(dev, pasid, mem_phys, mem_size);
+		if (IS_ERR(ctx)) {
+			ret = PTR_ERR(ctx);
+			goto out;
+		}
+		ctx->use_tzmem = false;
+
+		ret = qcom_mdt_pas_load(ctx, fw, fwname, mem_region, &reloc);
+		if (ret)
+			goto out;
+
+		ret = qcom_scm_pas_prepare_and_auth_reset(ctx);
+		qcom_scm_pas_metadata_release(ctx);
 	} else {
 		char *newname;
 
@@ -142,15 +155,16 @@ static int zap_shader_load_mdt(struct msm_gpu *gpu, const char *fwname,
 		ret = qcom_mdt_load(dev, fw, newname, pasid,
 				mem_region, mem_phys, mem_size, NULL);
 		kfree(newname);
-	}
-	if (ret)
-		goto out;
 
-	/* Send the image to the secure world */
-	ret = qcom_pas_auth_and_reset(pasid);
+		if (ret)
+			goto out;
+
+		/* Send the image to the secure world */
+		ret = qcom_scm_pas_auth_and_reset(pasid);
+	}
 
 	/*
-	 * If the pas call returns -EOPNOTSUPP we assume that this target
+	 * If the scm call returns -EOPNOTSUPP we assume that this target
 	 * doesn't need/support the zap shader so quietly fail
 	 */
 	if (ret == -EOPNOTSUPP)
@@ -176,9 +190,9 @@ int adreno_zap_shader_load(struct msm_gpu *gpu, u32 pasid)
 	if (!zap_available)
 		return -ENODEV;
 
-	/* We need PAS to be able to load the firmware */
-	if (!qcom_pas_is_available()) {
-		DRM_DEV_ERROR(&pdev->dev, "PAS is not available\n");
+	/* We need SCM to be able to load the firmware */
+	if (!qcom_scm_is_available()) {
+		DRM_DEV_ERROR(&pdev->dev, "SCM is not available\n");
 		return -EPROBE_DEFER;
 	}
 

@@ -49,9 +49,6 @@ re_cpp_directive = re.compile(
     r'^#\s*(include|define|undef|ifdef|ifndef|if|else|elif|endif|'
     r'pragma|error|warning)\b')
 
-re_dtc_directive = re.compile(
-    r'^/(dts-v1|include)/')
-
 # label: name@addr {  -- label and addr optional; name can be "/"
 # Per the DT spec a node name may start with a digit (e.g. 1wire@...).
 # The address part is captured loosely (any non-space, non-brace run) so
@@ -69,11 +66,7 @@ re_ref_node = re.compile(
 
 def is_preprocessor(stripped):
     """Tell C preprocessor directives apart from DTS '#'-prefixed props."""
-    if re_cpp_directive.match(stripped) is not None:
-        return True
-    if re_dtc_directive.match(stripped) is not None:
-        return True
-    return False
+    return re_cpp_directive.match(stripped) is not None
 
 
 class DtsLine:
@@ -82,12 +75,11 @@ class DtsLine:
                  'node_name', 'node_addr', 'label', 'ref_name', 'depth',
                  'closures')
 
-    def __init__(self, lineno, raw, linetype, depth, indent_str, stripped):
+    def __init__(self, lineno, raw, linetype, indent_str, stripped):
         self.lineno = lineno      # 1-based within the block
         self.raw = raw
         self.linetype = linetype
         self.indent_str = indent_str  # leading whitespace as-is
-        self.depth = depth
         self.stripped = stripped
         self.prop_name = None
         self.continuations = []
@@ -95,6 +87,7 @@ class DtsLine:
         self.node_addr = None
         self.label = None
         self.ref_name = None
+        self.depth = 0            # filled in by classify_lines
         self.closures = 1         # count of '}' on a NODE_CLOSE line
 
 
@@ -162,14 +155,16 @@ def classify_lines(text):
         # or a blank line).
         if in_cpp_macro:
             dl = DtsLine(i, raw, LineType.PREPROCESSOR,
-                         depth, indent_str, stripped)
+                         indent_str, stripped)
+            dl.depth = depth
             out.append(dl)
             in_cpp_macro = (bool(stripped) and
                             stripped.rstrip().endswith('\\'))
             continue
 
         if not stripped:
-            dl = DtsLine(i, raw, LineType.BLANK, depth, '', '')
+            dl = DtsLine(i, raw, LineType.BLANK, '', '')
+            dl.depth = depth
             out.append(dl)
             continue
 
@@ -178,13 +173,15 @@ def classify_lines(text):
                      else LineType.COMMENT_BODY)
             if ltype == LineType.COMMENT_END:
                 in_block_comment = False
-            dl = DtsLine(i, raw, ltype, depth, indent_str, stripped)
+            dl = DtsLine(i, raw, ltype, indent_str, stripped)
+            dl.depth = depth
             out.append(dl)
             continue
 
-        if (stripped.startswith('#') or stripped.startswith('/')) and is_preprocessor(stripped):
-            dl = DtsLine(i, raw, LineType.PREPROCESSOR, depth,
+        if stripped.startswith('#') and is_preprocessor(stripped):
+            dl = DtsLine(i, raw, LineType.PREPROCESSOR,
                          indent_str, stripped)
+            dl.depth = depth
             out.append(dl)
             prev_complete = True
             in_cpp_macro = stripped.rstrip().endswith('\\')
@@ -201,12 +198,14 @@ def classify_lines(text):
         # structural classification entirely.
         if not code:
             ltype = LineType.COMMENT_START if opens_block else LineType.COMMENT
-            dl = DtsLine(i, raw, ltype, depth, indent_str, stripped)
+            dl = DtsLine(i, raw, ltype, indent_str, stripped)
+            dl.depth = depth
             out.append(dl)
             continue
 
         if not prev_complete:
-            dl = DtsLine(i, raw, LineType.CONTINUATION, depth, indent_str, code)
+            dl = DtsLine(i, raw, LineType.CONTINUATION, indent_str, code)
+            dl.depth = depth
             out.append(dl)
             prev_complete = (code.endswith(';') or
                              code.endswith('{') or
@@ -221,23 +220,26 @@ def classify_lines(text):
         if re_only_closures.match(code):
             closures = code.count('}')
             depth = max(depth - closures, 0)
-            dl = DtsLine(i, raw, LineType.NODE_CLOSE, depth, indent_str, code)
+            dl = DtsLine(i, raw, LineType.NODE_CLOSE, indent_str, code)
+            dl.depth = depth
             dl.closures = closures
             out.append(dl)
             prev_complete = True
             continue
 
         if code.endswith('{'):
-            dl = DtsLine(i, raw, LineType.NODE_OPEN, depth, indent_str, code)
+            dl = DtsLine(i, raw, LineType.NODE_OPEN, indent_str, code)
             parse_node_header(dl)
+            dl.depth = depth
             out.append(dl)
             depth += 1
             prev_complete = True
             continue
 
         # Property (or first line of a multi-line property).
-        dl = DtsLine(i, raw, LineType.PROPERTY, depth, indent_str, code)
+        dl = DtsLine(i, raw, LineType.PROPERTY, indent_str, code)
         parse_property_name(dl)
+        dl.depth = depth
         out.append(dl)
         prev_complete = code.endswith(';')
 
@@ -309,16 +311,13 @@ def collect_labels_and_refs(text):
 
 class Ctx:
     """Context passed to each rule check. Carries the parsed lines,
-    raw text, mode and kind."""
+    raw text, mode, and indent kind."""
 
-    def __init__(self, lines, text, mode, kind):
+    def __init__(self, lines, text, mode, indent_kind):
         self.lines = lines
         self.text = text
         self.mode = mode               # 'relaxed' or 'strict'
-        if kind in DTS_FAMILY:
-            self.file_type = 'dts'
-        else:
-            self.file_type = 'yaml'
+        self.indent_kind = indent_kind  # 'spaces' or 'tab'
 
 
 class Rule:
@@ -341,14 +340,14 @@ def check_trailing_whitespace(ctx):
             yield (dl.lineno, 'trailing whitespace')
 
 
-def check_tab_in_yaml_example(ctx):
+def check_tab_in_dts(ctx):
     """Reject literal tabs in DTS lines when input is YAML.
 
     For YAML examples, indent and content must use spaces. Tabs inside
     a #define value are tolerated (those are CPP macros, not DTS).
     For .dts files, this rule does not apply -- tabs are required.
     """
-    if ctx.file_type != 'yaml':
+    if ctx.indent_kind != 'spaces':
         return
     for dl in ctx.lines:
         if dl.linetype == LineType.PREPROCESSOR:
@@ -360,32 +359,21 @@ def check_tab_in_yaml_example(ctx):
 
 
 def check_mixed_indent_chars(ctx):
-    """Indent must be all-tabs, except for aligning indentation (comments
-    or continued lines)."""
+    """Indent must be all-spaces or all-tabs, never mixed on one line."""
     for dl in ctx.lines:
         if not dl.indent_str:
             continue
         if dl.linetype == LineType.PREPROCESSOR:
             continue
-        if re.search(r' \t', dl.indent_str):
+        if ' ' in dl.indent_str and '\t' in dl.indent_str:
             yield (dl.lineno, 'mixed tabs and spaces in indent')
-        if dl.indent_str.count(' ') > 7:
-            yield (dl.lineno, 'too many space characters in indent (more than 7)')
-        for cont in dl.continuations:
-            if not cont.indent_str:
-                continue
-            if cont.linetype == LineType.PREPROCESSOR:
-                continue
-            if re.search(r' \t', cont.indent_str):
-                yield (cont.lineno, 'mixed tabs and spaces in indent')
 
 
 def detect_indent_unit(ctx):
     """Find the indent unit used at depth 1 in this block.
 
-    Returns tuple of string (one of: '  ' (2 spaces), '    ' (4 spaces),
-    '\\t' (tab), or None if depth-1 is empty or ambiguous) and line number when
-    detection was made)."""
+    Returns one of: '  ' (2 spaces), '    ' (4 spaces), '\\t' (tab),
+    or None if depth-1 is empty or ambiguous."""
     for dl in ctx.lines:
         if dl.depth != 1:
             continue
@@ -396,51 +384,51 @@ def detect_indent_unit(ctx):
         if not dl.indent_str:
             continue
         if dl.indent_str == '\t':
-            return ('\t', dl.lineno)
+            return '\t'
         if dl.indent_str == '    ':
-            return ('    ', dl.lineno)
+            return '    '
         if dl.indent_str == '  ':
-            return ('  ', dl.lineno)
+            return '  '
         # Anything else at depth 1 is non-canonical; flag elsewhere.
-        return (dl.indent_str, dl.lineno)
-    return (None, None)
+        return dl.indent_str
+    return None
 
 
 def check_indent_unit_relaxed(ctx):
     """YAML examples: 2 or 4 spaces. Never tabs or other widths."""
-    (unit, lineno) = detect_indent_unit(ctx)
+    unit = detect_indent_unit(ctx)
     if unit is None:
         return
     if unit not in ('  ', '    '):
-        yield (lineno, 'indent unit must be 2 or 4 spaces, got %r' % unit)
+        yield (1, 'indent unit must be 2 or 4 spaces, got %r' % unit)
 
 
 def check_indent_unit_dts(ctx):
     """DTS files: 1 tab per level. Always required."""
-    (unit, lineno) = detect_indent_unit(ctx)
+    unit = detect_indent_unit(ctx)
     if unit is None:
         return
     if unit != '\t':
-        yield (lineno, 'indent unit must be 1 tab in DTS, got %r' % unit)
+        yield (1, 'indent unit must be 1 tab in DTS, got %r' % unit)
 
 
 def check_indent_unit_strict(ctx):
     """YAML: must be exactly 4 spaces. DTS: 1 tab (same as relaxed)."""
-    (unit, lineno) = detect_indent_unit(ctx)
+    unit = detect_indent_unit(ctx)
     if unit is None:
         return
-    if ctx.file_type == 'yaml':
+    if ctx.indent_kind == 'spaces':
         if unit != '    ':
-            yield (lineno, 'indent unit must be 4 spaces in strict mode, '
+            yield (1, 'indent unit must be 4 spaces in strict mode, '
                    'got %r' % unit)
 
 
 def check_indent_consistent(ctx):
     """All indented lines must be a multiple of the detected unit."""
-    (unit, lineno) = detect_indent_unit(ctx)
+    unit = detect_indent_unit(ctx)
     if unit is None:
         return
-    if ctx.file_type == 'yaml':
+    if ctx.indent_kind == 'spaces':
         if unit not in ('  ', '    '):
             return  # let check_indent_unit_* report this
     else:
@@ -564,31 +552,28 @@ def check_child_name_order(ctx):
 
 def _property_bucket(name):
     """Return the canonical bucket index for a property:
-       0 device_type
-       1 compatible
-       2 reg / reg-names
-       3 ranges
-       4 standard properties (no vendor comma in #-stripped name)
-       5 vendor-specific properties
-       6 status
-    Plus a sub-key inside the bucket for fixed slots (device_type, compatible,
-    reg, reg-names, ranges, status). 'standard' and 'vendor' return None for
+       0 compatible
+       1 reg / reg-names
+       2 ranges
+       3 standard properties (no vendor comma in #-stripped name)
+       4 vendor-specific properties
+       5 status
+    Plus a sub-key inside the bucket for fixed slots (compatible, reg,
+    reg-names, ranges, status). 'standard' and 'vendor' return None for
     the sub-key, signalling that the within-bucket key is computed by
     the pairing rules."""
     stripped = name.lstrip('#')
-    if name == 'device_type':
-        return (0, 0)
     if name == 'compatible':
-        return (1, 0)
+        return (0, 0)
     if name == 'reg':
-        return (2, 0)
+        return (1, 0)
     if name == 'reg-names':
-        return (2, 1)
+        return (1, 1)
     if name == 'ranges':
-        return (3, 0)
+        return (2, 0)
     if name == 'status':
-        return (6, 0)
-    return (5 if ',' in stripped else 4, None)
+        return (5, 0)
+    return (4 if ',' in stripped else 3, None)
 
 
 # Declarative pairing rules: each is a callable
@@ -942,12 +927,12 @@ RULES = [
     Rule('trailing-whitespace', 'relaxed',
          'no trailing whitespace on any line',
          check_trailing_whitespace),
-    Rule('tab-in-yaml', 'relaxed',
-         'YAML (also DTS examples) may not contain tab characters',
-         check_tab_in_yaml_example, applies_to=('yaml',)),
+    Rule('tab-in-dts', 'relaxed',
+         'YAML examples may not contain tab characters',
+         check_tab_in_dts, applies_to=('yaml',)),
     Rule('mixed-indent-chars', 'relaxed',
          'indent must not mix tabs and spaces',
-         check_mixed_indent_chars, applies_to=('dts', 'dtsi', 'dtso')),
+         check_mixed_indent_chars),
     Rule('unclosed-block-comment', 'relaxed',
          'every /* block comment must close with */',
          check_unclosed_block_comment),
@@ -1028,11 +1013,11 @@ def select_rules(mode, input_kind):
 # Block runner
 # ---------------------------------------------------------------------------
 
-def check_block(text, mode, input_type):
+def check_block(text, mode, indent_kind, input_type):
     """Run all selected rules on a single block of DTS text. Returns a
     list of (lineno, rule_name, message) tuples."""
     lines = classify_lines(text)
-    ctx = Ctx(lines, text, mode, input_type)
+    ctx = Ctx(lines, text, mode, indent_kind)
     rules = select_rules(mode, input_type)
     findings = []
     for r in rules:
@@ -1112,15 +1097,17 @@ def collect_findings(filepath, mode):
     formatted output strings; count is the number of findings."""
     kind = input_kind(filepath)
     if kind == 'yaml':
+        indent_kind = 'spaces'
         iterator = iter_yaml_examples(filepath)
     elif kind in DTS_FAMILY:
+        indent_kind = 'tab'
         iterator = iter_dts_file(filepath)
     else:
         return (['%s: unknown file type, skipping' % filepath], 0)
 
     out = []
     for text, base, idx in iterator:
-        for lineno, rule, msg in check_block(text, mode, kind):
+        for lineno, rule, msg in check_block(text, mode, indent_kind, kind):
             abs_line = base + lineno - 1
             ex_tag = '' if idx is None else ' example %d' % idx
             out.append('%s:%d:%s [%s] %s' %

@@ -10,12 +10,10 @@
 
 #define pr_fmt(fmt) "ACPI: battery: " fmt
 
-#include <linux/ctype.h>
 #include <linux/delay.h>
 #include <linux/dmi.h>
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
-#include <linux/kfifo.h>
 #include <linux/list.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
@@ -23,7 +21,6 @@
 #include <linux/slab.h>
 #include <linux/suspend.h>
 #include <linux/types.h>
-#include <linux/workqueue.h>
 
 #include <linux/unaligned.h>
 
@@ -45,9 +42,6 @@
 #define ACPI_BATTERY_STATE_CHARGE_LIMITING	0x8
 
 #define MAX_STRING_LENGTH	64
-
-#define MAX_QUEUED_EVENTS	16
-#define NOTIF_MERGING_MS	10
 
 MODULE_AUTHOR("Paul Diefenbaugh");
 MODULE_AUTHOR("Alexey Starikovskiy <astarikovskiy@suse.de>");
@@ -101,8 +95,6 @@ struct acpi_battery {
 	struct power_supply_desc bat_desc;
 	struct acpi_device *device;
 	struct device *phys_dev;
-	struct kfifo acpi_notif_fifo;
-	struct delayed_work acpi_notif_dwork;
 	struct notifier_block pm_nb;
 	struct list_head list;
 	unsigned long update_time;
@@ -158,28 +150,27 @@ static int acpi_battery_technology(struct acpi_battery *battery)
 
 static int acpi_battery_get_state(struct acpi_battery *battery);
 
-static bool acpi_battery_is_full(struct acpi_battery *battery)
-{
-	/* battery not reporting charge */
-	if (battery->capacity_now == ACPI_BATTERY_VALUE_UNKNOWN ||
-	    battery->capacity_now == 0)
-		return false;
-
-	/* good batteries update full_charge as the batteries degrade */
-	if (battery->full_charge_capacity == battery->capacity_now)
-		return true;
-
-	/* fallback to using design values for broken batteries */
-	return battery->design_capacity <= battery->capacity_now;
-}
-
 static int acpi_battery_is_charged(struct acpi_battery *battery)
 {
 	/* charging, discharging, critical low or charge limited */
 	if (battery->state != 0)
 		return 0;
 
-	return acpi_battery_is_full(battery);
+	/* battery not reporting charge */
+	if (battery->capacity_now == ACPI_BATTERY_VALUE_UNKNOWN ||
+	    battery->capacity_now == 0)
+		return 0;
+
+	/* good batteries update full_charge as the batteries degrade */
+	if (battery->full_charge_capacity == battery->capacity_now)
+		return 1;
+
+	/* fallback to using design values for broken batteries */
+	if (battery->design_capacity <= battery->capacity_now)
+		return 1;
+
+	/* we don't do any sort of metric based on percentages */
+	return 0;
 }
 
 static bool acpi_battery_is_degraded(struct acpi_battery *battery)
@@ -220,14 +211,13 @@ static int acpi_battery_get_property(struct power_supply *psy,
 		if (battery->state & ACPI_BATTERY_STATE_DISCHARGING)
 			val->intval = acpi_battery_handle_discharging(battery);
 		else if (battery->state & ACPI_BATTERY_STATE_CHARGING)
-			/* Check the rate and capacity to validate the status. */
-			if (!acpi_battery_is_full(battery) ||
-			    (battery->rate_now != ACPI_BATTERY_VALUE_UNKNOWN &&
-			     battery->rate_now > 0)) {
-				val->intval = POWER_SUPPLY_STATUS_CHARGING;
-			} else {
-				/* Full and zero rate. */
+			/* Validate the status by checking the current. */
+			if (battery->rate_now != ACPI_BATTERY_VALUE_UNKNOWN &&
+			    battery->rate_now == 0) {
+				/* On charge but no current (0W/0mA). */
 				val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
+			} else {
+				val->intval = POWER_SUPPLY_STATUS_CHARGING;
 			}
 		else if (battery->state & ACPI_BATTERY_STATE_CHARGE_LIMITING)
 			val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
@@ -493,15 +483,6 @@ static int acpi_battery_get_status(struct acpi_battery *battery)
 	return 0;
 }
 
-static void acpi_battery_clean_unprintable_chars(char *str, size_t length)
-{
-	for (unsigned int i = 0; i < length; i++) {
-		if (!isascii(str[i]) || !isprint(str[i])) {
-			str[i] = '\0';
-			break;
-		}
-	}
-}
 
 static int extract_battery_info(const int use_bix,
 			 struct acpi_battery *battery,
@@ -542,10 +523,6 @@ static int extract_battery_info(const int use_bix,
 	if (test_bit(ACPI_BATTERY_QUIRK_DEGRADED_FULL_CHARGE, &battery->flags) &&
 	    battery->capacity_now > battery->full_charge_capacity)
 		battery->capacity_now = battery->full_charge_capacity;
-
-	if (!result)
-		acpi_battery_clean_unprintable_chars(battery->model_number,
-					ARRAY_SIZE(battery->model_number));
 
 	return result;
 }
@@ -691,13 +668,9 @@ static ssize_t acpi_battery_alarm_store(struct device *dev,
 {
 	unsigned long x;
 	struct acpi_battery *battery = to_acpi_battery(dev_get_drvdata(dev));
-	int err;
 
-	err = kstrtoul(buf, 10, &x);
-	if (err)
-		return err;
-
-	battery->alarm = x / 1000;
+	if (sscanf(buf, "%lu\n", &x) == 1)
+		battery->alarm = x/1000;
 	if (acpi_battery_present(battery))
 		acpi_battery_set_alarm(battery);
 	return count;
@@ -1086,23 +1059,13 @@ static void acpi_battery_refresh(struct acpi_battery *battery)
 }
 
 /* Driver Interface */
-static void acpi_battery_notification_worker(struct work_struct *work)
+static void acpi_battery_notify(acpi_handle handle, u32 event, void *data)
 {
-	struct acpi_battery *battery = container_of(work, struct acpi_battery,
-						    acpi_notif_dwork.work);
+	struct acpi_battery *battery = data;
 	struct acpi_device *device = battery->device;
-	u32 events[MAX_QUEUED_EVENTS];
 	struct power_supply *old;
-	unsigned int count, i;
 
 	guard(mutex)(&battery->update_lock);
-
-	count = kfifo_out(&battery->acpi_notif_fifo, events, sizeof(events));
-	count /= sizeof(events[0]);
-	if (!count)
-		return;
-
-	pr_debug("merged %u battery notifications within %dms\n", count, NOTIF_MERGING_MS);
 
 	old = battery->bat;
 	/*
@@ -1113,44 +1076,17 @@ static void acpi_battery_notification_worker(struct work_struct *work)
 	 */
 	if (battery_notification_delay_ms > 0)
 		msleep(battery_notification_delay_ms);
-
-	for (i = 0; i < count; i++) {
-		if (events[i] == ACPI_BATTERY_NOTIFY_INFO) {
-			acpi_battery_refresh(battery);
-			break;
-		}
-	}
-
+	if (event == ACPI_BATTERY_NOTIFY_INFO)
+		acpi_battery_refresh(battery);
 	acpi_battery_update(battery, false);
-
-	for (i = 0; i < count; i++) {
-		acpi_bus_generate_netlink_event(ACPI_BATTERY_CLASS,
-						dev_name(&device->dev), events[i],
-						acpi_battery_present(battery));
-		acpi_notifier_call_chain(ACPI_BATTERY_CLASS, acpi_device_bid(device),
-					 events[i], acpi_battery_present(battery));
-	}
-
+	acpi_bus_generate_netlink_event(ACPI_BATTERY_CLASS,
+					dev_name(&device->dev), event,
+					acpi_battery_present(battery));
+	acpi_notifier_call_chain(ACPI_BATTERY_CLASS, acpi_device_bid(device),
+				 event, acpi_battery_present(battery));
 	/* acpi_battery_update could remove power_supply object */
 	if (old && battery->bat)
 		power_supply_changed(battery->bat);
-}
-
-static void acpi_battery_notify(acpi_handle handle, u32 event, void *data)
-{
-	struct acpi_battery *battery = data;
-
-	guard(mutex)(&battery->update_lock);
-
-	if (kfifo_avail(&battery->acpi_notif_fifo) >= sizeof(event)) {
-		kfifo_in(&battery->acpi_notif_fifo, &event, sizeof(event));
-		schedule_delayed_work(&battery->acpi_notif_dwork,
-				      msecs_to_jiffies(NOTIF_MERGING_MS));
-
-		return;
-	}
-
-	pr_err_ratelimited("too many battery notifications within %dms\n", NOTIF_MERGING_MS);
 }
 
 static int battery_notify(struct notifier_block *nb,
@@ -1295,29 +1231,6 @@ static int devm_acpi_battery_update_retry(struct device *dev,
 	return ret;
 }
 
-static void acpi_battery_notify_dwork_cleanup(void *data)
-{
-	struct acpi_battery *battery = data;
-
-	cancel_delayed_work_sync(&battery->acpi_notif_dwork);
-	kfifo_free(&battery->acpi_notif_fifo);
-}
-
-static int devm_acpi_battery_init_notify_dwork(struct device *dev,
-					       struct acpi_battery *battery)
-{
-	int ret;
-
-	INIT_DELAYED_WORK(&battery->acpi_notif_dwork, acpi_battery_notification_worker);
-
-	ret = kfifo_alloc(&battery->acpi_notif_fifo,
-			  MAX_QUEUED_EVENTS * sizeof(u32), GFP_KERNEL);
-	if (ret)
-		return ret;
-
-	return devm_add_action_or_reset(dev, acpi_battery_notify_dwork_cleanup, battery);
-}
-
 static int acpi_battery_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -1356,10 +1269,6 @@ static int acpi_battery_probe(struct platform_device *pdev)
 		device->status.battery_present ? "present" : "absent");
 
 	result = devm_acpi_battery_init_wakeup(dev);
-	if (result)
-		return result;
-
-	result = devm_acpi_battery_init_notify_dwork(dev, battery);
 	if (result)
 		return result;
 

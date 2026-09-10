@@ -58,10 +58,4 @@ int BPF_PROG(umulti_run)
 	return 0;
 }
 
-SEC("fentry.multi")
-int BPF_PROG(tmulti_run)
-{
-	return 0;
-}
-
 char _license[] SEC("license") = "GPL";

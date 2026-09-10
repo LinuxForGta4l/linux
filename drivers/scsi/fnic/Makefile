@@ -6,7 +6,6 @@ fnic-y	:= \
 	fnic_attrs.o \
 	fnic_isr.o \
 	fnic_main.o \
-	fnic_nvme.o \
 	fnic_res.o \
 	fnic_fcs.o \
 	fdls_disc.o \

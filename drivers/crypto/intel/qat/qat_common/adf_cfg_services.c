@@ -49,17 +49,18 @@ static_assert(sizeof(ADF_CFG_SYM ADF_SERVICES_DELIMITER
 		     ADF_CFG_DCC) < ADF_CFG_MAX_VAL_LEN_IN_BYTES);
 
 static int adf_service_string_to_mask(struct adf_accel_dev *accel_dev, const char *buf,
-				      unsigned long *out_mask)
+				      size_t len, unsigned long *out_mask)
 {
 	struct adf_hw_device_data *hw_data = GET_HW_DATA(accel_dev);
-	char services[ADF_CFG_MAX_VAL_LEN_IN_BYTES];
+	char services[ADF_CFG_MAX_VAL_LEN_IN_BYTES] = { };
 	unsigned long mask = 0;
 	char *substr, *token;
 	int id, num_svc = 0;
 
-	if (strscpy_pad(services, buf) < 0)
+	if (len > ADF_CFG_MAX_VAL_LEN_IN_BYTES - 1)
 		return -EINVAL;
 
+	strscpy(services, buf, ADF_CFG_MAX_VAL_LEN_IN_BYTES);
 	substr = services;
 
 	while ((token = strsep(&substr, ADF_SERVICES_DELIMITER))) {
@@ -102,12 +103,12 @@ static int adf_service_mask_to_string(unsigned long mask, char *buf, size_t len)
 }
 
 int adf_parse_service_string(struct adf_accel_dev *accel_dev, const char *in,
-			     char *out, size_t out_len)
+			     size_t in_len, char *out, size_t out_len)
 {
 	unsigned long mask;
 	int ret;
 
-	ret = adf_service_string_to_mask(accel_dev, in, &mask);
+	ret = adf_service_string_to_mask(accel_dev, in, in_len, &mask);
 	if (ret)
 		return ret;
 
@@ -120,6 +121,7 @@ int adf_parse_service_string(struct adf_accel_dev *accel_dev, const char *in,
 int adf_get_service_mask(struct adf_accel_dev *accel_dev, unsigned long *mask)
 {
 	char services[ADF_CFG_MAX_VAL_LEN_IN_BYTES] = { };
+	size_t len;
 	int ret;
 
 	ret = adf_cfg_get_param_value(accel_dev, ADF_GENERAL_SEC,
@@ -130,7 +132,8 @@ int adf_get_service_mask(struct adf_accel_dev *accel_dev, unsigned long *mask)
 		return ret;
 	}
 
-	ret = adf_service_string_to_mask(accel_dev, services, mask);
+	len = strnlen(services, ADF_CFG_MAX_VAL_LEN_IN_BYTES);
+	ret = adf_service_string_to_mask(accel_dev, services, len, mask);
 	if (ret)
 		dev_err(&GET_DEV(accel_dev), "Invalid value of %s param: %s\n",
 			ADF_SERVICES_ENABLED, services);

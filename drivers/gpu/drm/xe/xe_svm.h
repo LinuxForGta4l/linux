@@ -31,8 +31,6 @@ struct xe_vram_region;
 struct xe_svm_range {
 	/** @base: base drm_gpusvm_range */
 	struct drm_gpusvm_range base;
-	/** @pages: Page/DMA mapping state for this range (single drm_device). */
-	struct drm_gpusvm_pages pages;
 	/**
 	 * @garbage_collector_link: Link into VM's garbage collect SVM range
 	 * list. Protected by VM's garbage collect lock.
@@ -76,7 +74,7 @@ struct xe_pagemap {
  */
 static inline bool xe_svm_range_pages_valid(struct xe_svm_range *range)
 {
-	return drm_gpusvm_pages_valid(range->base.gpusvm, &range->pages);
+	return drm_gpusvm_range_pages_valid(range->base.gpusvm, &range->base);
 }
 
 int xe_devm_add(struct xe_tile *tile, struct xe_vram_region *vr);
@@ -134,7 +132,7 @@ void *xe_svm_private_page_owner(struct xe_vm *vm, bool force_smem);
 static inline bool xe_svm_range_has_dma_mapping(struct xe_svm_range *range)
 {
 	lockdep_assert_held(&range->base.gpusvm->notifier_lock);
-	return range->pages.flags.has_dma_mapping;
+	return range->base.pages.flags.has_dma_mapping;
 }
 
 /**
@@ -212,10 +210,10 @@ struct xe_vram_region;
 struct xe_svm_range {
 	struct {
 		struct interval_tree_node itree;
+		struct {
+			const struct drm_pagemap_addr *dma_addr;
+		} pages;
 	} base;
-	struct {
-		const struct drm_pagemap_addr *dma_addr;
-	} pages;
 	u32 tile_present;
 	u32 tile_invalidated;
 };
@@ -235,7 +233,7 @@ static inline
 int xe_svm_init(struct xe_vm *vm)
 {
 #if IS_ENABLED(CONFIG_DRM_GPUSVM)
-	return drm_gpusvm_init(&vm->svm.gpusvm, "Xe SVM (simple)",
+	return drm_gpusvm_init(&vm->svm.gpusvm, "Xe SVM (simple)", &vm->xe->drm,
 			       NULL, 0, 0, 0, NULL, NULL, 0);
 #else
 	return 0;

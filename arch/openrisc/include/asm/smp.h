@@ -9,8 +9,6 @@
 #ifndef __ASM_OPENRISC_SMP_H
 #define __ASM_OPENRISC_SMP_H
 
-#include <linux/cpumask.h>
-
 #include <asm/spr.h>
 #include <asm/spr_defs.h>
 

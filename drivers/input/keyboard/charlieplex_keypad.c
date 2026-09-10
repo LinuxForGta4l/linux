@@ -77,9 +77,7 @@ static int charlieplex_keypad_scan_line(struct charlieplex_keypad *keypad,
 	int err;
 
 	/* Activate only one line as output at a time. */
-	err = gpiod_direction_output(line_gpios->desc[oline], 1);
-	if (err)
-		return err;
+	gpiod_direction_output(line_gpios->desc[oline], 1);
 
 	if (keypad->settling_time_us)
 		fsleep(keypad->settling_time_us);

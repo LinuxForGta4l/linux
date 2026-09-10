@@ -112,7 +112,7 @@ static int regcache_maple_drop(struct regmap *map, unsigned int min,
 	unsigned long *entry, *lower, *upper;
 	/* initialized to work around false-positive -Wuninitialized warning */
 	unsigned long lower_index = 0, lower_last = 0;
-	unsigned long upper_index = 0, upper_last = 0;
+	unsigned long upper_index, upper_last;
 	int ret = 0;
 
 	lower = NULL;
@@ -307,7 +307,7 @@ static int regcache_maple_init(struct regmap *map)
 	return 0;
 }
 
-static void regcache_maple_exit(struct regmap *map)
+static int regcache_maple_exit(struct regmap *map)
 {
 	struct maple_tree *mt = map->cache;
 	MA_STATE(mas, mt, 0, UINT_MAX);
@@ -315,7 +315,7 @@ static void regcache_maple_exit(struct regmap *map)
 
 	/* if we've already been called then just return */
 	if (!mt)
-		return;
+		return 0;
 
 	mas_lock(&mas);
 	mas_for_each(&mas, entry, UINT_MAX)
@@ -325,6 +325,8 @@ static void regcache_maple_exit(struct regmap *map)
 
 	kfree(mt);
 	map->cache = NULL;
+
+	return 0;
 }
 
 static int regcache_maple_insert_block(struct regmap *map, int first,

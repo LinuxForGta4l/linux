@@ -76,6 +76,8 @@ static inline s64 wb_stat_sum(struct bdi_writeback *wb, enum wb_stat_item item)
 	return percpu_counter_sum_positive(&wb->stat[item]);
 }
 
+extern void wb_writeout_inc(struct bdi_writeback *wb);
+
 /*
  * maximal error of a stat counter.
  */

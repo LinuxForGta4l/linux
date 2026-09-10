@@ -3301,14 +3301,15 @@ int security_task_kill(struct task_struct *p, struct kernel_siginfo *info,
 }
 
 /**
- * security_task_prctl() - Handle an LSM specific prctl() call
+ * security_task_prctl() - Check if a prctl op is allowed
  * @option: operation
  * @arg2: argument
  * @arg3: argument
  * @arg4: argument
  * @arg5: argument
  *
- * Handle lsm specific prctl() operations.
+ * Check permission before performing a process control operation on the
+ * current process.
  *
  * Return: Return -ENOSYS if no-one wanted to handle this op, any other value
  *         to cause prctl() to return immediately with that value.

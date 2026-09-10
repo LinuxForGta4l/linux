@@ -1257,7 +1257,6 @@ static int tegra_vi_channels_alloc(struct tegra_vi *vi)
 	struct device_node *parent;
 	struct v4l2_fwnode_endpoint v4l2_ep = { .bus_type = 0 };
 	unsigned int lanes;
-	int err;
 	int ret = 0;
 
 	ports = of_get_child_by_name(node, "ports");
@@ -1268,8 +1267,8 @@ static int tegra_vi_channels_alloc(struct tegra_vi *vi)
 		if (!of_node_name_eq(port, "port"))
 			continue;
 
-		err = of_property_read_u32(port, "reg", &port_num);
-		if (err < 0)
+		ret = of_property_read_u32(port, "reg", &port_num);
+		if (ret < 0)
 			continue;
 
 		if (port_num > vi->soc->vi_max_channels) {
@@ -1290,10 +1289,10 @@ static int tegra_vi_channels_alloc(struct tegra_vi *vi)
 
 		ep = of_graph_get_endpoint_by_regs(parent, 0, 0);
 		of_node_put(parent);
-		err = v4l2_fwnode_endpoint_parse(of_fwnode_handle(ep),
+		ret = v4l2_fwnode_endpoint_parse(of_fwnode_handle(ep),
 						 &v4l2_ep);
 		of_node_put(ep);
-		if (err)
+		if (ret)
 			continue;
 
 		lanes = v4l2_ep.bus.mipi_csi2.num_data_lanes;
@@ -1469,6 +1468,7 @@ static int tegra_vi_graph_build(struct tegra_vi_channel *chan,
 	struct tegra_vi *vi = chan->vi;
 	struct tegra_vi_graph_entity *ent;
 	struct fwnode_handle *ep = NULL;
+	struct v4l2_fwnode_link link;
 	struct media_entity *local = entity->entity;
 	struct media_entity *remote;
 	struct media_pad *local_pad;
@@ -1478,64 +1478,70 @@ static int tegra_vi_graph_build(struct tegra_vi_channel *chan,
 
 	dev_dbg(vi->dev, "creating links for entity %s\n", local->name);
 
-	fwnode_graph_for_each_endpoint(entity->asd.match.fwnode, ep) {
-		struct fwnode_handle *remote_parent __free(fwnode_handle) = NULL;
-		struct fwnode_handle *sink_ep __free(fwnode_handle) = NULL;
-		int src_idx, sink_idx;
+	while (1) {
+		ep = fwnode_graph_get_next_endpoint(entity->asd.match.fwnode,
+						    ep);
+		if (!ep)
+			break;
 
-		src_idx = media_entity_get_fwnode_pad(local, ep,
-						      MEDIA_PAD_FL_SOURCE);
-		if (src_idx < 0) {
-			dev_dbg(vi->dev, "no source pad found for %pfw\n", ep);
+		ret = v4l2_fwnode_parse_link(ep, &link);
+		if (ret < 0) {
+			dev_err(vi->dev, "failed to parse link for %pOF: %d\n",
+				to_of_node(ep), ret);
 			continue;
 		}
 
-		remote_parent = fwnode_graph_get_remote_port_parent(ep);
-		if (!remote_parent) {
-			dev_dbg(vi->dev, "no remote parent found for %pfw\n",
-				ep);
-			continue;
+		if (link.local_port >= local->num_pads) {
+			dev_err(vi->dev, "invalid port number %u on %pOF\n",
+				link.local_port, to_of_node(link.local_node));
+			v4l2_fwnode_put_link(&link);
+			ret = -EINVAL;
+			break;
 		}
 
-		local_pad = &local->pads[src_idx];
+		local_pad = &local->pads[link.local_port];
 		/* Remote node is vi node. So use channel video entity and pad
 		 * as remote/sink.
 		 */
-		if (remote_parent == of_fwnode_handle(vi->dev->of_node)) {
+		if (link.remote_node == of_fwnode_handle(vi->dev->of_node)) {
 			remote = &chan->video.entity;
 			remote_pad = &chan->pad;
 			goto create_link;
 		}
 
+		/*
+		 * Skip sink ports, they will be processed from the other end
+		 * of the link.
+		 */
+		if (local_pad->flags & MEDIA_PAD_FL_SINK) {
+			dev_dbg(vi->dev, "skipping sink port %pOF:%u\n",
+				to_of_node(link.local_node), link.local_port);
+			v4l2_fwnode_put_link(&link);
+			continue;
+		}
+
 		/* find the remote entity from notifier list */
 		ent = tegra_vi_graph_find_entity(&chan->notifier.done_list,
-						 remote_parent);
+						 link.remote_node);
 		if (!ent) {
-			fwnode_handle_put(ep);
-			dev_err(vi->dev, "no entity found for %pfw\n",
-				remote_parent);
+			dev_err(vi->dev, "no entity found for %pOF\n",
+				to_of_node(link.remote_node));
+			v4l2_fwnode_put_link(&link);
 			ret = -ENODEV;
 			break;
 		}
 
 		remote = ent->entity;
-
-		sink_ep = fwnode_graph_get_remote_endpoint(ep);
-		if (!sink_ep) {
-			dev_dbg(vi->dev, "no sink ep found for %pfw\n",
-				ep);
-			continue;
+		if (link.remote_port >= remote->num_pads) {
+			dev_err(vi->dev, "invalid port number %u on %pOF\n",
+				link.remote_port,
+				to_of_node(link.remote_node));
+			v4l2_fwnode_put_link(&link);
+			ret = -EINVAL;
+			break;
 		}
 
-		sink_idx = media_entity_get_fwnode_pad(remote, sink_ep,
-						       MEDIA_PAD_FL_SINK);
-		if (sink_idx < 0) {
-			dev_dbg(vi->dev, "no sink pad found for %pfw\n",
-				sink_ep);
-			continue;
-		}
-
-		remote_pad = &remote->pads[sink_idx];
+		remote_pad = &remote->pads[link.remote_port];
 
 create_link:
 		dev_dbg(vi->dev, "creating %s:%u -> %s:%u link\n",
@@ -1545,8 +1551,8 @@ create_link:
 		ret = media_create_pad_link(local, local_pad->index,
 					    remote, remote_pad->index,
 					    link_flags);
+		v4l2_fwnode_put_link(&link);
 		if (ret < 0) {
-			fwnode_handle_put(ep);
 			dev_err(vi->dev,
 				"failed to create %s:%u -> %s:%u link: %d\n",
 				local->name, local_pad->index,
@@ -1555,6 +1561,7 @@ create_link:
 		}
 	}
 
+	fwnode_handle_put(ep);
 	return ret;
 }
 

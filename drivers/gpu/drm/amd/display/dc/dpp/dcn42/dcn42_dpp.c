@@ -35,7 +35,10 @@ static const uint32_t *get_hist_rgb_luma_coefs(enum dc_color_space color_space)
 	}
 }
 
-void dpp42_dpp_cm_hist_control(struct dpp *dpp_base, struct cm_hist_control cntl, enum dc_color_space color_space)
+static void dpp42_dpp_cm_hist_control(
+	struct dpp *dpp_base,
+	struct cm_hist_control cntl,
+	enum dc_color_space color_space)
 {
 	struct dcn42_dpp *dpp = TO_DCN42_DPP(dpp_base);
 
@@ -65,7 +68,7 @@ void dpp42_dpp_cm_hist_control(struct dpp *dpp_base, struct cm_hist_control cntl
 	}
 }
 
-bool dpp42_dpp_cm_hist_read(struct dpp *dpp_base, struct cm_hist *hist_out)
+static bool dpp42_dpp_cm_hist_read(struct dpp *dpp_base, struct cm_hist *hist_out)
 {
 	struct dcn42_dpp *dpp = TO_DCN42_DPP(dpp_base);
 	uint32_t channel_mask = 0;

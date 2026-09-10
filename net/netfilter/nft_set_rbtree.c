@@ -548,7 +548,8 @@ static int nft_array_intervals_alloc(struct nft_array *array, u32 max_intervals)
 	if (!intervals)
 		return -ENOMEM;
 
-	kvfree(array->intervals);
+	if (array->intervals)
+		kvfree(array->intervals);
 
 	array->intervals = intervals;
 	array->max_intervals = max_intervals;

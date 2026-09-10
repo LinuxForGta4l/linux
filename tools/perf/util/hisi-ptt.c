@@ -8,12 +8,10 @@
 #include <endian.h>
 #include <errno.h>
 #include <inttypes.h>
-#include <limits.h>
 #include <linux/bitops.h>
 #include <linux/kernel.h>
 #include <linux/log2.h>
 #include <linux/types.h>
-#include <linux/unaligned.h>
 #include <linux/zalloc.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -37,15 +35,9 @@ struct hisi_ptt {
 	u32 pmu_type;
 };
 
-static enum hisi_ptt_pkt_type hisi_ptt_check_packet_type(unsigned char *buf,
-							 size_t len)
+static enum hisi_ptt_pkt_type hisi_ptt_check_packet_type(unsigned char *buf)
 {
-	uint32_t head;
-
-	if (len < HISI_PTT_FIELD_LENGTH)
-		return HISI_PTT_4DW_PKT;
-
-	head = get_unaligned_le32(buf);
+	uint32_t head = *(uint32_t *)buf;
 
 	if ((HISI_PTT_8DW_CHECK_MASK & head) == HISI_PTT_IS_8DW_PKT)
 		return HISI_PTT_8DW_PKT;
@@ -61,7 +53,7 @@ static void hisi_ptt_dump(struct hisi_ptt *ptt __maybe_unused,
 	size_t pos = 0;
 	int pkt_len;
 
-	type = hisi_ptt_check_packet_type(buf, len);
+	type = hisi_ptt_check_packet_type(buf);
 	len = round_down(len, hisi_ptt_pkt_size[type]);
 	color_fprintf(stdout, color, ". ... HISI PTT data: size %zu bytes\n",
 		      len);
@@ -99,15 +91,11 @@ static int hisi_ptt_process_auxtrace_event(struct perf_session *session,
 	struct hisi_ptt *ptt = container_of(session->auxtrace, struct hisi_ptt,
 					    auxtrace);
 	int fd = perf_data__fd(session->data);
-	u64 size = event->auxtrace.size;
+	int size = event->auxtrace.size;
+	void *data = malloc(size);
 	off_t data_offset;
-	ssize_t err;
-	void *data;
+	int err;
 
-	if (size > SSIZE_MAX)
-		return -EINVAL;
-
-	data = malloc(size);
 	if (!data)
 		return -errno;
 

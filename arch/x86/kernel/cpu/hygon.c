@@ -125,12 +125,11 @@ static void bsp_init_hygon(struct cpuinfo_x86 *c)
 
 static void early_init_hygon(struct cpuinfo_x86 *c)
 {
-	u64 val;
+	u32 dummy;
 
 	set_cpu_cap(c, X86_FEATURE_K8);
 
-	rdmsrq_safe(MSR_AMD64_PATCH_LEVEL, &val);
-	c->microcode = (u32)val;
+	rdmsr_safe(MSR_AMD64_PATCH_LEVEL, &c->microcode, &dummy);
 
 	/*
 	 * c->x86_power is 8000_0007 edx. Bit 8 is TSC runs at constant rate

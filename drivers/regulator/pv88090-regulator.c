@@ -381,8 +381,8 @@ static int pv88090_i2c_probe(struct i2c_client *i2c)
 }
 
 static const struct i2c_device_id pv88090_i2c_id[] = {
-	{ .name = "pv88090" },
-	{ }
+	{ "pv88090" },
+	{}
 };
 MODULE_DEVICE_TABLE(i2c, pv88090_i2c_id);
 

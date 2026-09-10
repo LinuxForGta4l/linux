@@ -7,8 +7,6 @@
 #ifndef _MESON_AIU_H
 #define _MESON_AIU_H
 
-#include "gx-formatter.h"
-
 struct clk;
 struct clk_bulk_data;
 struct device;
@@ -27,7 +25,6 @@ struct aiu_interface {
 	struct clk_bulk_data *clks;
 	unsigned int clk_num;
 	int irq;
-	struct gx_iface iface;
 };
 
 struct aiu_platform_data {
@@ -61,7 +58,6 @@ extern const struct snd_soc_dai_ops aiu_fifo_i2s_dai_ops;
 extern const struct snd_soc_dai_ops aiu_fifo_spdif_dai_ops;
 extern const struct snd_soc_dai_ops aiu_encoder_i2s_dai_ops;
 extern const struct snd_soc_dai_ops aiu_encoder_spdif_dai_ops;
-extern const struct gx_formatter_ops aiu_formatter_i2s_ops;
 
 #define AIU_IEC958_BPF			0x000
 #define AIU_958_MISC			0x010

@@ -53,7 +53,7 @@ err_free:
 	return -ENOMEM;
 }
 
-static void regcache_flat_exit(struct regmap *map)
+static int regcache_flat_exit(struct regmap *map)
 {
 	struct regcache_flat_data *cache = map->cache;
 
@@ -62,6 +62,8 @@ static void regcache_flat_exit(struct regmap *map)
 
 	kfree(cache);
 	map->cache = NULL;
+
+	return 0;
 }
 
 static int regcache_flat_populate(struct regmap *map)

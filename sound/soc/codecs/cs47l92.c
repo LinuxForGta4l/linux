@@ -6,7 +6,6 @@
 //                         Cirrus Logic International Semiconductor Ltd.
 //
 
-#include <linux/cleanup.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/device.h>
@@ -1893,8 +1892,9 @@ static int cs47l92_component_probe(struct snd_soc_component *component)
 
 	snd_soc_component_init_regmap(component, madera->regmap);
 
-	scoped_guard(mutex, &madera->dapm_ptr_lock)
-		madera->dapm = snd_soc_component_to_dapm(component);
+	mutex_lock(&madera->dapm_ptr_lock);
+	madera->dapm = snd_soc_component_to_dapm(component);
+	mutex_unlock(&madera->dapm_ptr_lock);
 
 	ret = madera_init_inputs(component);
 	if (ret)
@@ -1922,8 +1922,9 @@ static void cs47l92_component_remove(struct snd_soc_component *component)
 	struct cs47l92 *cs47l92 = snd_soc_component_get_drvdata(component);
 	struct madera *madera = cs47l92->core.madera;
 
-	scoped_guard(mutex, &madera->dapm_ptr_lock)
-		madera->dapm = NULL;
+	mutex_lock(&madera->dapm_ptr_lock);
+	madera->dapm = NULL;
+	mutex_unlock(&madera->dapm_ptr_lock);
 
 	wm_adsp2_component_remove(&cs47l92->core.adsp[0], component);
 }

@@ -11,6 +11,8 @@
 #include <asm/cputable.h>
 #include <asm/vdso/timebase.h>
 
+#define CLOCK_TICK_RATE	1024000 /* Underlying HZ */
+
 typedef unsigned long cycles_t;
 
 static inline cycles_t get_cycles(void)

@@ -132,9 +132,11 @@ int siw_query_device(struct ib_device *base_dev, struct ib_device_attr *attr,
 	struct siw_device *sdev = to_siw_dev(base_dev);
 	int rv;
 
-	rv = ib_no_udata_io(udata);
+	rv = ib_is_udata_in_empty(udata);
 	if (rv)
 		return rv;
+
+	memset(attr, 0, sizeof(*attr));
 
 	/* Revisit atomic caps if RFC 7306 gets supported */
 	attr->atomic_cap = 0;
@@ -165,7 +167,7 @@ int siw_query_device(struct ib_device *base_dev, struct ib_device_attr *attr,
 	addrconf_addr_eui48((u8 *)&attr->sys_image_guid,
 			    sdev->raw_gid);
 
-	return 0;
+	return ib_respond_empty_udata(udata);
 }
 
 int siw_query_port(struct ib_device *base_dev, u32 port,

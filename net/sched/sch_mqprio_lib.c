@@ -105,15 +105,11 @@ void mqprio_qopt_reconstruct(struct net_device *dev, struct tc_mqprio_qopt *qopt
 	int tc, num_tc = netdev_get_num_tc(dev);
 
 	qopt->num_tc = num_tc;
-	for (tc = 0; tc <= TC_BITMASK; tc++)
-		qopt->prio_tc_map[tc] = netdev_get_prio_tc_map(dev, tc);
+	memcpy(qopt->prio_tc_map, dev->prio_tc_map, sizeof(qopt->prio_tc_map));
 
 	for (tc = 0; tc < num_tc; tc++) {
-		struct netdev_tc_txq res;
-
-		res.combined = READ_ONCE(dev->tc_to_txq[tc].combined);
-		qopt->count[tc] = res.count;
-		qopt->offset[tc] = res.offset;
+		qopt->count[tc] = dev->tc_to_txq[tc].count;
+		qopt->offset[tc] = dev->tc_to_txq[tc].offset;
 	}
 }
 EXPORT_SYMBOL_GPL(mqprio_qopt_reconstruct);

@@ -45,9 +45,9 @@
 			reg = <0x0 0x0>;
 			enable-method = "psci";
 			next-level-cache = <&l2_0>;
-			power-domains = <&cpu_pd0>, <&scmi_perf 0>;
-			power-domain-names = "psci", "perf";
-			#cooling-cells = <2>;
+			power-domains = <&cpu_pd0>;
+			power-domain-names = "psci";
+			clocks = <&pdp_scmi_perf 0>;
 
 			l2_0: l2-cache {
 				compatible = "cache";
@@ -62,9 +62,9 @@
 			reg = <0x0 0x100>;
 			enable-method = "psci";
 			next-level-cache = <&l2_0>;
-			power-domains = <&cpu_pd1>, <&scmi_perf 0>;
-			power-domain-names = "psci", "perf";
-			#cooling-cells = <2>;
+			power-domains = <&cpu_pd1>;
+			power-domain-names = "psci";
+			clocks = <&pdp_scmi_perf 0>;
 		};
 
 		cpu2: cpu@200 {
@@ -73,9 +73,9 @@
 			reg = <0x0 0x200>;
 			enable-method = "psci";
 			next-level-cache = <&l2_0>;
-			power-domains = <&cpu_pd2>, <&scmi_perf 0>;
-			power-domain-names = "psci", "perf";
-			#cooling-cells = <2>;
+			power-domains = <&cpu_pd2>;
+			power-domain-names = "psci";
+			clocks = <&pdp_scmi_perf 0>;
 		};
 
 		cpu3: cpu@300 {
@@ -84,9 +84,9 @@
 			reg = <0x0 0x300>;
 			enable-method = "psci";
 			next-level-cache = <&l2_0>;
-			power-domains = <&cpu_pd3>, <&scmi_perf 0>;
-			power-domain-names = "psci", "perf";
-			#cooling-cells = <2>;
+			power-domains = <&cpu_pd3>;
+			power-domain-names = "psci";
+			clocks = <&pdp_scmi_perf 0>;
 		};
 
 		cpu4: cpu@400 {
@@ -95,9 +95,9 @@
 			reg = <0x0 0x400>;
 			enable-method = "psci";
 			next-level-cache = <&l2_0>;
-			power-domains = <&cpu_pd4>, <&scmi_perf 0>;
-			power-domain-names = "psci", "perf";
-			#cooling-cells = <2>;
+			power-domains = <&cpu_pd4>;
+			power-domain-names = "psci";
+			clocks = <&pdp_scmi_perf 0>;
 		};
 
 		cpu5: cpu@500 {
@@ -106,9 +106,9 @@
 			reg = <0x0 0x500>;
 			enable-method = "psci";
 			next-level-cache = <&l2_0>;
-			power-domains = <&cpu_pd5>, <&scmi_perf 0>;
-			power-domain-names = "psci", "perf";
-			#cooling-cells = <2>;
+			power-domains = <&cpu_pd5>;
+			power-domain-names = "psci";
+			clocks = <&pdp_scmi_perf 0>;
 		};
 
 		cpu6: cpu@10000 {
@@ -117,9 +117,9 @@
 			reg = <0x0 0x10000>;
 			enable-method = "psci";
 			next-level-cache = <&l2_1>;
-			power-domains = <&cpu_pd6>, <&scmi_perf 1>;
-			power-domain-names = "psci", "perf";
-			#cooling-cells = <2>;
+			power-domains = <&cpu_pd6>;
+			power-domain-names = "psci";
+			clocks = <&pdp_scmi_perf 1>;
 
 			l2_1: l2-cache {
 				compatible = "cache";
@@ -134,9 +134,9 @@
 			reg = <0x0 0x10100>;
 			enable-method = "psci";
 			next-level-cache = <&l2_1>;
-			power-domains = <&cpu_pd7>, <&scmi_perf 1>;
-			power-domain-names = "psci", "perf";
-			#cooling-cells = <2>;
+			power-domains = <&cpu_pd7>;
+			power-domain-names = "psci";
+			clocks = <&pdp_scmi_perf 1>;
 		};
 
 		cpu-map {
@@ -224,7 +224,6 @@
 			qcom,dload-mode = <&tcsr 0x19000>;
 			interconnects = <&aggre_noc MASTER_CRYPTO QCOM_ICC_TAG_ALWAYS
 					 &mc_virt SLAVE_EBI1 QCOM_ICC_TAG_ALWAYS>;
-			sram = <&minidump_config>;
 		};
 
 		scmi: scmi {
@@ -236,9 +235,9 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 
-			scmi_perf: protocol@13 {
+			pdp_scmi_perf: protocol@13 {
 				reg = <0x13>;
-				#power-domain-cells = <1>;
+				#clock-cells = <1>;
 			};
 		};
 	};
@@ -499,32 +498,6 @@
 		};
 
 		smp2p_cdsp_in: slave-kernel {
-			qcom,entry-name = "slave-kernel";
-			interrupt-controller;
-			#interrupt-cells = <2>;
-		};
-	};
-
-	smp2p-soccp {
-		compatible = "qcom,smp2p";
-
-		interrupts-extended = <&ipcc IPCC_MPROC_SOCCP
-					     IPCC_MPROC_SIGNAL_SMP2P
-					     IRQ_TYPE_EDGE_RISING>;
-
-		mboxes = <&ipcc IPCC_MPROC_SOCCP
-				IPCC_MPROC_SIGNAL_SMP2P>;
-
-		qcom,smem = <617>, <616>;
-		qcom,local-pid = <0>;
-		qcom,remote-pid = <19>;
-
-		soccp_smp2p_out: master-kernel {
-			qcom,entry-name = "master-kernel";
-			#qcom,smem-state-cells = <1>;
-		};
-
-		soccp_smp2p_in: slave-kernel {
 			qcom,entry-name = "slave-kernel";
 			interrupt-controller;
 			#interrupt-cells = <2>;
@@ -1540,55 +1513,6 @@
 			};
 		};
 
-		remoteproc_soccp: remoteproc@d00000 {
-			compatible = "qcom,kaanapali-soccp-pas";
-			reg = <0x0 0x00d00000 0x0 0x200000>;
-
-			interrupts-extended = <&intc GIC_SPI 167 IRQ_TYPE_EDGE_RISING>,
-					      <&soccp_smp2p_in 0 IRQ_TYPE_EDGE_RISING>,
-					      <&soccp_smp2p_in 1 IRQ_TYPE_EDGE_RISING>,
-					      <&soccp_smp2p_in 2 IRQ_TYPE_EDGE_RISING>,
-					      <&soccp_smp2p_in 3 IRQ_TYPE_EDGE_RISING>,
-					      <&soccp_smp2p_in 9 IRQ_TYPE_EDGE_RISING>;
-			interrupt-names = "wdog",
-					  "fatal",
-					  "ready",
-					  "handover",
-					  "stop-ack",
-					  "pong";
-
-			clocks = <&rpmhcc RPMH_CXO_CLK>;
-			clock-names = "xo";
-
-			power-domains = <&rpmhpd RPMHPD_CX>,
-					<&rpmhpd RPMHPD_MX>;
-			power-domain-names = "cx",
-					     "mx";
-
-			memory-region = <&soccp_mem>,
-					<&soccp_dtb_mem>;
-
-			qcom,smem-states = <&soccp_smp2p_out 0>,
-					   <&soccp_smp2p_out 8>;
-			qcom,smem-state-names = "stop",
-						"ping";
-
-			glink-edge {
-				interrupts-extended = <&ipcc IPCC_MPROC_SOCCP
-							     IPCC_MPROC_SIGNAL_GLINK_QMP
-							     IRQ_TYPE_EDGE_RISING>;
-				mboxes = <&ipcc IPCC_MPROC_SOCCP
-						IPCC_MPROC_SIGNAL_GLINK_QMP>;
-				qcom,remote-pid = <19>;
-				label = "soccp";
-			};
-		};
-
-		rng: rng@10c3000 {
-			compatible = "qcom,kaanapali-trng", "qcom,trng";
-			reg = <0x0 0x010c3000 0x0 0x1000>;
-		};
-
 		ipcc: mailbox@1106000 {
 			compatible = "qcom,kaanapali-ipcc", "qcom,ipcc";
 			reg = <0x0 0x01106000 0x0 0x1000>;
@@ -2386,8 +2310,8 @@
 
 			operating-points-v2 = <&pcie0_opp_table>;
 
-			iommu-map = <0 &apps_smmu 0x1400 0x0 0x1>,
-				    <0x100 &apps_smmu 0x1401 0x0 0x1>;
+			iommu-map = <0 &apps_smmu 0x1400 0x1>,
+				    <0x100 &apps_smmu 0x1401 0x1>;
 
 			interrupt-map = <0 0 0 1 &intc 0 0 GIC_SPI 149 IRQ_TYPE_LEVEL_HIGH>,
 					<0 0 0 2 &intc 0 0 GIC_SPI 150 IRQ_TYPE_LEVEL_HIGH>,
@@ -2619,31 +2543,6 @@
 			clock-names = "core",
 				      "iface";
 			power-domains = <&gcc GCC_UFS_PHY_GDSC>;
-		};
-
-		cryptobam: dma-controller@1dc4000 {
-			compatible = "qcom,bam-v2.0.0";
-			reg = <0x0 0x01dc4000 0x0 0x22000>;
-			interrupts = <GIC_SPI 272 IRQ_TYPE_LEVEL_HIGH>;
-			#dma-cells = <1>;
-			iommus = <&apps_smmu 0xc0 0x0>,
-				 <&apps_smmu 0xc1 0x0>;
-			qcom,ee = <0>;
-			qcom,num-ees = <4>;
-			num-channels = <20>;
-			qcom,controlled-remotely;
-		};
-
-		crypto: crypto@1dfa000 {
-			compatible = "qcom,kaanapali-qce", "qcom,sm8150-qce", "qcom,qce";
-			reg = <0x0 0x01dfa000 0x0 0x6000>;
-			interconnects = <&aggre_noc MASTER_CRYPTO QCOM_ICC_TAG_ALWAYS
-					 &mc_virt SLAVE_EBI1 QCOM_ICC_TAG_ALWAYS>;
-			interconnect-names = "memory";
-			dmas = <&cryptobam 4>, <&cryptobam 5>;
-			dma-names = "rx", "tx";
-			iommus = <&apps_smmu 0xc0 0x0>,
-				 <&apps_smmu 0xc1 0x0>;
 		};
 
 		tcsr_mutex: hwlock@1f40000 {
@@ -3658,9 +3557,6 @@
 			tx-fifo-resize;
 			dma-coherent;
 
-			usb-role-switch;
-			wakeup-source;
-
 			status = "disabled";
 
 			ports {
@@ -4463,7 +4359,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_dcc";
 
 			qcom,cmb-element-bits = <32>;
 
@@ -4519,7 +4414,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_spdm";
 
 			qcom,cmb-element-bits = <32>;
 
@@ -4583,7 +4477,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_modem_0";
 
 			qcom,dsb-element-bits = <32>;
 			qcom,dsb-msrs-num = <32>;
@@ -4672,7 +4565,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_gcc";
 
 			qcom,dsb-msrs-num = <32>;
 
@@ -4691,7 +4583,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_cdsp";
 
 			qcom,dsb-element-bits = <32>;
 			qcom,dsb-msrs-num = <32>;
@@ -4711,7 +4602,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_cdsp_cmsr1";
 
 			qcom,dsb-element-bits = <32>;
 			qcom,cmb-element-bits = <32>;
@@ -4731,7 +4621,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_cdsp_cmsr2";
 
 			qcom,dsb-element-bits = <32>;
 			qcom,cmb-element-bits = <32>;
@@ -4751,7 +4640,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_cdsp_dpm1";
 
 			qcom,cmb-element-bits = <64>;
 
@@ -4770,7 +4658,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_cdsp_dpm2";
 
 			qcom,cmb-element-bits = <64>;
 
@@ -4890,7 +4777,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_pmu";
 
 			qcom,dsb-msrs-num = <32>;
 
@@ -4909,7 +4795,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_qrng";
 
 			out-ports {
 				port {
@@ -4926,7 +4811,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_dlmm";
 
 			qcom,dsb-msrs-num = <32>;
 
@@ -4945,7 +4829,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_north_dsb";
 
 			qcom,dsb-msrs-num = <32>;
 
@@ -4964,7 +4847,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_south_dsb";
 
 			qcom,dsb-msrs-num = <32>;
 
@@ -4983,7 +4865,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_rdpm_cx";
 
 			out-ports {
 				port {
@@ -5000,7 +4881,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_rdpm_mxa";
 
 			out-ports {
 				port {
@@ -5017,7 +4897,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_rdpm_mxc";
 
 			out-ports {
 				port {
@@ -5034,7 +4913,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_ipcc_cmb0";
 
 			out-ports {
 				port {
@@ -5051,7 +4929,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_ipcc_cmb1";
 
 			out-ports {
 				port {
@@ -5068,7 +4945,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_ipcc_cmb2";
 
 			out-ports {
 				port {
@@ -5085,7 +4961,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_ipcc_cmb3";
 
 			out-ports {
 				port {
@@ -5102,7 +4977,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_ipcc_cmb4";
 
 			out-ports {
 				port {
@@ -5119,7 +4993,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_pcie_rscc";
 
 			out-ports {
 				port {
@@ -5309,7 +5182,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_qm";
 
 			out-ports {
 				port {
@@ -5326,7 +5198,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_swao_prio_4";
 
 			qcom,cmb-element-bits = <64>;
 
@@ -5468,7 +5339,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_swao_prio_0";
 
 			qcom,cmb-element-bits = <64>;
 
@@ -5487,7 +5357,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_swao_prio_1";
 
 			qcom,cmb-element-bits = <64>;
 
@@ -5506,7 +5375,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_swao_prio_2";
 
 			qcom,cmb-element-bits = <64>;
 
@@ -5525,7 +5393,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_swao_prio_3";
 
 			qcom,cmb-element-bits = <64>;
 
@@ -5544,7 +5411,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_swao_1";
 
 			qcom,dsb-element-bits = <32>;
 			qcom,dsb-msrs-num = <32>;
@@ -5564,7 +5430,6 @@
 
 			clocks = <&aoss_qmp>;
 			clock-names = "apb_pclk";
-			label = "tpdm_ipa";
 
 			qcom,dsb-msrs-num = <32>;
 
@@ -5586,10 +5451,6 @@
 
 			#address-cells = <1>;
 			#size-cells = <1>;
-
-			minidump_config: minidump-sram@1c {
-				reg = <0x1c 0x4>;
-			};
 
 			pil-sram@94c {
 				compatible = "qcom,pil-reloc-info";
@@ -7255,7 +7116,6 @@
 
 	tpdm-cdsp-llm {
 		compatible = "qcom,coresight-static-tpdm";
-		label = "tpdm_cdsp_llm";
 		qcom,cmb-element-bits = <32>;
 
 		out-ports {
@@ -7269,7 +7129,6 @@
 
 	tpdm-cdsp-llm2 {
 		compatible = "qcom,coresight-static-tpdm";
-		label = "tpdm_cdsp_llm2";
 		qcom,cmb-element-bits = <32>;
 
 		out-ports {
@@ -7283,7 +7142,6 @@
 
 	tpdm-modem1 {
 		compatible = "qcom,coresight-static-tpdm";
-		label = "tpdm_modem_1";
 		qcom,cmb-element-bits = <32>;
 
 		out-ports {
@@ -7297,7 +7155,6 @@
 
 	tpdm-modem2 {
 		compatible = "qcom,coresight-static-tpdm";
-		label = "tpdm_modem_2";
 		qcom,cmb-element-bits = <64>;
 
 		out-ports {

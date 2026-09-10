@@ -176,13 +176,19 @@ static ssize_t devid_write(struct file *filp, const char __user *ubuf,
 			kfree(srcid_ptr);
 			return -ENODEV;
 		}
-		sbdf = PCI_SEG_DEVID_TO_SBDF(seg, devid);
-		kfree(srcid_ptr);
-		return cnt;
+		break;
 	}
 
+	if (pci_seg->id != seg) {
+		kfree(srcid_ptr);
+		return -EINVAL;
+	}
+
+	sbdf = PCI_SEG_DEVID_TO_SBDF(seg, devid);
+
 	kfree(srcid_ptr);
-	return -EINVAL;
+
+	return cnt;
 }
 
 static int devid_show(struct seq_file *m, void *unused)

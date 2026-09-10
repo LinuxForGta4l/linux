@@ -9,7 +9,8 @@
 #include <linux/smp.h>
 #include <linux/hypervisor.h>
 
-int smp_call_function_single(int cpu, void (*func)(void *info), void *info, bool wait)
+int smp_call_function_single(int cpu, void (*func) (void *info), void *info,
+				int wait)
 {
 	unsigned long flags;
 

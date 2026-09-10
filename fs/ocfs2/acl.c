@@ -110,7 +110,8 @@ static void *ocfs2_acl_to_xattr(const struct posix_acl *acl, size_t *size)
 	return ocfs2_acl;
 }
 
-static struct posix_acl *ocfs2_get_acl_nolock(struct inode *inode, int type,
+static struct posix_acl *ocfs2_get_acl_nolock(struct inode *inode,
+					      int type,
 					      struct buffer_head *di_bh)
 {
 	int name_index;
@@ -348,105 +349,63 @@ int ocfs2_acl_chmod(struct inode *inode, struct buffer_head *bh)
  * Initialize the ACLs of a new inode. If parent directory has default ACL,
  * then clone to new inode. Called from ocfs2_mknod.
  */
-void ocfs2_acl_init_release(struct ocfs2_acl_state *state)
-{
-	posix_acl_release(state->default_acl);
-	posix_acl_release(state->acl);
-	state->default_acl = NULL;
-	state->acl = NULL;
-}
-
-int ocfs2_acl_init_prepare(struct inode *inode, struct inode *dir,
-			   struct buffer_head *dir_bh,
-			   struct ocfs2_acl_state *state)
-{
-	struct ocfs2_super *osb = OCFS2_SB(inode->i_sb);
-	int ret = 0;
-
-	state->default_acl = NULL;
-	state->acl = NULL;
-	state->mode = inode->i_mode;
-
-	if (S_ISLNK(inode->i_mode))
-		return 0;
-
-	if (osb->s_mount_opt & OCFS2_MOUNT_POSIX_ACL) {
-		down_read(&OCFS2_I(dir)->ip_xattr_sem);
-		state->default_acl =
-			ocfs2_get_acl_nolock(dir, ACL_TYPE_DEFAULT, dir_bh);
-		up_read(&OCFS2_I(dir)->ip_xattr_sem);
-		if (IS_ERR(state->default_acl)) {
-			ret = PTR_ERR(state->default_acl);
-			state->default_acl = NULL;
-			return ret;
-		}
-		if (state->default_acl) {
-			state->acl = posix_acl_dup(state->default_acl);
-			if (!state->acl) {
-				ret = -ENOMEM;
-				goto cleanup;
-			}
-			ret = __posix_acl_create(&state->acl, GFP_NOFS,
-						 &state->mode);
-			if (ret < 0)
-				goto cleanup;
-			if (ret == 0) {
-				posix_acl_release(state->acl);
-				state->acl = NULL;
-			}
-			if (!S_ISDIR(inode->i_mode)) {
-				posix_acl_release(state->default_acl);
-				state->default_acl = NULL;
-			}
-		} else {
-			state->mode &= ~current_umask();
-		}
-	} else {
-		state->mode &= ~current_umask();
-	}
-
-	return 0;
-cleanup:
-	ocfs2_acl_init_release(state);
-	return ret;
-}
-
-int ocfs2_init_acl(handle_t *handle, struct inode *inode,
+int ocfs2_init_acl(handle_t *handle,
+		   struct inode *inode,
+		   struct inode *dir,
 		   struct buffer_head *di_bh,
+		   struct buffer_head *dir_bh,
 		   struct ocfs2_alloc_context *meta_ac,
-		   struct ocfs2_alloc_context *data_ac,
-		   struct ocfs2_acl_state *state)
+		   struct ocfs2_alloc_context *data_ac)
 {
 	struct ocfs2_super *osb = OCFS2_SB(inode->i_sb);
-	int ret = 0;
+	struct posix_acl *acl = NULL;
+	int ret = 0, ret2;
+	umode_t mode;
 
-	if (S_ISLNK(inode->i_mode))
-		return 0;
-
-	if (osb->s_mount_opt & OCFS2_MOUNT_POSIX_ACL) {
-		if (S_ISDIR(inode->i_mode) && state->default_acl) {
-			ret = ocfs2_set_acl(handle, inode, di_bh,
-					    ACL_TYPE_DEFAULT,
-					    state->default_acl, meta_ac,
-					    data_ac);
-			if (ret)
-				return ret;
+	if (!S_ISLNK(inode->i_mode)) {
+		if (osb->s_mount_opt & OCFS2_MOUNT_POSIX_ACL) {
+			down_read(&OCFS2_I(dir)->ip_xattr_sem);
+			acl = ocfs2_get_acl_nolock(dir, ACL_TYPE_DEFAULT,
+						   dir_bh);
+			up_read(&OCFS2_I(dir)->ip_xattr_sem);
+			if (IS_ERR(acl))
+				return PTR_ERR(acl);
+		}
+		if (!acl) {
+			mode = inode->i_mode & ~current_umask();
+			ret = ocfs2_acl_set_mode(inode, di_bh, handle, mode);
+			if (ret) {
+				mlog_errno(ret);
+				goto cleanup;
+			}
 		}
 	}
-
-	ret = ocfs2_acl_set_mode(inode, di_bh, handle, state->mode);
-	if (ret) {
-		mlog_errno(ret);
-		return ret;
-	}
-
-	if (osb->s_mount_opt & OCFS2_MOUNT_POSIX_ACL) {
-		if (state->acl) {
+	if ((osb->s_mount_opt & OCFS2_MOUNT_POSIX_ACL) && acl) {
+		if (S_ISDIR(inode->i_mode)) {
 			ret = ocfs2_set_acl(handle, inode, di_bh,
-					    ACL_TYPE_ACCESS, state->acl,
+					    ACL_TYPE_DEFAULT, acl,
 					    meta_ac, data_ac);
+			if (ret)
+				goto cleanup;
+		}
+		mode = inode->i_mode;
+		ret = __posix_acl_create(&acl, GFP_NOFS, &mode);
+		if (ret < 0)
+			return ret;
+
+		ret2 = ocfs2_acl_set_mode(inode, di_bh, handle, mode);
+		if (ret2) {
+			mlog_errno(ret2);
+			ret = ret2;
+			goto cleanup;
+		}
+		if (ret > 0) {
+			ret = ocfs2_set_acl(handle, inode,
+					    di_bh, ACL_TYPE_ACCESS,
+					    acl, meta_ac, data_ac);
 		}
 	}
-
+cleanup:
+	posix_acl_release(acl);
 	return ret;
 }

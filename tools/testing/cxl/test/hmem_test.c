@@ -3,9 +3,8 @@
 #include <linux/moduleparam.h>
 #include <linux/workqueue.h>
 #include "../../../drivers/dax/bus.h"
-#include "mock.h"
 
-bool hmem_test;
+static bool hmem_test;
 
 static void hmem_test_work(struct work_struct *work)
 {

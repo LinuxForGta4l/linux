@@ -50,15 +50,20 @@ static int zpff_play(struct input_dev *dev, void *data,
 	return 0;
 }
 
-static int zp_input_configured(struct hid_device *hid, struct hid_input *hidinput)
+static int zpff_init(struct hid_device *hid)
 {
 	struct zpff_device *zpff;
 	struct hid_report *report;
-	struct input_dev *dev = hidinput->input;
+	struct hid_input *hidinput;
+	struct input_dev *dev;
 	int i, error;
 
-	if (!list_is_first(&hidinput->list, &hid->inputs))
-		return 0;
+	if (list_empty(&hid->inputs)) {
+		hid_err(hid, "no inputs found\n");
+		return -ENODEV;
+	}
+	hidinput = list_entry(hid->inputs.next, struct hid_input, list);
+	dev = hidinput->input;
 
 	for (i = 0; i < 4; i++) {
 		report = hid_validate_values(hid, HID_OUTPUT_REPORT, 0, i, 1);
@@ -70,7 +75,6 @@ static int zp_input_configured(struct hid_device *hid, struct hid_input *hidinpu
 	if (!zpff)
 		return -ENOMEM;
 
-	zpff->report = report;
 	set_bit(FF_RUMBLE, dev->ffbit);
 
 	error = input_ff_create_memless(dev, zpff, zpff_play);
@@ -79,6 +83,7 @@ static int zp_input_configured(struct hid_device *hid, struct hid_input *hidinpu
 		return error;
 	}
 
+	zpff->report = report;
 	zpff->report->field[0]->value[0] = 0x00;
 	zpff->report->field[1]->value[0] = 0x02;
 	zpff->report->field[2]->value[0] = 0x00;
@@ -90,12 +95,34 @@ static int zp_input_configured(struct hid_device *hid, struct hid_input *hidinpu
 	return 0;
 }
 #else
-static inline int zp_input_configured(struct hid_device *hid,
-				      struct hid_input *hidinput)
+static inline int zpff_init(struct hid_device *hid)
 {
 	return 0;
 }
 #endif
+
+static int zp_probe(struct hid_device *hdev, const struct hid_device_id *id)
+{
+	int ret;
+
+	ret = hid_parse(hdev);
+	if (ret) {
+		hid_err(hdev, "parse failed\n");
+		goto err;
+	}
+
+	ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT & ~HID_CONNECT_FF);
+	if (ret) {
+		hid_err(hdev, "hw start failed\n");
+		goto err;
+	}
+
+	zpff_init(hdev);
+
+	return 0;
+err:
+	return ret;
+}
 
 static const struct hid_device_id zp_devices[] = {
 	{ HID_USB_DEVICE(USB_VENDOR_ID_ZEROPLUS, 0x0005) },
@@ -107,7 +134,7 @@ MODULE_DEVICE_TABLE(hid, zp_devices);
 static struct hid_driver zp_driver = {
 	.name = "zeroplus",
 	.id_table = zp_devices,
-	.input_configured = zp_input_configured,
+	.probe = zp_probe,
 };
 module_hid_driver(zp_driver);
 

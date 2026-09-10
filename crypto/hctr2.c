@@ -354,7 +354,8 @@ static int hctr2_create_common(struct crypto_template *tmpl, struct rtattr **tb,
 	err = -EINVAL;
 	if (strncmp(xctr_alg->base.cra_name, "xctr(", 5))
 		goto err_free_inst;
-	len = strscpy(blockcipher_name, xctr_alg->base.cra_name + 5);
+	len = strscpy(blockcipher_name, xctr_alg->base.cra_name + 5,
+		      sizeof(blockcipher_name));
 	if (len < 1)
 		goto err_free_inst;
 	if (blockcipher_name[len - 1] != ')')

@@ -10,6 +10,13 @@
 #include <linux/buffer_head.h>
 #include "minix.h"
 
+int minix_fsync(struct file *file, loff_t start, loff_t end, int datasync)
+{
+	return mmb_fsync(file,
+			&minix_i(file->f_mapping->host)->i_metadata_bhs,
+			start, end, datasync);
+}
+
 /*
  * We have mostly NULLs here: the current defaults are OK for
  * the minix filesystem.
@@ -19,7 +26,7 @@ const struct file_operations minix_file_operations = {
 	.read_iter	= generic_file_read_iter,
 	.write_iter	= generic_file_write_iter,
 	.mmap_prepare	= generic_file_mmap_prepare,
-	.fsync		= simple_fsync,
+	.fsync		= minix_fsync,
 	.splice_read	= filemap_splice_read,
 };
 

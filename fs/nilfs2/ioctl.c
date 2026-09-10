@@ -612,7 +612,7 @@ static int nilfs_ioctl_move_blocks(struct super_block *sb,
 	struct nilfs_vdesc *vdesc;
 	struct buffer_head *bh, *n;
 	LIST_HEAD(buffers);
-	u64 ino;
+	ino_t ino;
 	__u64 cno;
 	int i, ret;
 

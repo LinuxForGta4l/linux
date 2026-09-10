@@ -11,7 +11,6 @@
 #include <linux/errno.h>
 #include <linux/swap.h>
 #include <linux/init.h>
-#include <linux/cc_platform.h>
 #include <linux/cache.h>
 #include <linux/mman.h>
 #include <linux/nodemask.h>
@@ -37,7 +36,6 @@
 
 #include <asm/boot.h>
 #include <asm/fixmap.h>
-#include <asm/hypervisor.h>
 #include <asm/kasan.h>
 #include <asm/kernel-pgtable.h>
 #include <asm/kvm_host.h>
@@ -98,8 +96,8 @@ phys_addr_t __ro_after_init arm64_dma_phys_limit;
 
 static void __init arch_reserve_crashkernel(void)
 {
-	unsigned long long crash_base, crash_size, cma_size = 0;
 	unsigned long long low_size = 0;
+	unsigned long long crash_base, crash_size;
 	bool high = false;
 	int ret;
 
@@ -108,12 +106,11 @@ static void __init arch_reserve_crashkernel(void)
 
 	ret = parse_crashkernel(boot_command_line, memblock_phys_mem_size(),
 				&crash_size, &crash_base,
-				&low_size, &cma_size, &high);
+				&low_size, NULL, &high);
 	if (ret)
 		return;
 
 	reserve_crashkernel_generic(crash_size, crash_base, low_size, high);
-	reserve_crashkernel_cma(cma_size);
 }
 
 static phys_addr_t __init max_zone_phys(phys_addr_t zone_limit)
@@ -339,21 +336,25 @@ void __init arch_setup_zero_pages(void)
 void __init arch_mm_preinit(void)
 {
 	unsigned int flags = SWIOTLB_VERBOSE;
+	bool swiotlb = max_pfn > PFN_DOWN(arm64_dma_phys_limit);
 
-	if (is_realm_world() || is_protected_kvm_guest()) {
+	if (is_realm_world()) {
+		swiotlb = true;
 		flags |= SWIOTLB_FORCE;
-	} else if (max_pfn <= PFN_DOWN(arm64_dma_phys_limit)) {
+	}
+
+	if (IS_ENABLED(CONFIG_DMA_BOUNCE_UNALIGNED_KMALLOC) && !swiotlb) {
 		/*
 		 * If no bouncing needed for ZONE_DMA, reduce the swiotlb
 		 * buffer for kmalloc() bouncing to 1MB per 1GB of RAM.
 		 */
 		unsigned long size =
 			DIV_ROUND_UP(memblock_phys_mem_size(), 1024);
-
 		swiotlb_adjust_size(min(swiotlb_size_or_default(), size));
+		swiotlb = true;
 	}
 
-	swiotlb_init(true, flags);
+	swiotlb_init(swiotlb, flags);
 
 	/*
 	 * Check boundaries twice: Some fundamental inconsistencies can be
@@ -414,17 +415,6 @@ void dump_mem_limit(void)
 		pr_emerg("Memory Limit: none\n");
 	}
 }
-
-bool cc_platform_has(enum cc_attr attr)
-{
-	switch (attr) {
-	case CC_ATTR_MEM_ENCRYPT:
-		return is_realm_world() || is_protected_kvm_guest();
-	default:
-		return false;
-	}
-}
-EXPORT_SYMBOL_GPL(cc_platform_has);
 
 #ifdef CONFIG_EXECMEM
 static u64 module_direct_base __ro_after_init = 0;

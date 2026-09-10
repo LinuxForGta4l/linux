@@ -604,7 +604,8 @@ static int hisi_l3c_pmu_init_ext(struct hisi_pmu *l3c_pmu, struct platform_devic
 				       IRQF_NOBALANCING | IRQF_NO_THREAD,
 				       irqname, l3c_pmu);
 		if (ret < 0)
-			return ret;
+			return dev_err_probe(&pdev->dev, ret,
+				"Fail to request EXT IRQ: %d.\n", irq);
 
 		hisi_l3c_pmu->ext_irq[i] = irq;
 	}

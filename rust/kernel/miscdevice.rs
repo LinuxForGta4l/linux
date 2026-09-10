@@ -24,13 +24,12 @@ use crate::{
         IovIterSource, //
     },
     mm::virt::VmaNew,
-    module::this_module,
     prelude::*,
     seq_file::SeqFile,
     types::{
         ForeignOwnable,
         Opaque, //
-    }, //
+    },
 };
 use core::marker::PhantomData;
 
@@ -431,7 +430,6 @@ impl<T: MiscDevice> MiscdeviceVTable<T> {
         } else {
             None
         },
-        owner: this_module::<T::OwnerModule>().as_ptr(),
         ..pin_init::zeroed()
     };
 

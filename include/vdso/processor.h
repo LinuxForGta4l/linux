@@ -5,10 +5,10 @@
 #ifndef __VDSO_PROCESSOR_H
 #define __VDSO_PROCESSOR_H
 
-#ifndef __ASSEMBLER__
+#ifndef __ASSEMBLY__
 
 #include <asm/vdso/processor.h>
 
-#endif /* __ASSEMBLER__ */
+#endif /* __ASSEMBLY__ */
 
 #endif /* __VDSO_PROCESSOR_H */

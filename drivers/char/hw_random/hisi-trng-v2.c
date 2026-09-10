@@ -77,7 +77,7 @@ static int hisi_trng_probe(struct platform_device *pdev)
 }
 
 static const struct acpi_device_id hisi_trng_acpi_match[] = {
-	{ .id = "HISI02B3" },
+	{ "HISI02B3", 0 },
 	{ }
 };
 MODULE_DEVICE_TABLE(acpi, hisi_trng_acpi_match);

@@ -468,7 +468,7 @@ double expr__has_event(const struct expr_parse_ctx *ctx, bool compute_ids, const
 		ret = parse_event(tmp, id) ? 0 : 1;
 	}
 out:
-	evlist__put(tmp);
+	evlist__delete(tmp);
 	return ret;
 }
 

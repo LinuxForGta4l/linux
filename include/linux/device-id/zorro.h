@@ -13,11 +13,7 @@ typedef unsigned long kernel_ulong_t;
 
 struct zorro_device_id {
 	__u32 id;			/* Device ID or ZORRO_WILDCARD */
-	union {
-		/* Data private to the driver */
-		kernel_ulong_t driver_data;
-		const void *driver_data_ptr;
-	};
+	kernel_ulong_t driver_data;	/* Data private to the driver */
 };
 
 #endif /* ifndef LINUX_DEVICE_ID_ZORRO_H */

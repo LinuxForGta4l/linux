@@ -7,7 +7,7 @@
 #define _EFA_ADMIN_H_
 
 #define EFA_ADMIN_API_VERSION_MAJOR          0
-#define EFA_ADMIN_API_VERSION_MINOR          3
+#define EFA_ADMIN_API_VERSION_MINOR          2
 
 enum efa_admin_aq_completion_status {
 	EFA_ADMIN_SUCCESS                           = 0,
@@ -41,21 +41,6 @@ struct efa_admin_aq_common_desc {
 	u8 flags;
 };
 
-struct efa_admin_aq_common_desc_v2 {
-	struct efa_admin_aq_common_desc common;
-
-	/*
-	 * Poly 0x8005 CRC16 with initial value 0xFFFF and final XOR of
-	 * 0xFFFF. The checksum covers the entire admin command entry
-	 * including the zeroed checksum field.
-	 */
-	u16 checksum;
-
-	u8 payload_ver;
-
-	u8 reserved[5];
-};
-
 /*
  * used in efa_admin_aq_entry. Can point directly to control data, or to a
  * page list chunk. Used also at the end of indirect mode page list chunks,
@@ -70,13 +55,13 @@ struct efa_admin_ctrl_buff_info {
 struct efa_admin_aq_entry {
 	struct efa_admin_aq_common_desc aq_common_descriptor;
 
-	u32 request_payload[15];
-};
+	union {
+		u32 inline_data_w1[3];
 
-struct efa_admin_aq_entry_v2 {
-	struct efa_admin_aq_common_desc_v2 aq_common_descriptor;
+		struct efa_admin_ctrl_buff_info control_buffer;
+	} u;
 
-	u32 request_payload[29];
+	u32 inline_data_w4[12];
 };
 
 struct efa_admin_acq_common_desc {
@@ -95,11 +80,7 @@ struct efa_admin_acq_common_desc {
 	 */
 	u8 flags;
 
-	/*
-	 * Poly 0x8005 CRC16 with initial value 0xFFFF and final XOR of 0xFFFF.
-	 * The checksum covers the entire admin completion entry including the
-	 * zeroed checksum field.
-	 */
+	/* Poly 0x8005 CRC16 with initial value 0xFFFF and final XOR of 0xFFFF */
 	u16 checksum;
 
 	u16 reserved;

@@ -682,7 +682,6 @@ static struct device_node *stdout_path;
 
 static void sysc_init_stdout_path(struct sysc *ddata)
 {
-	struct device_node *chosen;
 	struct device_node *np = NULL;
 	const char *uart;
 
@@ -692,18 +691,15 @@ static void sysc_init_stdout_path(struct sysc *ddata)
 	if (stdout_path)
 		return;
 
-	chosen = of_find_node_by_path("/chosen");
-	if (!chosen)
+	np = of_find_node_by_path("/chosen");
+	if (!np)
 		goto err;
 
-	uart = of_get_property(chosen, "stdout-path", NULL);
-	if (!uart) {
-		of_node_put(chosen);
+	uart = of_get_property(np, "stdout-path", NULL);
+	if (!uart)
 		goto err;
-	}
 
 	np = of_find_node_by_path(uart);
-	of_node_put(chosen);
 	if (!np)
 		goto err;
 

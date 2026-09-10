@@ -11,14 +11,7 @@
 
 #include "log.h"
 
-/**
- * batadv_bitmap_shift_left() - shift the sequence number bitmap left
- * @seq_bits: the sequence number bitmap to shift
- * @n: number of positions to shift left
- *
- * Shift @seq_bits by @n positions. No-op if @n is not within the bounds of
- * the bitmap.
- */
+/* shift the packet array by n places. */
 static void batadv_bitmap_shift_left(unsigned long *seq_bits, s32 n)
 {
 	if (n <= 0 || n >= BATADV_TQ_LOCAL_WINDOW_SIZE)

@@ -18,6 +18,10 @@ use crate::{
         Arc,
         Mutex, //
     },
+    transmute::{
+        AsBytes,
+        FromBytes, //
+    },
     uaccess::{
         UserSliceReader,
         UserSliceWriter, //
@@ -31,8 +35,6 @@ use core::{
     },
     str::FromStr,
 };
-
-use zerocopy::Immutable;
 
 /// A trait for types that can be written into a string.
 ///
@@ -74,8 +76,8 @@ pub trait BinaryWriter {
     ) -> Result<usize>;
 }
 
-// Base implementation for any `T: Immutable + IntoBytes`.
-impl<T: Immutable + IntoBytes> BinaryWriter for T {
+// Base implementation for any `T: AsBytes`.
+impl<T: AsBytes> BinaryWriter for T {
     fn write_to_slice(
         &self,
         writer: &mut UserSliceWriter,
@@ -145,7 +147,7 @@ where
 // Delegate for `Vec<T, A>`.
 impl<T, A> BinaryWriter for Vec<T, A>
 where
-    T: Immutable + IntoBytes,
+    T: AsBytes,
     A: Allocator,
 {
     fn write_to_slice(
@@ -153,7 +155,14 @@ where
         writer: &mut UserSliceWriter,
         offset: &mut file::Offset,
     ) -> Result<usize> {
-        writer.write_slice_file(self.as_bytes(), offset)
+        let slice = self.as_slice();
+
+        // SAFETY: `T: AsBytes` allows us to treat `&[T]` as `&[u8]`.
+        let buffer = unsafe {
+            core::slice::from_raw_parts(slice.as_ptr().cast(), core::mem::size_of_val(slice))
+        };
+
+        writer.write_slice_file(buffer, offset)
     }
 }
 
@@ -221,14 +230,14 @@ pub trait BinaryReaderMut {
     ) -> Result<usize>;
 }
 
-// Base implementation for any `T: FromBytes + IntoBytes`.
-impl<T: FromBytes + IntoBytes> BinaryReaderMut for T {
+// Base implementation for any `T: AsBytes + FromBytes`.
+impl<T: AsBytes + FromBytes> BinaryReaderMut for T {
     fn read_from_slice_mut(
         &mut self,
         reader: &mut UserSliceReader,
         offset: &mut file::Offset,
     ) -> Result<usize> {
-        reader.read_slice_file(self.as_mut_bytes(), offset)
+        reader.read_slice_file(self.as_bytes_mut(), offset)
     }
 }
 
@@ -246,7 +255,7 @@ impl<T: ?Sized + BinaryReaderMut, A: Allocator> BinaryReaderMut for Box<T, A> {
 // Delegate for `Vec<T, A>`: Support a `Vec<T, A>` with an outer lock.
 impl<T, A> BinaryReaderMut for Vec<T, A>
 where
-    T: FromBytes + IntoBytes,
+    T: AsBytes + FromBytes,
     A: Allocator,
 {
     fn read_from_slice_mut(
@@ -254,7 +263,17 @@ where
         reader: &mut UserSliceReader,
         offset: &mut file::Offset,
     ) -> Result<usize> {
-        reader.read_slice_file(self.as_mut_bytes(), offset)
+        let slice = self.as_mut_slice();
+
+        // SAFETY: `T: AsBytes + FromBytes` allows us to treat `&mut [T]` as `&mut [u8]`.
+        let buffer = unsafe {
+            core::slice::from_raw_parts_mut(
+                slice.as_mut_ptr().cast(),
+                core::mem::size_of_val(slice),
+            )
+        };
+
+        reader.read_slice_file(buffer, offset)
     }
 }
 

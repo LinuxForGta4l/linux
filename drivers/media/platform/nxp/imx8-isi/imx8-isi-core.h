@@ -170,7 +170,6 @@ struct mxc_isi_plat_data {
 	enum model model;
 	unsigned int num_ports;
 	unsigned int num_channels;
-	unsigned int num_vc;		/* Number of VCs, 0 = no VC support */
 	unsigned int reg_offset;
 	const struct mxc_isi_ier_reg  *ier_reg;
 	const struct mxc_isi_set_thd *set_thd;
@@ -186,7 +185,7 @@ struct mxc_isi_dma_buffer {
 };
 
 struct mxc_isi_input {
-	u64				enabled_streams;
+	unsigned int			enable_count;
 };
 
 struct mxc_isi_crossbar {
@@ -259,14 +258,6 @@ struct mxc_isi_pipe {
 	u8				acquired_res;
 	u8				chained_res;
 	bool				chained;
-
-	unsigned int			input;
-	/*
-	 * Stream on the connected crossbar input, expressed as a bitmask. Zero
-	 * when the pipeline is disabled, a single bit set when the pipeline is
-	 * enabled (as each pipeline processes a single stream).
-	 */
-	u64				input_stream;
 };
 
 struct mxc_isi_m2m {
@@ -387,7 +378,6 @@ void mxc_isi_channel_unchain(struct mxc_isi_pipe *pipe);
 
 void mxc_isi_channel_config(struct mxc_isi_pipe *pipe,
 			    enum mxc_isi_input_id input,
-			    unsigned int vc,
 			    const struct v4l2_area *in_size,
 			    const struct v4l2_area *scale,
 			    const struct v4l2_rect *crop,

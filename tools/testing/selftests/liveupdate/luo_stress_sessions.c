@@ -10,8 +10,7 @@
 
 #include <stdio.h>
 #include <unistd.h>
-
-#include <libliveupdate.h>
+#include "luo_test_utils.h"
 
 #define NUM_SESSIONS 2000
 #define STATE_SESSION_NAME "kexec_many_state"

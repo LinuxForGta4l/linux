@@ -798,12 +798,7 @@ static void qcomtee_remove(struct platform_device *pdev)
 	kfree(qcomtee);
 }
 
-static const struct platform_device_id qcomtee_ids[] = {
-	{
-		.name = "qcomtee",
-	},
-	{ }
-};
+static const struct platform_device_id qcomtee_ids[] = { { "qcomtee", 0 }, {} };
 MODULE_DEVICE_TABLE(platform, qcomtee_ids);
 
 static struct platform_driver qcomtee_platform_driver = {

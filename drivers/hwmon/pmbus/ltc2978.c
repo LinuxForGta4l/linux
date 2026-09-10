@@ -611,13 +611,17 @@ static int ltc2978_get_id(struct i2c_client *client)
 		u8 buf[I2C_SMBUS_BLOCK_MAX];
 		int ret;
 
-		ret = pmbus_read_smbus_i2c_block_data(client, PMBUS_MFR_ID, buf);
+		if (!i2c_check_functionality(client->adapter,
+					     I2C_FUNC_SMBUS_READ_BLOCK_DATA))
+			return -ENODEV;
+
+		ret = i2c_smbus_read_block_data(client, PMBUS_MFR_ID, buf);
 		if (ret < 0)
 			return ret;
 		if (ret < 3 || (strncmp(buf, "LTC", 3) && strncmp(buf, "ADI", 3)))
 			return -ENODEV;
 
-		ret = pmbus_read_smbus_i2c_block_data(client, PMBUS_MFR_MODEL, buf);
+		ret = i2c_smbus_read_block_data(client, PMBUS_MFR_MODEL, buf);
 		if (ret < 0)
 			return ret;
 		for (id = &ltc2978_id[0]; strlen(id->name); id++) {
@@ -633,17 +637,16 @@ static int ltc2978_get_id(struct i2c_client *client)
 		u8 buf[I2C_SMBUS_BLOCK_MAX];
 		int ret;
 
-		ret = pmbus_read_smbus_i2c_block_data(client, PMBUS_IC_DEVICE_ID,
-						      buf);
+		ret = i2c_smbus_read_i2c_block_data(client, PMBUS_IC_DEVICE_ID,
+						    sizeof(buf), buf);
 		if (ret < 0)
 			return ret;
 
-		if (ret < 6)
-			return -ENODEV;
-
-		if (!strncmp(buf, "LT7170", 6))
+		if (!strncmp(buf + 1, "LT7170", 6) ||
+		    !strncmp(buf + 1, "LT7170-1", 8))
 			return lt7170;
-		if (!strncmp(buf, "LT7171", 6))
+		if (!strncmp(buf + 1, "LT7171", 6) ||
+		    !strncmp(buf + 1, "LT7171-1", 8))
 			return lt7171;
 
 		return -ENODEV;

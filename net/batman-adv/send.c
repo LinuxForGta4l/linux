@@ -271,8 +271,8 @@ bool batadv_send_skb_prepare_unicast_4addr(struct batadv_priv *bat_priv,
 					   struct batadv_orig_node *orig,
 					   int packet_subtype)
 {
-	struct batadv_unicast_4addr_packet *uc_4addr_packet;
 	struct batadv_hard_iface *primary_if;
+	struct batadv_unicast_4addr_packet *uc_4addr_packet;
 	bool ret = false;
 
 	primary_if = batadv_primary_if_get_selected(bat_priv);
@@ -322,9 +322,8 @@ int batadv_send_skb_unicast(struct batadv_priv *bat_priv,
 			    unsigned short vid)
 {
 	struct batadv_unicast_packet *unicast_packet;
-	int ret = NET_XMIT_DROP;
 	struct ethhdr *ethhdr;
-	int res;
+	int ret = NET_XMIT_DROP;
 
 	if (!orig_node)
 		goto out;
@@ -361,10 +360,7 @@ int batadv_send_skb_unicast(struct batadv_priv *bat_priv,
 	if (batadv_tt_global_client_is_roaming(bat_priv, ethhdr->h_dest, vid))
 		unicast_packet->ttvn = unicast_packet->ttvn - 1;
 
-	res = batadv_send_skb_to_orig(skb, orig_node, NULL);
-	if (res == NET_XMIT_SUCCESS)
-		ret = NET_XMIT_SUCCESS;
-
+	ret = batadv_send_skb_to_orig(skb, orig_node, NULL);
 	 /* skb was consumed */
 	skb = NULL;
 
@@ -398,8 +394,7 @@ int batadv_send_skb_via_tt_generic(struct batadv_priv *bat_priv,
 {
 	struct ethhdr *ethhdr = (struct ethhdr *)skb->data;
 	struct batadv_orig_node *orig_node;
-	u8 *src;
-	u8 *dst;
+	u8 *src, *dst;
 	int ret;
 
 	src = ethhdr->h_source;

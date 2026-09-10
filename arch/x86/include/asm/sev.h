@@ -314,7 +314,7 @@ struct snp_msg_desc {
 
 	struct snp_secrets_page *secrets;
 
-	struct aes_gcm_key *gcm_key;
+	struct aesgcm_ctx *ctx;
 
 	u32 *os_area_msg_seqno;
 	u8 *vmpck;

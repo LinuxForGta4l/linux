@@ -389,7 +389,8 @@ static int bd96801_wdt_probe(struct platform_device *pdev)
 						IRQF_ONESHOT,  "bd96801-wdg",
 						NULL);
 		if (ret)
-			return ret;
+			return dev_err_probe(&pdev->dev, ret,
+					     "Failed to register IRQ\n");
 	}
 
 	return devm_watchdog_register_device(&pdev->dev, &w->wdt);

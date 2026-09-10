@@ -47,6 +47,40 @@ static const struct rpc_call_ops nlmsvc_grant_ops;
 static LIST_HEAD(nlm_blocked);
 static DEFINE_SPINLOCK(nlm_blocked_lock);
 
+#if IS_ENABLED(CONFIG_SUNRPC_DEBUG)
+static const char *nlmdbg_cookie2a(const struct lockd_cookie *cookie)
+{
+	/*
+	 * We can get away with a static buffer because this is only called
+	 * from lockd, which is single-threaded.
+	 */
+	static char buf[2*NLM_MAXCOOKIELEN+1];
+	unsigned int i, len = sizeof(buf);
+	char *p = buf;
+
+	len--;	/* allow for trailing \0 */
+	if (len < 3)
+		return "???";
+	for (i = 0 ; i < cookie->len ; i++) {
+		if (len < 2) {
+			strcpy(p-3, "...");
+			break;
+		}
+		sprintf(p, "%02x", cookie->data[i]);
+		p += 2;
+		len -= 2;
+	}
+	*p = '\0';
+
+	return buf;
+}
+#else
+static inline const char *nlmdbg_cookie2a(const struct lockd_cookie *cookie)
+{
+	return "???";
+}
+#endif
+
 /*
  * Insert a blocked lock into the global list
  */
@@ -121,12 +155,11 @@ nlmsvc_lookup_block(struct nlm_file *file, struct lockd_lock *lock)
 	spin_lock(&nlm_blocked_lock);
 	list_for_each_entry(block, &nlm_blocked, b_list) {
 		fl = &block->b_call->a_args.lock.fl;
-		dprintk("lockd: check f=%p pd=%d %Ld-%Ld ty=%d cookie=%*phN\n",
+		dprintk("lockd: check f=%p pd=%d %Ld-%Ld ty=%d cookie=%s\n",
 				block->b_file, fl->c.flc_pid,
 				(long long)fl->fl_start,
 				(long long)fl->fl_end, fl->c.flc_type,
-				block->b_call->a_args.cookie.len,
-				block->b_call->a_args.cookie.data);
+				nlmdbg_cookie2a(&block->b_call->a_args.cookie));
 		if (block->b_file == file && nlm_compare_locks(fl, &lock->fl)) {
 			kref_get(&block->b_count);
 			spin_unlock(&nlm_blocked_lock);
@@ -165,8 +198,7 @@ nlmsvc_find_block(struct lockd_cookie *cookie)
 	return NULL;
 
 found:
-	dprintk("nlmsvc_find_block(%*phN): block=%p\n",
-		cookie->len, cookie->data, block);
+	dprintk("nlmsvc_find_block(%s): block=%p\n", nlmdbg_cookie2a(cookie), block);
 	kref_get(&block->b_count);
 	spin_unlock(&nlm_blocked_lock);
 	return block;

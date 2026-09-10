@@ -1833,8 +1833,7 @@ int kvm_set_routing_entry(struct kvm *kvm,
 		e->set = mpic_set_irq;
 		e->irqchip.irqchip = ue->u.irqchip.irqchip;
 		e->irqchip.pin = ue->u.irqchip.pin;
-		if (e->irqchip.pin >= KVM_IRQCHIP_NUM_PINS ||
-		    e->irqchip.irqchip >= KVM_NR_IRQCHIPS)
+		if (e->irqchip.pin >= KVM_IRQCHIP_NUM_PINS)
 			goto out;
 		break;
 	case KVM_IRQ_ROUTING_MSI:

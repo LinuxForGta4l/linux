@@ -42,6 +42,7 @@ void vsp1_hgo_frame_end(struct vsp1_entity *entity)
 {
 	struct vsp1_hgo *hgo = to_hgo(&entity->subdev);
 	struct vsp1_histogram_buffer *buf;
+	unsigned int i;
 	size_t size;
 	u32 *data;
 
@@ -55,7 +56,7 @@ void vsp1_hgo_frame_end(struct vsp1_entity *entity)
 		*data++ = vsp1_hgo_read(hgo, VI6_HGO_G_MAXMIN);
 		*data++ = vsp1_hgo_read(hgo, VI6_HGO_G_SUM);
 
-		for (unsigned int i = 0; i < 256; ++i) {
+		for (i = 0; i < 256; ++i) {
 			vsp1_write(hgo->histo.entity.vsp1,
 				   VI6_HGO_EXT_HIST_ADDR, i);
 			*data++ = vsp1_hgo_read(hgo, VI6_HGO_EXT_HIST_DATA);
@@ -66,7 +67,7 @@ void vsp1_hgo_frame_end(struct vsp1_entity *entity)
 		*data++ = vsp1_hgo_read(hgo, VI6_HGO_G_MAXMIN);
 		*data++ = vsp1_hgo_read(hgo, VI6_HGO_G_SUM);
 
-		for (unsigned int i = 0; i < 64; ++i)
+		for (i = 0; i < 64; ++i)
 			*data++ = vsp1_hgo_read(hgo, VI6_HGO_G_HISTO(i));
 
 		size = (2 + 64) * sizeof(u32);
@@ -79,7 +80,7 @@ void vsp1_hgo_frame_end(struct vsp1_entity *entity)
 		*data++ = vsp1_hgo_read(hgo, VI6_HGO_G_SUM);
 		*data++ = vsp1_hgo_read(hgo, VI6_HGO_B_SUM);
 
-		for (unsigned int i = 0; i < 64; ++i) {
+		for (i = 0; i < 64; ++i) {
 			data[i] = vsp1_hgo_read(hgo, VI6_HGO_R_HISTO(i));
 			data[i+64] = vsp1_hgo_read(hgo, VI6_HGO_G_HISTO(i));
 			data[i+128] = vsp1_hgo_read(hgo, VI6_HGO_B_HISTO(i));

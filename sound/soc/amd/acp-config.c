@@ -63,13 +63,6 @@ static const struct dmi_system_id acp70_acpi_flag_override_table[] = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "Vivobook 18 M1807GA"),
 		},
 	},
-	{
-		/* HP OmniBook X Flip 14-kc0xxx (Strix Point, ACP 7.2) */
-		.matches = {
-			DMI_MATCH(DMI_BOARD_VENDOR, "HP"),
-			DMI_MATCH(DMI_BOARD_NAME, "8EA1"),
-		},
-	},
 	{}
 };
 
@@ -385,18 +378,6 @@ struct snd_soc_acpi_mach snd_soc_acpi_amd_acp70_sof_machines[] = {
 	{},
 };
 EXPORT_SYMBOL(snd_soc_acpi_amd_acp70_sof_machines);
-
-struct snd_soc_acpi_mach snd_soc_acpi_amd_acp7x_sof_machines[] = {
-	{
-		.id = "AMDI1010",
-		.drv_name = "acp7x-dsp",
-		.pdata = &acp_quirk_data,
-		.fw_filename = "sof-acp7x.ri",
-		.sof_tplg_filename = "sof-acp7x.tplg",
-	},
-	{},
-};
-EXPORT_SYMBOL(snd_soc_acpi_amd_acp7x_sof_machines);
 
 MODULE_DESCRIPTION("AMD ACP Machine Configuration Module");
 MODULE_LICENSE("Dual BSD/GPL");

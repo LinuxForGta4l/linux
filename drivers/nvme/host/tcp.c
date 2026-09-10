@@ -80,7 +80,6 @@ struct nvme_tcp_request {
 
 	struct bio		*curr_bio;
 	struct iov_iter		iter;
-	u32			data_recvd;
 
 	/* send state */
 	size_t			offset;
@@ -151,17 +150,13 @@ struct nvme_tcp_queue {
 #endif
 };
 
-static DEFINE_MUTEX(nvme_tcp_ctrl_mutex);
-static LIST_HEAD_GUARDED(nvme_tcp_ctrl_list, nvme_tcp_ctrl_mutex);
-
 struct nvme_tcp_ctrl {
 	/* read only in the hot path */
 	struct nvme_tcp_queue	*queues;
 	struct blk_mq_tag_set	tag_set;
 
 	/* other member variables */
-	struct list_head	list
-		__guarded_by(&nvme_tcp_ctrl_mutex);
+	struct list_head	list;
 	struct blk_mq_tag_set	admin_tag_set;
 	struct sockaddr_storage addr;
 	struct sockaddr_storage src_addr;
@@ -173,6 +168,8 @@ struct nvme_tcp_ctrl {
 	u32			io_queues[HCTX_MAX_TYPES];
 };
 
+static LIST_HEAD(nvme_tcp_ctrl_list);
+static DEFINE_MUTEX(nvme_tcp_ctrl_mutex);
 static struct workqueue_struct *nvme_tcp_wq;
 static const struct blk_mq_ops nvme_tcp_mq_ops;
 static const struct blk_mq_ops nvme_tcp_admin_mq_ops;
@@ -361,7 +358,7 @@ static void nvme_tcp_init_iter(struct nvme_tcp_request *req,
 		iov_iter_bvec(&req->iter, dir,
 			__bvec_iter_bvec(bio->bi_io_vec, bio->bi_iter), nr_bvec,
 			bio->bi_iter.bi_size);
-		req->iter.iov_offset = bio->bi_iter.bi_offset;
+		req->iter.iov_offset = bio->bi_iter.bi_bvec_done;
 	}
 }
 
@@ -618,29 +615,6 @@ static void nvme_tcp_error_recovery(struct nvme_ctrl *ctrl)
 	queue_work(nvme_reset_wq, &to_tcp_ctrl(ctrl)->err_work);
 }
 
-/*
- * NVMe has no short read: a read that completes successfully must
- * have transferred everything it asked for.
- */
-static bool nvme_tcp_data_in_short(struct nvme_tcp_queue *queue,
-				   struct request *rq)
-{
-	struct nvme_tcp_request *req = blk_mq_rq_to_pdu(rq);
-
-	if (le16_to_cpu(req->status) >> 1)
-		return false;
-	if (req_op(rq) != REQ_OP_READ || !req->data_len)
-		return false;
-	if (likely(req->data_recvd == req->data_len))
-		return false;
-
-	dev_err(queue->ctrl->ctrl.device,
-		"queue %d tag %#x short data-in: got %u of %u\n",
-		nvme_tcp_queue_id(queue), rq->tag,
-		req->data_recvd, req->data_len);
-	return true;
-}
-
 static int nvme_tcp_process_nvme_cqe(struct nvme_tcp_queue *queue,
 		struct nvme_completion *cqe)
 {
@@ -660,9 +634,6 @@ static int nvme_tcp_process_nvme_cqe(struct nvme_tcp_queue *queue,
 	if (req->status == cpu_to_le16(NVME_SC_SUCCESS))
 		req->status = cqe->status;
 
-	if (unlikely(nvme_tcp_data_in_short(queue, rq)))
-		return -EPROTO;
-
 	if (!nvme_try_complete_req(rq, req->status, cqe->result))
 		nvme_complete_rq(rq);
 	queue->nr_cqe++;
@@ -673,7 +644,6 @@ static int nvme_tcp_process_nvme_cqe(struct nvme_tcp_queue *queue,
 static int nvme_tcp_handle_c2h_data(struct nvme_tcp_queue *queue,
 		struct nvme_tcp_data_pdu *pdu)
 {
-	struct nvme_tcp_request *req;
 	struct request *rq;
 
 	rq = nvme_find_rq(nvme_tcp_tagset(queue), pdu->command_id);
@@ -684,8 +654,7 @@ static int nvme_tcp_handle_c2h_data(struct nvme_tcp_queue *queue,
 		return -ENOENT;
 	}
 
-	req = blk_mq_rq_to_pdu(rq);
-	if (!blk_rq_payload_bytes(rq) || !req->curr_bio || !req->data_len) {
+	if (!blk_rq_payload_bytes(rq)) {
 		dev_err(queue->ctrl->ctrl.device,
 			"queue %d tag %#x unexpected data\n",
 			nvme_tcp_queue_id(queue), rq->tag);
@@ -778,13 +747,6 @@ static int nvme_tcp_handle_r2t(struct nvme_tcp_queue *queue,
 		return -ENOENT;
 	}
 	req = blk_mq_rq_to_pdu(rq);
-
-	if (unlikely(rq_data_dir(rq) != WRITE)) {
-		dev_err(queue->ctrl->ctrl.device,
-			"req %d unexpected r2t for a non-write command\n",
-			rq->tag);
-		return -EPROTO;
-	}
 
 	if (unlikely(!r2t_length)) {
 		dev_err(queue->ctrl->ctrl.device,
@@ -994,7 +956,6 @@ static int nvme_tcp_recv_data(struct nvme_tcp_queue *queue, struct sk_buff *skb,
 		*len -= recv_len;
 		*offset += recv_len;
 		queue->data_remaining -= recv_len;
-		req->data_recvd += recv_len;
 	}
 
 	if (!queue->data_remaining) {
@@ -1003,8 +964,6 @@ static int nvme_tcp_recv_data(struct nvme_tcp_queue *queue, struct sk_buff *skb,
 			queue->ddgst_remaining = NVME_TCP_DIGEST_LENGTH;
 		} else {
 			if (pdu->hdr.flags & NVME_TCP_F_DATA_SUCCESS) {
-				if (unlikely(nvme_tcp_data_in_short(queue, rq)))
-					return -EPROTO;
 				nvme_tcp_end_request(rq,
 						le16_to_cpu(req->status));
 				queue->nr_cqe++;
@@ -1052,9 +1011,6 @@ static int nvme_tcp_recv_ddgst(struct nvme_tcp_queue *queue,
 		struct request *rq = nvme_cid_to_rq(nvme_tcp_tagset(queue),
 					pdu->command_id);
 		struct nvme_tcp_request *req = blk_mq_rq_to_pdu(rq);
-
-		if (unlikely(nvme_tcp_data_in_short(queue, rq)))
-			return -EPROTO;
 
 		nvme_tcp_end_request(rq, le16_to_cpu(req->status));
 		queue->nr_cqe++;
@@ -2629,7 +2585,7 @@ static void nvme_tcp_free_ctrl(struct nvme_ctrl *nctrl)
 {
 	struct nvme_tcp_ctrl *ctrl = to_tcp_ctrl(nctrl);
 
-	if (list_empty_careful(&ctrl->list))
+	if (list_empty(&ctrl->list))
 		goto free_ctrl;
 
 	mutex_lock(&nvme_tcp_ctrl_mutex);
@@ -2788,7 +2744,6 @@ static blk_status_t nvme_tcp_setup_cmd_pdu(struct nvme_ns *ns,
 	req->status = cpu_to_le16(NVME_SC_SUCCESS);
 	req->offset = 0;
 	req->data_sent = 0;
-	req->data_recvd = 0;
 	req->pdu_len = 0;
 	req->pdu_sent = 0;
 	req->h2cdata_left = 0;
@@ -2972,10 +2927,7 @@ static struct nvme_tcp_ctrl *nvme_tcp_alloc_ctrl(struct device *dev,
 	if (!ctrl)
 		return ERR_PTR(-ENOMEM);
 
-	/*
-	 * Safe to init list while allocating ctrl object.
-	 */
-	context_unsafe(INIT_LIST_HEAD(&ctrl->list));
+	INIT_LIST_HEAD(&ctrl->list);
 	ctrl->ctrl.opts = opts;
 	ctrl->ctrl.queue_count = opts->nr_io_queues + opts->nr_write_queues +
 				opts->nr_poll_queues + 1;
@@ -3016,8 +2968,7 @@ static struct nvme_tcp_ctrl *nvme_tcp_alloc_ctrl(struct device *dev,
 	}
 
 	if (opts->mask & NVMF_OPT_HOST_IFACE) {
-		if (!__dev_get_by_name(current->nsproxy->net_ns,
-				       opts->host_iface)) {
+		if (!__dev_get_by_name(&init_net, opts->host_iface)) {
 			pr_err("invalid interface passed: %s\n",
 			       opts->host_iface);
 			ret = -ENODEV;

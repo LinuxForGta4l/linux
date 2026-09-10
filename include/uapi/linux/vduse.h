@@ -14,12 +14,6 @@
 
 #define VDUSE_API_VERSION_1	1
 
-/* The VDUSE instance expects a request for vq ready */
-#define VDUSE_F_QUEUE_READY	0
-
-/* The VDUSE instance expects a request for suspend */
-#define VDUSE_F_SUSPEND		1
-
 /*
  * Get the version of VDUSE API that kernel supported (VDUSE_API_VERSION).
  * This is used for future extension.
@@ -68,12 +62,6 @@ struct vduse_dev_config {
  * to the char device (/dev/vduse/$NAME).
  */
 #define VDUSE_DESTROY_DEV	_IOW(VDUSE_BASE, 0x03, char[VDUSE_NAME_MAX])
-
-/* Get the VDUSE supported features */
-#define VDUSE_GET_FEATURES	_IOR(VDUSE_BASE, 0x04, __u64)
-
-/* Set the VDUSE features */
-#define VDUSE_SET_FEATURES	_IOW(VDUSE_BASE, 0x05, __u64)
 
 /* The ioctls for VDUSE device (/dev/vduse/$NAME) */
 
@@ -337,8 +325,6 @@ enum vduse_req_type {
 	VDUSE_SET_STATUS,
 	VDUSE_UPDATE_IOTLB,
 	VDUSE_SET_VQ_GROUP_ASID,
-	VDUSE_SET_VQ_READY,
-	VDUSE_SUSPEND,
 };
 
 /**
@@ -387,15 +373,6 @@ struct vduse_iova_range_v2 {
 };
 
 /**
- * struct vduse_vq_ready - Virtqueue ready request message
- * @num: Virtqueue number
- */
-struct vduse_vq_ready {
-	__u32 num;
-	__u32 ready;
-};
-
-/**
  * struct vduse_dev_request - control request
  * @type: request type
  * @request_id: request id
@@ -405,7 +382,6 @@ struct vduse_vq_ready {
  * @iova: IOVA range for updating
  * @iova_v2: IOVA range for updating if API_VERSION >= 1
  * @vq_group_asid: ASID of a virtqueue group
- * @vq_ready: Virtqueue ready request
  * @padding: padding
  *
  * Structure used by read(2) on /dev/vduse/$NAME.
@@ -423,10 +399,6 @@ struct vduse_dev_request {
 		 */
 		struct vduse_iova_range_v2 iova_v2;
 		struct vduse_vq_group_asid vq_group_asid;
-
-		/* Only if VDUSE_F_QUEUE_READY is negotiated */
-		struct vduse_vq_ready vq_ready;
-
 		__u32 padding[32];
 	};
 };

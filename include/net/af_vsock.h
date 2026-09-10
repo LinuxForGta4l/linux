@@ -52,10 +52,13 @@ struct vsock_sock {
 	 * The listening socket is the head for both lists.  Sockets created
 	 * for connection requests are placed in the pending list until they
 	 * are connected, at which point they are put in the accept queue list
-	 * so they can be accepted in accept().
+	 * so they can be accepted in accept().  If accept() cannot accept the
+	 * connection, it is marked as rejected so the cleanup function knows
+	 * to clean up the socket.
 	 */
 	struct list_head pending_links;
 	struct list_head accept_queue;
+	bool rejected;
 	struct delayed_work connect_work;
 	struct delayed_work pending_work;
 	struct delayed_work close_work;

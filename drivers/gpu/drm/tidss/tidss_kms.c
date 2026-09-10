@@ -162,7 +162,6 @@ static int tidss_dispc_modeset_init(struct tidss_device *tidss)
 
 		if (panel) {
 			u32 conn_type;
-			int ret;
 
 			dev_dbg(dev, "Setting up panel for port %d\n", i);
 
@@ -177,8 +176,7 @@ static int tidss_dispc_modeset_init(struct tidss_device *tidss)
 				break;
 			default:
 				WARN_ON(1);
-				ret = -EINVAL;
-				goto put_panel;
+				return -EINVAL;
 			}
 
 			if (panel->connector_type != conn_type) {
@@ -186,20 +184,16 @@ static int tidss_dispc_modeset_init(struct tidss_device *tidss)
 					"%s: Panel %s has incompatible connector type for vp%d (%d != %d)\n",
 					 __func__, dev_name(panel->dev), i,
 					 panel->connector_type, conn_type);
-				ret = -EINVAL;
-				goto put_panel;
+				return -EINVAL;
 			}
 
 			bridge = devm_drm_panel_bridge_add(dev, panel);
-			ret = PTR_ERR_OR_ZERO(bridge);
-			if (ret)
+			if (IS_ERR(bridge)) {
 				dev_err(dev,
 					"failed to set up panel bridge for port %d\n",
 					i);
-put_panel:
-			drm_panel_put(panel);
-			if (ret)
-				return ret;
+				return PTR_ERR(bridge);
+			}
 		}
 
 		pipes[num_pipes].hw_videoport = i;

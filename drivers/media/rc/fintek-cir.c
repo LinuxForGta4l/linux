@@ -642,8 +642,8 @@ static void fintek_shutdown(struct pnp_dev *pdev)
 }
 
 static const struct pnp_device_id fintek_ids[] = {
-	{ .id = "FIT0002" },   /* CIR */
-	{ }
+	{ "FIT0002", 0 },   /* CIR */
+	{ "", 0 },
 };
 
 static struct pnp_driver fintek_driver = {

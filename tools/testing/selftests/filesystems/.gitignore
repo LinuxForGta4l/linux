@@ -6,4 +6,3 @@ file_stressor
 anon_inode_test
 kernfs_test
 idmapped_tmpfile
-ustat_test

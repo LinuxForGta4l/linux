@@ -94,15 +94,8 @@ static void pcpu_destroy_chunk(struct pcpu_chunk *chunk)
 	pcpu_stats_chunk_dealloc();
 	trace_percpu_destroy_chunk(chunk->base_addr);
 
-	if (chunk->data) {
-		struct page *pages = (struct page *)chunk->data;
-		int i;
-
-		/* clear chunk info from each page before free them */
-		for (i = 0; i < nr_pages; i++)
-			pcpu_set_page_chunk(pages + i, NULL);
+	if (chunk->data)
 		__free_pages(chunk->data, order_base_2(nr_pages));
-	}
 	pcpu_free_chunk(chunk);
 }
 

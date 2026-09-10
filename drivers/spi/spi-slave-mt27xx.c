@@ -471,6 +471,7 @@ static void mtk_spi_slave_remove(struct platform_device *pdev)
 	pm_runtime_disable(&pdev->dev);
 }
 
+#ifdef CONFIG_PM_SLEEP
 static int mtk_spi_slave_suspend(struct device *dev)
 {
 	struct spi_controller *ctlr = dev_get_drvdata(dev);
@@ -507,7 +508,9 @@ static int mtk_spi_slave_resume(struct device *dev)
 
 	return ret;
 }
+#endif /* CONFIG_PM_SLEEP */
 
+#ifdef CONFIG_PM
 static int mtk_spi_slave_runtime_suspend(struct device *dev)
 {
 	struct spi_controller *ctlr = dev_get_drvdata(dev);
@@ -532,17 +535,18 @@ static int mtk_spi_slave_runtime_resume(struct device *dev)
 
 	return 0;
 }
+#endif /* CONFIG_PM */
 
 static const struct dev_pm_ops mtk_spi_slave_pm = {
-	SYSTEM_SLEEP_PM_OPS(mtk_spi_slave_suspend, mtk_spi_slave_resume)
-	RUNTIME_PM_OPS(mtk_spi_slave_runtime_suspend,
-		       mtk_spi_slave_runtime_resume, NULL)
+	SET_SYSTEM_SLEEP_PM_OPS(mtk_spi_slave_suspend, mtk_spi_slave_resume)
+	SET_RUNTIME_PM_OPS(mtk_spi_slave_runtime_suspend,
+			   mtk_spi_slave_runtime_resume, NULL)
 };
 
 static struct platform_driver mtk_spi_slave_driver = {
 	.driver = {
 		.name = "mtk-spi-slave",
-		.pm	= pm_ptr(&mtk_spi_slave_pm),
+		.pm	= &mtk_spi_slave_pm,
 		.of_match_table = mtk_spi_slave_of_match,
 	},
 	.probe = mtk_spi_slave_probe,

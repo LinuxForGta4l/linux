@@ -369,20 +369,6 @@ static int virtio_gpu_panic_queue_ctrl_sgs(struct virtio_gpu_device *vgdev,
 	return 0;
 }
 
-int virtio_gpu_wait_queue(struct virtio_gpu_queue *vgvq, unsigned int num_elem)
-{
-	int ret;
-
-	/* Wait up to 5 seconds for enough free slots to become available */
-	ret = wait_event_timeout(vgvq->ack_queue,
-				 vgvq->vq->num_free >= num_elem,
-				 5 * HZ);
-	if (ret == 0)
-		return -ETIMEDOUT;
-
-	return 0;
-}
-
 static int virtio_gpu_queue_ctrl_sgs(struct virtio_gpu_device *vgdev,
 				     struct virtio_gpu_vbuffer *vbuf,
 				     struct virtio_gpu_fence *fence,
@@ -410,19 +396,7 @@ again:
 	if (vq->num_free < elemcnt) {
 		spin_unlock(&vgdev->ctrlq.qlock);
 		virtio_gpu_notify(vgdev);
-		wait_event(vgdev->ctrlq.ack_queue,
-			   vq->num_free >= elemcnt || vgdev->vqs_released);
-		/*
-		 * Set by virtio_gpu_release_vqs() to unblock
-		 * synchronize_srcu() wait in drm_dev_unplug().
-		 */
-		if (vgdev->vqs_released) {
-			if (fence && vbuf->objs)
-				virtio_gpu_array_unlock_resv(vbuf->objs);
-			free_vbuf(vgdev, vbuf);
-			drm_dev_exit(idx);
-			return -ENODEV;
-		}
+		wait_event(vgdev->ctrlq.ack_queue, vq->num_free >= elemcnt);
 		goto again;
 	}
 
@@ -592,14 +566,7 @@ retry:
 	ret = virtqueue_add_sgs(vq, sgs, outcnt, 0, vbuf, GFP_ATOMIC);
 	if (ret == -ENOSPC) {
 		spin_unlock(&vgdev->cursorq.qlock);
-		wait_event(vgdev->cursorq.ack_queue,
-			   vq->num_free >= outcnt || vgdev->vqs_released);
-		/* See comment in virtio_gpu_queue_ctrl_sgs(). */
-		if (vgdev->vqs_released) {
-			free_vbuf(vgdev, vbuf);
-			drm_dev_exit(idx);
-			return;
-		}
+		wait_event(vgdev->cursorq.ack_queue, vq->num_free >= outcnt);
 		spin_lock(&vgdev->cursorq.qlock);
 		goto retry;
 	} else {
@@ -659,21 +626,14 @@ static void virtio_gpu_cmd_unref_cb(struct virtio_gpu_device *vgdev,
 }
 
 void virtio_gpu_cmd_unref_resource(struct virtio_gpu_device *vgdev,
-				   struct virtio_gpu_object *bo,
-				   bool no_cb)
+				   struct virtio_gpu_object *bo)
 {
 	struct virtio_gpu_resource_unref *cmd_p;
 	struct virtio_gpu_vbuffer *vbuf;
 	int ret;
 
-	if (no_cb) {
-		cmd_p = virtio_gpu_alloc_cmd_cb(vgdev, &vbuf, sizeof(*cmd_p),
-						NULL);
-	} else {
-		cmd_p = virtio_gpu_alloc_cmd_cb(vgdev, &vbuf, sizeof(*cmd_p),
-						virtio_gpu_cmd_unref_cb);
-	}
-
+	cmd_p = virtio_gpu_alloc_cmd_cb(vgdev, &vbuf, sizeof(*cmd_p),
+					virtio_gpu_cmd_unref_cb);
 	memset(cmd_p, 0, sizeof(*cmd_p));
 
 	cmd_p->hdr.type = cpu_to_le32(VIRTIO_GPU_CMD_RESOURCE_UNREF);
